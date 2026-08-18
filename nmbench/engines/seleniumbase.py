@@ -90,10 +90,21 @@ class _Page:
         # Playwright takes `() => expr` as well as a bare expression; WebDriver
         # takes neither, it takes a function body. Normalising here keeps the
         # probes free of engine-specific script dialects.
+        #
+        # The arrow is called rather than unwrapped, and this is the third
+        # adapter to need that fix. Unwrapping by text - dropping everything up
+        # to the first `=>` - is correct for `() => expr` and cannot work for
+        # `() => { ... }`: after `return` the block parses as an object literal.
+        # Measured 2026-08-18 on the server, `engine_fingerprint.py` opens with
+        # `const safe = (fn) => {...}` inside a block-bodied arrow, so the old
+        # form cut at the inner arrow and ChromeDriver answered
+        # `JavascriptException: Unexpected identifier 'safe'`. seleniumbase had
+        # no fingerprint row at all on either machine because of it, exactly as
+        # zendriver had none until the same day.
         body = script.strip()
-        if body.startswith("()"):
-            body = body.split("=>", 1)[1].strip()
-        return self.driver.execute_script(f"return ({body});")
+        call = (f"return ({body})()" if body.startswith("()")
+                else f"return ({body})")
+        return self.driver.execute_script(call)
 
     def close(self) -> None:
         pass

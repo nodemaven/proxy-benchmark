@@ -7,6 +7,8 @@ differently. An engine that drifts from the contract makes its column in the
 report incomparable, and the drift would otherwise only show up as a missing key
 in a data file six hours into a run.
 """
+import pathlib
+
 import pytest
 
 from nmbench import engines
@@ -524,8 +526,8 @@ class TestHttpHelpers:
 
 
 class TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass:
-    """The CDP shims take Playwright's `page.evaluate` argument, and half the
-    probes in this repository pass a block-bodied arrow.
+    """The non-Playwright shims take Playwright's `page.evaluate` argument, and
+    half the probes in this repository pass a block-bodied arrow.
 
     Pinned because the shim used to unwrap the arrow by text - everything up to
     the first `=>` was dropped and the remainder evaluated. That is correct for
@@ -538,10 +540,18 @@ class TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass:
     gap looked like an engine that could not be read rather than a shim that
     could not parse.
 
-    The two shims are asserted together on purpose. They were written months
-    apart, botasaurus already called the arrow and zendriver still unwrapped it,
+    The shims are asserted together on purpose. They were written months apart,
     and a difference between two adapters is a difference in what their columns
     mean.
+
+    **Naming them was not enough, and that is why the last test here reads the
+    source instead.** This class asserted zendriver and botasaurus and passed,
+    while `seleniumbase` carried the identical unwrapping and was found the same
+    evening by a run rather than by the suite - ChromeDriver answers it as
+    `JavascriptException: Unexpected identifier 'safe'`, because `return
+    ({ const safe = ... })` parses the block as an object literal. A test that
+    lists the adapters it knows about cannot fail on the adapter nobody added
+    to the list.
     """
 
     def _shim(self, module):
@@ -559,7 +569,7 @@ class TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass:
         return page, seen
 
     def _expressions(self, script):
-        from nmbench.engines import botasaurus, zendriver
+        from nmbench.engines import botasaurus, seleniumbase, zendriver
 
         zen, seen = self._shim(zendriver)
         zen.evaluate(script)
@@ -568,6 +578,11 @@ class TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass:
         page = botasaurus._Page.__new__(botasaurus._Page)
         page.driver = type("_D", (), {"run_js": staticmethod(lambda call: call)})()
         yield "botasaurus", page.evaluate(script)
+
+        page = seleniumbase._Page.__new__(seleniumbase._Page)
+        page.driver = type("_D", (), {
+            "execute_script": staticmethod(lambda call: call)})()
+        yield "seleniumbase", page.evaluate(script)
 
     def test_a_block_bodied_arrow_survives_both_shims(self):
         """The shape `engine_fingerprint.py` and `detect_page.py` pass."""
@@ -593,3 +608,24 @@ class TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass:
         page, seen = self._shim(zendriver)
         page.evaluate("location.href")
         assert seen["expression"] == "location.href"
+
+    def test_no_adapter_splits_a_script_on_the_arrow(self):
+        """The derived half, and the one that would have caught seleniumbase.
+
+        Every adapter needing this fix needs its own driver double, so the
+        tests above can only cover the ones somebody remembered to add - and
+        the third instance of this bug shipped past them. Reading the source
+        for the unwrapping instead costs no double at all and covers an adapter
+        added tomorrow, which is the same reason
+        `test_no_script_branches_on_a_provider_name` reads source rather than
+        importing.
+        """
+        directory = pathlib.Path(engines.__file__).parent
+        offenders = [path.name for path in sorted(directory.glob("*.py"))
+                     if 'split("=>"' in path.read_text(encoding="utf-8")
+                     or "split('=>'" in path.read_text(encoding="utf-8")]
+        assert offenders == [], (
+            f"{offenders} unwrap a script on the arrow. That drops everything "
+            "up to the first `=>`, which is an inner arrow in most of the "
+            "probes here, so the engine loses every row of every probe passing "
+            "a block-bodied one. Call the arrow instead of unwrapping it.")
