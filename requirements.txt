@@ -1,0 +1,7 @@
+camoufox[geoip]
+python-dotenv
+requests
+# Browsers advertise brotli, so the harness does too. Without this package
+# requests hands back undecoded bytes and a content-based verdict reads a good
+# page as a block - see engines.supported_encodings.
+brotli

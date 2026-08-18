@@ -1,0 +1,104 @@
+name: Add or correct a provider definition
+description: A gateway's username dialect, as a data/providers/*.toml
+labels: ["provider"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A provider, from this harness's point of view, is a username format.
+        Gateways take their settings inside the proxy username and every vendor
+        picks its own separators, parameter names and reaction to getting one
+        wrong, so a competitor costs a `.toml` and never a code change.
+
+        **A wrong username format is invisible, which is why the provenance
+        fields below are required.** The one gateway measured here answers an
+        unrecognised parameter name with HTTP 200 and the setting silently
+        dropped: the connection succeeds, the run completes, and every row claims
+        a setting that was never applied. Nothing the gateway replies can catch
+        it, so the only defence is that the definition was transcribed from the
+        vendor's own documentation and says so.
+
+        Start from `data/providers/_template.toml`, and point
+        `python -m nmbench gateway-health --provider <id>` at it before any
+        matrix - a handful of CONNECTs, no target traffic, and the only check that
+        can tell a wrong username format from a wrong password.
+
+  - type: input
+    id: vendor
+    attributes:
+      label: Vendor and provider id
+      placeholder: "Oxylabs, id `oxylabs` (so it reads OXYLABS_LOGIN, OXYLABS_PASSWORD)"
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: URL of the vendor page the dialect was read from
+      description: >
+        This becomes the `source` field. It has to be a page you actually fetched.
+        An invented username format is an invented technical claim about somebody
+        else's product, and it would fail in exactly the silent way described
+        above.
+      placeholder: "https://developers.oxylabs.io/..."
+    validations:
+      required: true
+
+  - type: input
+    id: source_read
+    attributes:
+      label: Date you read it
+      description: The `source_read` field, YYYY-MM-DD.
+      placeholder: "2026-09-02"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: status
+      description: >
+        `measured` is only for a definition with rows behind it - traffic you sent
+        through that gateway yourself, included in the PR under `data/runs/`.
+        Everything else is `documented`, and there is no penalty for saying so:
+        `--dry-run` prints the status of every provider in the matrix precisely so
+        a `documented` one is the first thing suspected when its cells fail.
+      options:
+        - documented - transcribed from the vendor's docs, never sent from here
+        - measured - rows exist, and are included in this issue or its PR
+    validations:
+      required: true
+
+  - type: textarea
+    id: dialect
+    attributes:
+      label: The dialect
+      description: >
+        Prefix, separator, pair separator, the parameters the gateway recognises,
+        the vendor's spelling for each, and which one pins a sticky session. Paste
+        the TOML if you have it.
+      placeholder: |
+        prefix = "customer-{login}"
+        separator = "-"
+        pair_separator = "-"
+        known_params = ["country", "city", "sid"]
+        [aliases]
+        country = "cc"
+        sid = "sessid"
+        session_param = "sid"
+    validations:
+      required: true
+
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: What the gateway does with a mistake
+      description: >
+        Optional and worth more than the rest of the file, because no vendor
+        documents it. What it answers to a bad country, to a bad session id, and
+        to a parameter name it does not know; whether the sticky key is the
+        session id alone or the whole parameter set. Those cost an afternoon of
+        probing each, and the third one is the difference between a run that
+        refuses and a run that lies.
+    validations:
+      required: false

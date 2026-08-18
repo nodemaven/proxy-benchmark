@@ -1,0 +1,60 @@
+# NodeMaven. The only definition here anyone has run: every row in data/runs/
+# was produced through this gateway.
+label = "NodeMaven"
+status = "measured"
+source = "dashboard proxy generator, plus raw CONNECT probes recorded in data/runs/"
+source_read = "2026-08-12"
+
+# `<login>-country-us-sid-abc123-ttl-10m`
+prefix = "{login}"
+separator = "-"
+pair_separator = "-"
+session_param = "sid"
+param_transport = "username"
+
+# Documented defaults. NODEMAVEN_HOST and NODEMAVEN_PORT override them, and the
+# credentials are never in this file.
+host = "gate.nodemaven.com"
+port = 8080
+
+# Returned on the CONNECT reply, so an exit address costs one handshake and no
+# target traffic. Not guaranteed: replies reading `Connection established`
+# carried it and replies reading `OK` carried none, with no exception either way
+# over 17 tunnels, so there is more than one implementation behind the name and
+# a caller has to handle its absence rather than latch on the first miss.
+exit_ip_header = "X-Proxy-Exit-IP"
+
+# Confirmed to be recognised. Anything outside this set is refused client-side,
+# because the gateway answers an unknown name with 200 and the setting silently
+# dropped - the connection succeeds with settings that were never applied, which
+# is the one failure that cannot be seen in the rows afterwards.
+#
+# `speed` was missing until 2026-08-12 and was found by reading the provider's
+# own proxy generator rather than by probing: the dashboard offers four IP filter
+# modes and builds three of them out of `filter` and `speed` together, while the
+# fourth passes neither. A name we do not know is indistinguishable from a name
+# the gateway does not know, so the generator was the only place it could surface.
+known_params = ["country", "region", "city", "isp", "sid", "ttl", "filter",
+                "ipv4", "speed"]
+
+notes = """
+Measured 2026-08-10 by raw CONNECT probes. None of this is documented by the
+vendor; re-verify before quoting it.
+
+Sticky sessions key on the whole recognised parameter set, not on `sid` alone.
+`country=us, sid=A` and `country=us, sid=A, filter=medium` are two different
+sessions, `ttl` does not participate and `filter` does. Adding or removing any
+parameter silently moves you to another exit.
+
+Seven inputs, seven reactions, none of which names the cause:
+  bad country          406 Not Acceptable
+  bad region           406 Not Acceptable
+  bad city             500 Internal Server Error
+  bad filter value     407 Proxy Authentication Required
+  bad ttl value        407 Proxy Authentication Required
+  empty value          no reply, the connection hangs about 20 s
+  unknown parameter    200, the parameter is ignored
+
+The 407 cases are actively misleading - they send the operator to check
+credentials. With no `country` the default country is not stable.
+"""

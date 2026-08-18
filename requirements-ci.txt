@@ -1,0 +1,35 @@
+# What the offline gate needs, and nothing else.
+#
+# `requirements-dev.txt` installs six browser frameworks - camoufox, playwright,
+# cloakbrowser, zendriver, seleniumbase, curl_cffi - and the suite imports none of
+# them. Every engine imports its framework inside a method rather than at module
+# level, which is what lets the contract tests read the registry and the engine
+# source on a machine with no browser installed. Measured 2026-08-18 in a clean
+# virtualenv holding only the list below: 867 passed in 13s, against 35s with the
+# full dev stack.
+#
+# That is the reason this file exists rather than CI reusing the dev list. Not
+# speed on its own: installing the dev list would make every run of the gate
+# depend on cloakbrowser and camoufox resolving from PyPI, so a publication whose
+# CI badge is the first thing a stranger reads would go red for a reason that has
+# nothing to do with this repository's code.
+#
+# There is no drift guard and none is needed. A dependency the suite starts to
+# need and this file lacks turns the next push red, which is loud, immediate and
+# free - the one failure mode that does not need a test.
+
+pytest
+ruff
+
+# Imported at module level by the package, so the suite cannot collect without
+# them: `config.py` reads .env through dotenv, `gateway.py` and `engines/http.py`
+# import requests.
+requests
+python-dotenv
+
+# Not imported by the suite, verified. It is here because it is a correctness
+# dependency of the verdict path rather than a convenience: browsers advertise
+# brotli, so the harness does too, and without the package requests hands back
+# undecoded bytes and a content-based verdict reads a good page as a block. A test
+# that comes to pin that must not go red for the want of a 400 KB wheel.
+brotli

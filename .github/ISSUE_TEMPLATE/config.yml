@@ -1,0 +1,21 @@
+# Blank issues stay on. The templates cover the three things that need a
+# structured answer - a disputed number, a provider dialect, a broken run - and
+# anything else is a question, which should not need a form.
+blank_issues_enabled: true
+
+contact_links:
+  - name: A NodeMaven account, billing or pool question
+    url: https://nodemaven.com
+    about: >
+      This repository is a measurement harness and its maintainers cannot see
+      your account. Slow exits, a country with no addresses left, a 407 on
+      credentials that look right - none of those can be answered from here.
+      Please use NodeMaven support instead.
+
+  - name: How a number here was arrived at
+    url: https://github.com/nodemaven/proxy-benchmark/blob/main/NOTEBOOK.md
+    about: >
+      NOTEBOOK.md is the working notebook: every measured claim, the run id behind
+      it, and the earlier claims that did not survive replication. Most
+      methodology questions are answered there, including the ones about why a
+      given axis is refused rather than quietly dropped.

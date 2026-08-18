@@ -1,0 +1,71 @@
+name: The harness is broken
+description: A crash, a wrong column, or a run that could not start
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before anything else: **do not paste `Proxy-Authorization`, a proxy
+        username, or a full exit address.** The header is base64 and not
+        encryption, so pasting it into an issue leaks the account; an exit address
+        is somebody's home connection. The rows on disk are masked to the /24 for
+        that reason - keep them that way here.
+
+        A verdict you disagree with is not a bug report, it is a
+        [finding dispute](?template=finding_dispute.yml), and it needs a
+        denominator rather than a traceback.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: >
+        If a run died, say how far in and whether rows were already written -
+        `data/runs/` is append-only per attempt, so a crash usually leaves the
+        measurement intact and that is worth knowing before anything is re-run.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The command
+      render: shell
+      placeholder: |
+        python scripts/benchmark.py --engines patchright,chromium \
+            --targets google_serp --queries 40 --batch 10 --preset none
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: The traceback or the output
+      description: Strip any authorization header before pasting.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        OS, Python version, and the output of `python scripts/benchmark.py
+        --dry-run` if the run never started - it prints which engines can actually
+        run and why the rest cannot, which is usually the answer.
+      placeholder: |
+        Windows 10, Python 3.11.0
+        --dry-run says: zendriver unavailable, no Chrome found
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: gate
+    attributes:
+      label: The offline gate
+      options:
+        - label: >
+            `make check` passes on my checkout (ruff plus the suite, offline, no
+            credentials needed)
+          required: false

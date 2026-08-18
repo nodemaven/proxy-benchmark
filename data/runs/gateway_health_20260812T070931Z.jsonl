@@ -1,0 +1,1 @@
+{"status": null, "reason": null, "exit_ip": null, "error": null, "tcp_ms": 66.5, "connect_ms": 5004.1, "elapsed_ms": 5071, "index": 0, "opened": false, "params": {"country": "us"}, "bare": false, "exit_prefix": null, "exit_label": null, "cell": "gateway_health/country=us", "run_id": "20260812T070931Z", "ts": "2026-08-12T07:09:36.487827+00:00"}

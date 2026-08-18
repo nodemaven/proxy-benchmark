@@ -1,0 +1,20 @@
+# Line endings are decided here rather than by each contributor's
+# `core.autocrlf`. This harness is developed on Windows and read on Linux, and
+# without this a contributor whose git does not normalise commits a whole file of
+# changed line endings around a one-line change, which buries the change in the
+# diff.
+#
+# It does not affect the committed query lists, which are verified byte for byte
+# against their generator: `build_queries.py --check` compares through
+# `read_text`, and text mode normalises newlines on the way in, so the check
+# passes whichever ending is on disk. Stated because it is the one place where a
+# newline could have been load-bearing.
+* text=auto
+
+# Committed inputs and evidence, in the endings they are generated with.
+*.txt text
+*.jsonl text
+*.toml text
+*.md text
+*.py text
+*.yml text

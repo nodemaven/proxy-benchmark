@@ -1,0 +1,83 @@
+name: A number here is wrong
+description: Dispute a measured claim in README.md, NOTEBOOK.md or docs/
+labels: ["finding"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful issue you can open here, and several claims in
+        this repository are already corrections of an earlier claim in the same
+        file that did not survive being replicated. A number here is a reading of
+        the hours it was taken in, so a disagreement is expected rather than
+        unwelcome.
+
+        What settles it is a denominator. `us = 0%` was published here and turned
+        out to be the tail of one hour; the direction survived replication and the
+        magnitude did not. So the fields below ask for the shape of your
+        measurement rather than its conclusion.
+
+  - type: textarea
+    id: claim
+    attributes:
+      label: Which claim
+      description: Quote it, and say which file it is in.
+      placeholder: |
+        README.md: "DuckDuckGo sorts entirely on the `HeadlessChrome` substring.
+        95 of 95 for the engines whose User-Agent does not carry it, 0 of 50 for
+        the two that do."
+    validations:
+      required: true
+
+  - type: textarea
+    id: measured
+    attributes:
+      label: What you measured, with the denominator
+      description: >
+        Counts rather than a rate, please - "3 of 40" and not "about 8%". A rate
+        without its denominator cannot be told apart from noise, and this is the
+        one field that decides whether the issue can be acted on.
+      placeholder: |
+        patchright headless against ddg_serp: 12 of 30 served.
+        Run of 2026-09-02, one window of about 40 minutes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: arm
+    attributes:
+      label: How it was run
+      description: >
+        The engine list, the target, whether it went through a gateway or direct,
+        the country if any, and whether the cells were interleaved. If you have
+        the JSONL rows or the `cell` values, paste them - they carry every axis.
+      placeholder: |
+        python scripts/benchmark.py --engines patchright --targets ddg_serp \
+            --queries 30 --batch 5 --preset none
+        Direct, no gateway. Own line, Germany.
+    validations:
+      required: true
+
+  - type: textarea
+    id: control
+    attributes:
+      label: What the control did in the same window
+      description: >
+        Optional, and it is what turns an observation into a claim. A pass rate
+        with no control cannot be told apart from the target letting everything
+        through. `chromium` is the unmodified control here; on the address axis
+        the equivalent is a `:direct` cell in the same run.
+      placeholder: "chromium in the same run: 0 of 30."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: reading
+    attributes:
+      label: What you think this means
+      options:
+        - The claim is wrong
+        - The claim held then and does not now
+        - The claim is right but overstated, or stated without its limits
+        - Not sure, reporting the numbers
+    validations:
+      required: true

@@ -1,0 +1,31 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Response bodies saved by probes/capture_sample.py. Large, and they carry the
+# exit address inside embedded links. A debugging aid, not evidence.
+data/samples/
+
+# Bodies kept by a benchmark run so its verdicts can be re-judged offline. Same
+# reasoning: large, and a results page carries the exit address inside embedded
+# links, so committing one publishes which addresses the account was assigned.
+data/artifacts/
+
+# Created by botasaurus next to the working directory, not by anything here: it
+# holds a lock file its driver manager uses while it fixes up chromedriver.
+downloaded_files/
+
+# stdout and stderr of a detached run. A long matrix has to be launched without
+# a terminal attached to it, so its console output lands in the tree; the rows
+# themselves are in data/runs/ and that is what analysis reads.
+run.log
+run.err
+
+# Internal write-ups: a slide deck, a report to management, a Russian glossary
+# and the raw analysis dumps they were built from. They are derived from
+# data/runs/ and add nothing a reader cannot recompute, and they are the one
+# place in the tree that is not in English.
+reports/

@@ -1,0 +1,48 @@
+# Tool configuration only. There is deliberately no [project] or [build-system]
+# section: this repository is run from a checkout, not installed, because the
+# committed query lists and the data/ directory are part of the instrument and
+# an installed copy would separate the code from its inputs.
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = ["data", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # import order
+    "B",         # bugbear
+    "C4",        # comprehensions
+    "UP",        # pyupgrade
+    "RUF",
+]
+ignore = [
+    # Long lines are re-flowed by hand; a measured value or a URL in a comment
+    # is not worth breaking across lines.
+    "E501",
+    # `except Exception` is deliberate in the engines: an attempt that threw for
+    # any reason is recorded as `error` and never as a verdict about the target.
+    "BLE001",
+    # `params: dict = None` throughout. The alternative spelling adds an import
+    # and a union to every engine signature for no reader benefit, and these
+    # signatures are the published interface of the harness: they are read far
+    # more often than they are type checked.
+    "RUF013",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The scripts insert the repository root on sys.path before importing nmbench,
+# so their imports cannot be sorted to the top.
+"scripts/**" = ["E402"]
+# E402: same sys.path insert. B018: a bare attribute access is the subject of
+# the test, not a useless expression. RUF001: the tests that forbid em-dashes
+# and en-dashes have to contain one to look for it.
+"tests/**" = ["E402", "B018", "RUF001", "RUF043"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Nothing in the suite reaches the network. Failures are loud on purpose: a
+# green suite is the precondition for spending traffic.
+addopts = "-q --strict-markers"

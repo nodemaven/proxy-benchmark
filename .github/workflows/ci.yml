@@ -1,0 +1,82 @@
+# The gate, on every push. It is the same gate `make check` runs locally, and it
+# can run on a hosted runner at all for one reason: `tests/` is offline in full.
+# No network, no credentials, no browser. The autouse fixture strips the gateway
+# variables from the environment, so a test that tried to open a connection fails
+# rather than spends traffic - which is what makes a public CI safe for a
+# repository whose scripts cost money.
+#
+# Nothing here sends a request to a target or a gateway. The things that do are
+# scripts, invoked by hand with their parameters visible, and they are never wired
+# into a workflow.
+
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A fork's pull request needs to read the tree and nothing else.
+permissions:
+  contents: read
+
+# A second push supersedes the first. The suite is 13 seconds, so this is about
+# queue noise rather than cost.
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One red cell should not hide the others: the point of the matrix is which
+      # combination broke, and cancelling the rest throws that away.
+      fail-fast: false
+      matrix:
+        # Both platforms, deliberately. The harness is developed on Windows and
+        # one class of failure here is Windows-only: a run died on a Latin-1
+        # character in an ASN name because the console encoder is the system
+        # codepage, and `tests/test_repository.py` asserts the guard against it is
+        # installed before the engines are imported. Ubuntu alone would never
+        # exercise the paths that bug lives on.
+        os: [ubuntu-latest, windows-latest]
+        # 3.11 is the floor and is not a preference: `providers.py` reads the
+        # provider definitions through stdlib `tomllib`, which arrived in 3.11,
+        # and that is what makes adding a competitor cost a file and no
+        # dependency. It is also the version every row in `data/runs/` was
+        # measured on. The newest is here to catch a deprecation before it
+        # reaches an operator mid-run.
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      # requirements-ci.txt and not requirements-dev.txt: the dev list installs
+      # six browser frameworks the suite never imports, which would make the gate
+      # depend on every one of them resolving from PyPI. The reasoning is in that
+      # file.
+      - name: Install the offline gate's dependencies
+        run: python -m pip install -r requirements-ci.txt
+
+      # `make check` is these two commands and is what a contributor runs. They
+      # are spelled out rather than invoked through make because `make` is not on
+      # the GitHub Windows runner, and a gate that skipped the Windows half to
+      # keep one line of YAML would skip the half that catches the console bug.
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: The offline suite
+        run: python -m pytest
+
+      # The query lists are committed so a stranger sends the same strings. This
+      # proves the files still match the generator that produced them, which is
+      # the only thing that makes "reproducible" more than a claim in a README.
+      - name: The committed inputs still match their generator
+        run: python scripts/tools/build_queries.py --check

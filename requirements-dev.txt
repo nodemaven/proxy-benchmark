@@ -1,0 +1,43 @@
+-r requirements.txt
+pytest
+ruff
+# Obscura is driven over CDP, so its adapter needs a Playwright client even
+# though the browser itself is not a Playwright one. Camoufox pulls Playwright
+# in already; this makes the dependency explicit for anyone running only Obscura.
+#
+# Pinned, and the pin is load-bearing rather than tidiness. Playwright ships the
+# Chromium build that `chromium` - the control - runs on, so an unpinned upgrade
+# silently changes the baseline every other column is measured against, and does
+# it without touching a line of our code or failing a test. Every control row in
+# data/runs/ was taken on the build 1.60.0 downloads.
+#
+# It has already nearly happened: cloakbrowser's own requirement is a floating
+# playwright and resolves to 1.62.0. It runs on 1.60.0 unchanged - checked
+# 2026-08-13, same user agent, same markers - so the pin costs nothing and buys
+# a control that stays comparable. Moving it is a decision to re-baseline, not
+# a dependency bump.
+playwright==1.60.0
+
+# A patched Chromium that hands back a Playwright browser, so it reuses the
+# session class rather than adding a second request path. It is the only
+# Chromium-family engine here that can align geo and humanize input, which is
+# what makes those two flags measurable as axes instead of Camoufox-only
+# settings. Ships its own browser binary: `import cloakbrowser; download()`.
+cloakbrowser
+
+# Chrome over raw CDP, no WebDriver and no Playwright. It is the second raw-CDP
+# engine in the matrix and the first one whose status column works, so it is
+# what makes "driven over raw CDP" readable as its own variable rather than
+# something only Obscura ever measured. Uses the host's installed Chrome and
+# downloads no browser.
+zendriver
+
+# The WebDriver family, which nothing else here represents. Also uses the host's
+# Chrome; it fetches a matching chromedriver on first launch.
+seleniumbase
+
+# Not a browser and not trying to be one: a scriptless client wearing Chrome's
+# ClientHello. It is the control that splits "no browser" from "wrong
+# handshake", which `http` and the browser engines currently confound, and it is
+# the cheapest engine here - no browser to download and no page to render.
+curl_cffi
