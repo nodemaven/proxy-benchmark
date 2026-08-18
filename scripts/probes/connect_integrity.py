@@ -157,10 +157,13 @@ def verdict(rows: list) -> tuple:
                    f"have nothing to do with the provider. Do not open a "
                    f"ticket and do not read a failure rate off this network.")
 
-    heard = ", ".join(sorted(spoken(r["connect"]) for r in answered))
-    return 0, (f"no interception found: the hosts answered CONNECT "
-               f"differently from each other ({heard}). Proxied runs can be "
-               f"read normally.")
+    # The distinct voices rather than one entry per host, because two hosts
+    # legitimately answering alike is expected here - two of the three are
+    # Cloudflare - and printing that pair twice under the words "differently
+    # from each other" reads as a contradiction of the sentence making it.
+    heard = ", ".join(sorted({spoken(r["connect"]) for r in answered}))
+    return 0, (f"no interception found: the hosts did not all answer CONNECT "
+               f"alike ({heard}). Proxied runs can be read normally.")
 
 
 def main() -> int:
