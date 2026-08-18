@@ -339,7 +339,29 @@ class BotasaurusEngine:
             # keeps Node out of the run.
             proxy_url = f"http://{relay_address}"
 
-        driver = Driver(headless=headless, proxy=proxy_url)
+        # Chrome's own background traffic, which the pool pays for and this
+        # repository does not measure. Measured 2026-08-19 on the server, with a
+        # relay counting sockets and the browser left on `about:blank` for 60 s
+        # with nothing navigated: **botasaurus 43.6 MB, seleniumbase 43.4 MB,
+        # zendriver 72 KB, patchright 43 KB**. It is the safe-browsing lists,
+        # the component updater and the optimization-hint models, and at
+        # `--batch 1` a fresh profile pays it again on every attempt - about
+        # 43 GB per thousand attempts, against a 100 GB shared quota, to measure
+        # nothing.
+        #
+        # zendriver is the control that makes this a launch flag rather than a
+        # property of driving the host's Chrome: it is the same Chrome 151 on
+        # the same box and it costs 72 KB, because its own config sets these two
+        # flags. Playwright sets them too, which is why the five Playwright
+        # engines never showed this. So the uncontrolled variable in the matrix
+        # was that some engines chatted to the vendor and some did not, and
+        # setting them here removes it rather than adding one.
+        #
+        # Not a hardening of the browser under test: neither flag is visible to
+        # a page, and `ChromiumEngine` - the control - is deliberately left
+        # alone whatever it costs.
+        driver = Driver(headless=headless, proxy=proxy_url, arguments=[
+            "--disable-background-networking", "--disable-component-update"])
         try:
             driver.get("about:blank")
 

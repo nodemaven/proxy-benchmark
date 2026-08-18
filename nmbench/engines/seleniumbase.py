@@ -302,6 +302,30 @@ class SeleniumBaseEngine:
             # Chrome headlessly, which is what keeps the User-Agent clean.
             "headless2": bool(headless),
             "headless": False,
+            # Chrome's own background traffic, which the pool pays for and this
+            # repository does not measure. Measured 2026-08-19 on the server,
+            # with a relay counting sockets and the browser left on
+            # `about:blank` for 60 s with nothing navigated: **43.4 MB here,
+            # 178 KB with these two flags, 72 KB on zendriver, 43 KB on
+            # patchright**. At `--batch 1` a fresh profile pays it again on
+            # every attempt, so it is about 43 GB per thousand attempts against
+            # a 100 GB shared quota, spent on safe-browsing lists and component
+            # updates rather than on a target.
+            #
+            # SeleniumBase adds `--disable-background-networking` itself in
+            # `browser_launcher._set_chrome_options`, and the measurement says
+            # UC mode does not deliver it - which is why this is handed over
+            # explicitly and why the number above is the check on it. zendriver
+            # is the control: same host Chrome 151, same box, 72 KB, because its
+            # own config sets both flags. Playwright sets them too, so the
+            # uncontrolled variable in the matrix was which engines chat to the
+            # vendor, and this removes it rather than adding one.
+            #
+            # Not a hardening of the browser under test: neither flag is visible
+            # to a page, and the `chromium` control is left alone whatever it
+            # costs.
+            "chromium_arg": ("--disable-background-networking,"
+                             "--disable-component-update"),
         }
         if proxy_string:
             options["proxy"] = proxy_string
