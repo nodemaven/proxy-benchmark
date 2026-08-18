@@ -74,9 +74,16 @@ Rules:
     python -m playwright install chromium
     python -m patchright install chromium
     python -m rebrowser_playwright install chromium
-    python -c "import cloakbrowser; cloakbrowser.download()"
+    python -c "import cloakbrowser; cloakbrowser.ensure_binary()"
     camoufox fetch
     copy .env.example .env              # Linux: cp .env.example .env
+
+That cloakbrowser line read `cloakbrowser.download()` until 2026-08-18 and had
+never worked: `download` is a module, so the call raises `TypeError: 'module'
+object is not callable`. Nothing caught it because the machine the instruction
+was written on already had the binary, and the engine reports available off the
+binary rather than off the setup step. The clone is what ran it, the same way
+the clone is what found the three missing requirements.
 
 Four Chromium-family engines download a browser and **no two of them share a
 download**: Playwright, Patchright and rebrowser each pin a different build, and
@@ -86,6 +93,15 @@ several results in this file are about, but it means a fresh machine fetches fou
 Chromiums before the first row. `zendriver`, `seleniumbase` and `botasaurus`
 download nothing and drive **the host's installed Chrome**, so a box without
 Chrome loses three engines from any matrix.
+
+**Those three are the only engines here whose build is not ours to hold**, and
+the move to the server changed it: the workstation runs Chrome 149 and the
+server runs Chrome 151. Every pin in `requirements-dev.txt` exists to keep a
+build constant across runs, and for `zendriver`, `seleniumbase` and `botasaurus`
+there is no pin available - they take whatever the host has. So their columns
+are comparable within one machine and carry a build change between the two, and
+`engine_fingerprint.py` is what says how much of a change rather than leaving it
+assumed.
 
 `python scripts/benchmark.py --dry-run` prints which engines can actually run
 here and why the rest cannot, before a matrix starts, so a missing binary costs a
