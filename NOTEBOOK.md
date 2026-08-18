@@ -69,17 +69,41 @@ Rules:
 ## Setup
 
     python -m venv .venv
-    .venv\Scripts\Activate.ps1
+    .venv\Scripts\Activate.ps1          # Linux: . .venv/bin/activate
     pip install -r requirements-dev.txt
     python -m playwright install chromium
     python -m patchright install chromium
+    python -m rebrowser_playwright install chromium
+    python -c "import cloakbrowser; cloakbrowser.download()"
     camoufox fetch
-    copy .env.example .env
+    copy .env.example .env              # Linux: cp .env.example .env
 
-Playwright and Patchright pin different Chromium builds and do not share a
-download, so both installs are needed. `python scripts/benchmark.py --dry-run`
-prints which engines can actually run here and why the rest cannot, before a
-matrix starts, so a missing binary costs a message instead of half a run.
+Four Chromium-family engines download a browser and **no two of them share a
+download**: Playwright, Patchright and rebrowser each pin a different build, and
+cloakbrowser ships its own patched one. That is the point of the pins in
+`requirements-dev.txt` rather than an inconvenience, because the build is what
+several results in this file are about, but it means a fresh machine fetches four
+Chromiums before the first row. `zendriver`, `seleniumbase` and `botasaurus`
+download nothing and drive **the host's installed Chrome**, so a box without
+Chrome loses three engines from any matrix.
+
+`python scripts/benchmark.py --dry-run` prints which engines can actually run
+here and why the rest cannot, before a matrix starts, so a missing binary costs a
+message instead of half a run. Run it first on a new machine. The requirements
+file declared neither patchright, rebrowser nor botasaurus until 2026-08-18 -
+the machine that wrote every row on disk already had all three, so nothing failed
+until the tree was cloned somewhere else, and what caught it was a clone rather
+than a test.
+
+**Headful on a headless host needs a display, and that is not a formality here.**
+`--headful` is the difference between `Chrome/...` and `HeadlessChrome/...` on the
+wire, which is the whole of the DuckDuckGo finding, so a server run wraps the
+command in `xvfb-run -a`. What a virtual display does not restore is the GPU:
+with no card the WebGL renderer falls back to a software rasteriser, and
+"SwiftShader instead of GPU" is one of the three markers in the layer model
+below. A headful run on a server is therefore not the same client as a headful
+run on a workstation, and `engine_fingerprint.py` - which sends nothing and needs
+no credentials - is what says by how much instead of leaving it assumed.
 
 Obscura is not on PyPI. Download the **`-stealth`** archive for the platform from
 the project's releases, unpack it, and put the directory on PATH - the plain

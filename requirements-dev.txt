@@ -18,6 +18,14 @@ ruff
 # a dependency bump.
 playwright==1.60.0
 
+# The patched Playwright driver, and the engine every Google finding here rests
+# on. Pinned for the same reason as playwright above and not out of symmetry: it
+# downloads its own Chromium rather than sharing Playwright's, so the version is
+# the build. Every patchright row in data/runs/ was taken on what 1.61.2 fetches,
+# and `python -m patchright install chromium` is a separate download from
+# Playwright's even when the two resolve to the same Chromium number.
+patchright==1.61.2
+
 # A patched Chromium that hands back a Playwright browser, so it reuses the
 # session class rather than adding a second request path. It is the only
 # Chromium-family engine here that can align geo and humanize input, which is
@@ -35,6 +43,25 @@ zendriver
 # The WebDriver family, which nothing else here represents. Also uses the host's
 # Chrome; it fetches a matching chromedriver on first launch.
 seleniumbase
+
+# A Playwright fork sold on its Runtime.enable patch, and the second engine that
+# installs a timezone override before any context exists - which is what makes
+# the geo axis a 2x2 rather than one engine on each side of a guess.
+#
+# Pinned, and here the number is itself a finding rather than a precaution. The
+# fork is behind stock Playwright by enough that `__pwInitScripts` is still an
+# enumerable property of globalThis in its driver and is gone from 1.60's lib/
+# entirely, so three lines of JavaScript on any page name the driver. Upstream
+# removed it somewhere between 1.52 and 1.60; moving this pin moves that result
+# and has to be re-measured by engine_fingerprint.py rather than assumed.
+rebrowser-playwright==1.52.0
+
+# The second post-tab timezone installer, and the control for zendriver on that
+# axis: the two are 20 of 21 fingerprint markers identical, so a divergence
+# between them under alignment is attributable to when the override lands rather
+# than to anything a page can read. Uses the host's Chrome and downloads no
+# browser, so it is unpinned for the same reason zendriver and seleniumbase are.
+botasaurus-driver
 
 # Not a browser and not trying to be one: a scriptless client wearing Chrome's
 # ClientHello. It is the control that splits "no browser" from "wrong
