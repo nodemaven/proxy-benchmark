@@ -502,7 +502,31 @@ class ZendriverEngine:
         browser = None
         try:
             browser = loop.run_until_complete(
-                zd.start(headless=headless, browser_args=browser_args or None))
+                zd.start(headless=headless, browser_args=browser_args or None,
+                         # How long we wait for Chrome to open its debug port,
+                         # and nothing about the browser itself - the launch is
+                         # unchanged, only our patience with it.
+                         #
+                         # zendriver's default is 0.25 s ten times, so a browser
+                         # that has not answered CDP within 2.5 s is declared
+                         # dead, and the exception it raises blames running as
+                         # root and suggests `no_sandbox=True`. Measured
+                         # 2026-08-18 on the server, that diagnosis is wrong
+                         # here: the account is uid 1000, and this engine
+                         # launches fine standalone, fine with a relay, fine
+                         # after each of the four other Chromium engines, and
+                         # fine as the only cell of a matrix. It failed both of
+                         # its cells only in the full eight-engine smoke run,
+                         # where fourteen browsers had already been launched on
+                         # a 2-vCPU box and a 46 MB Amazon page was in flight.
+                         # That is a cold start exceeding 2.5 s, not a sandbox.
+                         #
+                         # Acting on the message instead would have added
+                         # `--no-sandbox` to the browser under test to fix a
+                         # timeout, which is a fingerprint change bought for
+                         # nothing. 15 s costs a slow launch and no rows.
+                         browser_connection_timeout=0.25,
+                         browser_connection_max_tries=60))
             tab = loop.run_until_complete(browser.get("about:blank"))
 
             if timezone_id:
