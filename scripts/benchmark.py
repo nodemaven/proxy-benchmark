@@ -732,6 +732,12 @@ def main() -> int:
                                         "verdict_reason": breaker.reason})
                             break
                         time.sleep(wait)
+            except TransportLost:
+                # The transport, not this session. It ends the run, and it must
+                # reach the handler below rather than the catch-all added under
+                # it - a catch-all that swallowed this would leave the guard
+                # printing its verdict and the run carrying on regardless.
+                raise
             except engines.EngineUnavailable as exc:
                 # Preflight already refused the engines that cannot run at all,
                 # so reaching here means the launch failed at run time. It will
@@ -741,6 +747,43 @@ def main() -> int:
                 sink.write({"cell": cell.key, "target": cell.target,
                             "verdict": "cell_stopped",
                             "verdict_reason": breaker.reason})
+            except Exception as exc:
+                # A browser that would not launch, a relay that would not bind,
+                # a session that died between two queries. All of these are this
+                # machine rather than the target, and one of them costs one
+                # batch rather than the run.
+                #
+                # `probe_and_hold.py` has carried this since 2026-08-13 and this
+                # runner did not, which is the asymmetry worth naming: the cheap
+                # probe survived what the expensive matrix could not. Measured
+                # 2026-08-18, a 16-attempt smoke run on the server died here at
+                # cell 9 of 16 on zendriver's `Failed to connect to browser`,
+                # the same transient that starts normally a minute later. Over
+                # the tens of hours this matrix runs for, a launch that hiccups
+                # once is not an edge case, it is a certainty.
+                #
+                # Written as its own verdict rather than as `error`, because
+                # `error` is an attempt that reached the network and this never
+                # did. Pooling them would charge our own launcher to the
+                # engine's error rate. It is fed to the breaker all the same: an
+                # engine that cannot start should stop its own cell rather than
+                # draw a fresh exit every batch for nothing.
+                reason = f"{type(exc).__name__}: {exc}".strip()
+                # zendriver's launch failure is a multi-line banner, so the
+                # console gets the first line and the row keeps all of it.
+                headline = (reason.splitlines() or [""])[0][:160]
+                breaker.record("error")
+                print(f"  {cell.key}: the session did not start or did not "
+                      f"survive. This batch is lost, the run continues. "
+                      f"{headline}")
+                sink.write({"cell": cell.key, "target": cell.target,
+                            "verdict": "session_failed",
+                            "verdict_reason": reason})
+                if breaker.tripped:
+                    print(f"  {cell.key}: stopped, {breaker.reason}")
+                    sink.write({"cell": cell.key, "target": cell.target,
+                                "verdict": "cell_stopped",
+                                "verdict_reason": breaker.reason})
     except TransportLost:
         # Already reported where it was detected, with the state that justified
         # it. Reaching here only means the browser has been closed.

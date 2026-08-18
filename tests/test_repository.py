@@ -287,3 +287,73 @@ def test_the_session_parameter_is_asked_for_rather_than_spelled(path):
         assert not re.search(r"""["']sid["']\s*:""", stripped), (
             f"{path.name} writes the session parameter as a literal, which is "
             f"one gateway's spelling. Use proxy.session_params: {stripped}")
+
+
+# The scripts that drive a long matrix of their own, derived rather than named:
+# both build a TransportWatch, which is the thing only a multi-cell runner has.
+LONG_RUNNERS = sorted(
+    p for p in SOURCES
+    if p.parent.name in ("scripts", "probes") and "TransportWatch(" in
+    p.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("path", LONG_RUNNERS, ids=lambda p: p.name)
+def test_a_session_that_will_not_start_costs_one_batch_and_not_the_run(path):
+    """A launch that fails must be a row, never a traceback.
+
+    `probe_and_hold.py` has carried this since 2026-08-13 and `benchmark.py`
+    did not, so the cheap probe survived what the expensive matrix could not.
+    Measured 2026-08-18, a 16-attempt smoke run on the server died at cell 9 of
+    16 on zendriver's `Failed to connect to browser` - the transient that file
+    already records as starting normally a minute later - with seven cells
+    unanswered and no summary written. Over the tens of hours a real matrix
+    runs, a launch that hiccups once is a certainty rather than an edge case.
+
+    Both halves are asserted because the fix has a failure mode of its own. A
+    catch-all wide enough to hold a vendor's bare `Exception` is also wide
+    enough to hold `TransportLost`, and swallowing that would leave the
+    transport guard printing its verdict while the run carried on through a
+    dead gateway - the one error that spends the whole budget quietly.
+
+    Derived from `TransportWatch(` rather than from a list of filenames, for the
+    reason this file's other checks are: the bug was that one of two runners had
+    the guard, and a test naming the runners it knows about cannot fail on the
+    third one somebody adds.
+
+    The ordering half is read through `ast` and not by searching the text.
+    Written as a text search first, it failed on `probe_and_hold.py` for a
+    perfectly correct inner `except Exception` around the page visit, which
+    catches nothing this is about. Only the `try` that encloses the raise can
+    swallow it, so that is the one asked.
+    """
+    source = path.read_text(encoding="utf-8")
+    assert '"session_failed"' in source, (
+        f"{path.name} has no session_failed verdict, so a browser that will "
+        f"not launch ends the run instead of costing one batch")
+
+    def raises_transport_lost(node):
+        return any(isinstance(inner, ast.Raise)
+                   and "TransportLost" in ast.dump(inner)
+                   for inner in ast.walk(node))
+
+    def catches(handler, name):
+        return handler.type is not None and name in ast.dump(handler.type)
+
+    guarded = 0
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Try) or not any(
+                raises_transport_lost(stmt) for stmt in node.body):
+            continue
+        for index, handler in enumerate(node.handlers):
+            if not catches(handler, "Exception"):
+                continue
+            guarded += 1
+            earlier = node.handlers[:index]
+            assert any(catches(h, "TransportLost") for h in earlier), (
+                f"{path.name} line {handler.lineno} catches Exception on the "
+                f"try that raises TransportLost, without re-raising it first. "
+                f"The transport guard would print its verdict and the run "
+                f"would carry on through a dead gateway.")
+    assert guarded, (
+        f"{path.name} raises TransportLost but no enclosing try catches "
+        f"Exception, so this check read nothing and must be revisited")
