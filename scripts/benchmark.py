@@ -368,8 +368,17 @@ def describe(plan_estimate: dict, args, cells, batches, lists_used: dict,
                 "override": "overridden on the command line"}[basis[target]]
         size = f"{round(per / 1000)} KB, " if per else ""
         print(f"          {target}: {size}{note}")
+    # The two directions were the wrong way round here until 2026-08-18, and
+    # that is the one error in an estimate an operator cannot discount: it
+    # invites a run longer than the budget allows while presenting itself as
+    # conservative. The constant blends a per-session browser launch into a
+    # per-attempt figure, so it falls short exactly where the launch is paid on
+    # every attempt. Measured 2026-08-12, the two runs calibrate.py read:
+    # google_serp at --batch 1 cost 40.2 s per attempt against this 25 s, and
+    # walmart_search at --batch 5 cost 12.8 s.
     print("          time: 25 s per attempt, blended over the 2026-08-11 run. "
-          "It runs long at --batch 1 and short at larger batches")
+          "It runs short at --batch 1 and long at larger batches, because a "
+          "browser launch is per session and is counted here per attempt")
     if not batches:
         print("\nnothing left to run: every attempt in this plan is already "
               "recorded. Drop --resume to start a fresh run.")
