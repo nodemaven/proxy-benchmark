@@ -29,6 +29,22 @@ the outage.
 Do not tighten this into a test for the string `cloudflare`. The forged identity
 is whatever the box in front of you chose; the evidence is that Google stopped
 sounding like Google, and that survives a box that picks a different disguise.
+
+**That warning was in this docstring while the code below did the equivalent, and
+a clean line exposed it on 2026-08-18.** The set of voices was built from the
+`Server` header alone, so a host answering *without* one contributed nothing to
+it. On a server with no interception at all, Google answered CONNECT `404` with
+no `Server` header, and the two hosts that were left - `example.com` and
+`1.1.1.1` - are both genuinely operated by Cloudflare. One voice, and the probe
+reported an interception that did not exist, on the run that gates every proxied
+run. The workstation was open to the same false positive: Google has answered an
+unauthenticated CONNECT there with `405` and no `Server` header since 2026-08-18.
+
+So the signature of an answer is now the whole answer, status included, and the
+absence of a `Server` header is part of what a host said rather than a missing
+value. Two of the three hosts here can legitimately answer as Cloudflare, which
+is why the discriminator has to be that the hosts differ from *each other* and
+can never be what any one of them said.
 """
 import argparse
 import socket
@@ -95,6 +111,58 @@ def probe(host: str, port: int) -> dict:
     return {"host": f"{host}:{port}", "connect": connect, "get": plain}
 
 
+def voice(answer: dict) -> tuple:
+    """What a host said, as one comparable value.
+
+    The status is in it because the `Server` header on its own is not an
+    answer: a host that replies without one is saying something, and dropping
+    it from the comparison is what made a clean line read as intercepted.
+    """
+    return answer["status"], answer["server"]
+
+
+def spoken(answer: dict) -> str:
+    status, server = voice(answer)
+    return f"{status} {server}" if server else f"{status} with no Server header"
+
+
+def verdict(rows: list) -> tuple:
+    """Read the answers. Returns an exit code and the sentence to print.
+
+    Separated from `main` so it can be asserted offline against answers that
+    are expensive and occasional to obtain live - the intercepted line existed
+    for a few hours in August and cannot be summoned back for a test.
+    """
+    answered = [r for r in rows if r["connect"]["status"] is not None]
+    if not answered:
+        return 0, ("no host answered a CONNECT at all. That is what a healthy "
+                   "line looks like when nothing is listening for one, and it "
+                   "is also what a line that drops CONNECT looks like. "
+                   "Inconclusive: try again, or from another network.")
+
+    voices = {voice(r["connect"]) for r in answered}
+    own = {voice(r["get"]) for r in rows if r["get"]["status"] is not None}
+
+    # One host agreeing with itself is not a chorus. Two answers are the
+    # minimum that can be the same, and the claim is about hosts sounding
+    # alike, so a single reply cannot support it however suspicious it looks.
+    if len(answered) > 1 and len(voices) == 1 and len(own) > 1:
+        said = spoken(answered[0]["connect"])
+        return 1, (f"INTERCEPTED. Every CONNECT was answered {said!r} while "
+                   f"the same hosts answered GET in "
+                   f"{len(own)} different voices. These servers are not "
+                   f"proxies and do not share an operator, so one voice on "
+                   f"CONNECT and several on GET is a box in the middle.\n"
+                   f"Proxied runs from this line will fail for reasons that "
+                   f"have nothing to do with the provider. Do not open a "
+                   f"ticket and do not read a failure rate off this network.")
+
+    heard = ", ".join(sorted(spoken(r["connect"]) for r in answered))
+    return 0, (f"no interception found: the hosts answered CONNECT "
+               f"differently from each other ({heard}). Proxied runs can be "
+               f"read normally.")
+
+
 def main() -> int:
     argparse.ArgumentParser(description=__doc__).parse_args()
 
@@ -107,30 +175,10 @@ def main() -> int:
               f"{str(con['status']) + ' ' + (con['server'] or con['error'] or '-'):28} "
               f"{str(get['status']) + ' ' + (get['server'] or get['error'] or '-'):28}")
 
-    voices = {r["connect"]["server"] for r in rows if r["connect"]["server"]}
-    answered = [r for r in rows if r["connect"]["status"] is not None]
-    own = {r["get"]["server"] for r in rows if r["get"]["server"]}
-
+    code, message = verdict(rows)
     print()
-    if not answered:
-        print("no host answered a CONNECT at all. That is what a healthy line "
-              "looks like when nothing is listening for one, and it is also "
-              "what a line that drops CONNECT looks like. Inconclusive: try "
-              "again, or from another network.")
-        return 0
-    if len(voices) == 1 and len(own) > 1:
-        voice = next(iter(voices))
-        print(f"INTERCEPTED. Every CONNECT was answered by {voice!r} while the "
-              f"same hosts answered GET as {sorted(own)}. These servers are not "
-              f"proxies and do not share an operator, so one voice on CONNECT "
-              f"and several on GET is a box in the middle.")
-        print("Proxied runs from this line will fail for reasons that have "
-              "nothing to do with the provider. Do not open a ticket and do "
-              "not read a failure rate off this network.")
-        return 1
-    print("no interception found: CONNECT was not answered in one voice. "
-          "Proxied runs can be read normally.")
-    return 0
+    print(message)
+    return code
 
 
 if __name__ == "__main__":
