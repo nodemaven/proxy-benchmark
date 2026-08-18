@@ -81,6 +81,31 @@ CONNECT_TIMEOUT = 30.0
 IDLE_TIMEOUT = 120.0
 CHUNK = 65536
 
+# Chrome's own traffic, refused here because there is nowhere else to refuse it.
+#
+# Measured 2026-08-19 on the server, browser on `about:blank` with nothing
+# navigated, bytes attributed per CONNECT authority: a fresh-profile Chrome
+# spends **43.2 MB of a 43.4 MB idle window** on this one host, twice over, with
+# every other host in the run under 100 KB. It is the Optimization Guide
+# fetching an on-device model, and at `--batch 1` a fresh profile pays it again
+# on every attempt - about 43 GB per thousand attempts of a 100 GB shared quota,
+# billed as residential traffic, for something no target ever sees.
+#
+# Launch flags do not reach it. `--disable-background-networking` and
+# `--disable-component-update` are on the browser's real command line and remove
+# everything else; SeleniumBase additionally ships `OptimizationHintsFetching`,
+# `OptimizationTargetPrediction` and `OptimizationGuideModelDownloading` in its
+# own `--disable-features` list, that list is on the command line too, and the
+# fetch still happens. Guessing further feature names until one works is how a
+# four-day run gets launched on a hope.
+#
+# The five Playwright engines never make this request, so refusing it is what
+# makes the relayed engines comparable with them rather than a special case: the
+# uncontrolled variable was which browsers talk to their vendor mid-measurement.
+# It cannot touch a verdict - no target is behind it - and `blocked` is counted
+# so a session that met it says so. Pass `block_hosts=()` to price it again.
+VENDOR_FETCH = ("optimizationguide-pa.googleapis.com",)
+
 
 class Relay:
     """One authenticated upstream identity, listening on loopback.
@@ -92,8 +117,13 @@ class Relay:
     """
 
     def __init__(self, *, params: dict = None, strict: bool = True,
-                 provider=None):
+                 provider=None, block_hosts=VENDOR_FETCH):
         self.params = dict(params or {})
+        # Matched against the host exactly, never as a suffix. A suffix rule
+        # written for one hostname would silently take the whole of
+        # `googleapis.com` with it, and the point of this list is that it names
+        # what it refuses.
+        self.block_hosts = frozenset(h.lower() for h in block_hosts)
         self.provider = provider or providers.load()
         creds = config.credentials(self.provider)
         self.username = proxy.build_username(creds.login, strict=strict,
@@ -116,6 +146,12 @@ class Relay:
         # question with a support ticket behind it, and a counter that cannot
         # tell a dead gateway from a bug in this file must not be quoted at it.
         self.failures = 0
+        # Requests refused by `block_hosts` before an upstream socket existed.
+        # On the row so a session that met the vendor fetch says so: with the
+        # block in force the traffic is absent from `bytes`, and absent for two
+        # very different reasons - the browser did not ask, or it asked and was
+        # refused here. Without this counter those are the same row.
+        self.blocked = 0
         # Every distinct exit the gateway named, in the order it named them. A
         # list and not a single value: a session that silently moved to another
         # address is a fact about the run, and storing the last one would hide
@@ -168,7 +204,8 @@ class Relay:
         with self._lock:
             return {"bytes_up": self.up, "bytes_down": self.down,
                     "bytes": self.up + self.down, "tunnels": self.tunnels,
-                    "tunnel_failures": self.failures, "exits": list(self.exits)}
+                    "tunnel_failures": self.failures, "blocked": self.blocked,
+                    "exits": list(self.exits)}
 
     def since(self, before: dict) -> dict:
         """The difference against an earlier snapshot, for one attempt.
@@ -185,6 +222,10 @@ class Relay:
                 "tunnels": now["tunnels"] - before["tunnels"],
                 "tunnel_failures": now["tunnel_failures"]
                                    - before["tunnel_failures"],
+                # `.get` rather than `[...]`, because a snapshot taken by code
+                # written before this counter existed is still a valid earlier
+                # reading of everything else in it.
+                "blocked": now["blocked"] - before.get("blocked", 0),
                 "exits": now["exits"][len(seen):]}
 
     # -- the relay itself --------------------------------------------------
@@ -221,7 +262,27 @@ class Relay:
         upstream.settimeout(CONNECT_TIMEOUT)
         return upstream
 
+    def _refuse(self, client: socket.socket) -> None:
+        """Answer the client ourselves, without opening anything upstream.
+
+        403 rather than a dropped connection, because a dropped one is what the
+        gateway's own failure floor looks like from the browser and the two must
+        not be confusable in a log. Nothing downstream reads this body: the
+        browser reports a failed request for a host no target is behind.
+        """
+        with self._lock:
+            self.blocked += 1
+        try:
+            client.sendall(b"HTTP/1.1 403 Forbidden\r\n"
+                           b"Content-Length: 0\r\n"
+                           b"Connection: close\r\n\r\n")
+        except OSError:
+            pass
+
     def _tunnel(self, client: socket.socket, authority: str, head: str) -> None:
+        if _host_of(authority) in self.block_hosts:
+            self._refuse(client)
+            return
         try:
             upstream = self._open_upstream()
         except OSError:
@@ -283,6 +344,13 @@ class Relay:
         dropping them would make the relayed arm quietly differ from the
         Playwright arm in what it could reach.
         """
+        # Checked here as well as in `_tunnel` even though the fetch this list
+        # exists for is HTTPS and therefore always a CONNECT. A block that held
+        # on one path and not the other would be a hole nobody would find by
+        # reading the byte column, because the traffic would simply be there.
+        if _absolute_uri_host(head) in self.block_hosts:
+            self._refuse(client)
+            return
         try:
             upstream = self._open_upstream()
         except OSError:
@@ -359,6 +427,33 @@ def _read_head(sock: socket.socket) -> str:
         if len(buffer) > 65536:
             return ""
     return buffer.decode("latin-1")
+
+
+def _absolute_uri_host(head: str) -> str:
+    """The host of an absolute-URI request line, lower case, port stripped.
+
+    Returns '' for anything that is not one, which includes the origin-form
+    request a client would send if it thought this was an ordinary server. That
+    is the right answer rather than a defect: a request with no host in its
+    line cannot be matched against a host list, and guessing one from the `Host`
+    header would let a block fire on a request it was never written for.
+    """
+    parts = head.split("\r\n", 1)[0].split(" ")
+    if len(parts) < 2 or "://" not in parts[1]:
+        return ""
+    authority = parts[1].split("://", 1)[1].split("/", 1)[0]
+    if "@" in authority:
+        authority = authority.rsplit("@", 1)[1]
+    return _host_of(authority)
+
+
+def _host_of(authority: str) -> str:
+    """`host:port` to `host`, lower case, bracketed IPv6 unwrapped."""
+    if authority.startswith("["):
+        return authority.split("]", 1)[0][1:].lower()
+    if ":" in authority:
+        authority = authority.rsplit(":", 1)[0]
+    return authority.lower()
 
 
 def _header_value(head: str, name: str) -> str:

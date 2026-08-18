@@ -687,6 +687,12 @@ def main() -> int:
                             # misses. It is the only byte figure these engines
                             # can have: page.route is a Playwright API.
                             row["bytes"] = spent["bytes"]
+                            # How many requests the relay refused for this
+                            # attempt, so the byte figure says whether the
+                            # browser asked for the vendor fetch and was
+                            # refused, or never asked. Without it those are one
+                            # row and the saving cannot be attributed.
+                            row["relay_blocked"] = spent["blocked"]
                             # The gateway names an exit on only some of its
                             # CONNECT replies, so an empty list here means it did
                             # not say, never that the address was reused.
