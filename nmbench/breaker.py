@@ -77,9 +77,31 @@ class TransportWatch:
     The window is deliberately short. The cost of stopping a healthy run by
     mistake is one command to restart it with `--resume`; the cost of not
     stopping a broken one is a night.
+
+    **The default share is 0.85 and was 0.6 until 2026-08-19, when 0.6 stopped
+    an eight-engine run that had been behaving identically for eight hours.**
+    The arithmetic is the whole of the argument. This threshold is an absolute
+    line, so what it actually asks is "is the recent window improbable under the
+    run's own error rate", and the answer depends on a baseline it does not
+    know. The gateway's unanswered-CONNECT floor put that baseline at 34% on the
+    server. At 34%, a 20-attempt window reaching 12 errors has probability
+    ~0.017, which is rare once and certain over the 8000 windows of a four-day
+    run: the watchdog was guaranteed to fire on a healthy run, and it did, at
+    attempt 564 of 8000.
+
+    0.85 is 17 of 20, probability ~3e-7 at the same baseline, so about 0.2%
+    over a whole run. It costs nothing in detection: a transport failure is not
+    60% errors, it is essentially all of them - every row in `data/runs/` from
+    an interception or a dead gateway is ~100% - so 17 of 20 still trips inside
+    one window, about 17 minutes at the observed pace.
+
+    The general point is worth more than the constant. A fixed share cannot
+    distinguish "errors are new" from "errors have always been this high", and
+    the second is the normal condition on this gateway. If the floor moves
+    again, this number has to be re-derived against it rather than nudged.
     """
 
-    def __init__(self, window: int = 20, share: float = 0.6, spread: int = 3):
+    def __init__(self, window: int = 20, share: float = 0.85, spread: int = 3):
         self.window = window
         self.share = share
         self.spread = spread

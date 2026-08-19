@@ -139,6 +139,38 @@ class TestTransportWatch:
             watch.record(f"cell{index % 5}", "ok")
         assert watch.tripped is True
 
+    def test_the_gateways_own_error_floor_does_not_stop_a_four_day_run(self):
+        """The default share, against the baseline it has to survive.
+
+        The gateway accepts a fifth to a third of CONNECTs and never answers
+        them, measured on two unrelated networks, and every one of those is an
+        `error` row spread across every cell. At share 0.6 that floor tripped a
+        healthy eight-engine run at attempt 564 of 8000 on 2026-08-19 - the
+        error rate had been 33% in the first hour and 34% in the eighth, so
+        nothing had changed except which twenty attempts the window held.
+
+        Deterministic rather than random: this reproduces the worst case the
+        floor can produce at 34%, which is what the threshold has to survive,
+        instead of sampling and hoping. Seven errors in every twenty is 35%.
+        """
+        watch = TransportWatch()
+        for index in range(8000):
+            verdict = "error" if index % 20 < 7 else "captcha"
+            watch.record(f"cell{index % 16}", verdict)
+        assert watch.tripped is False
+
+    def test_a_transport_failure_is_still_caught_in_one_window(self):
+        """What the watchdog is for, and it is not a 60% error rate.
+
+        An intercepted line or a dead gateway fails essentially everything, so
+        raising the share to 0.85 costs nothing in detection: this trips inside
+        a single window, about 17 minutes at the pace of the 2026-08-19 run.
+        """
+        watch = TransportWatch()
+        for index in range(20):
+            watch.record(f"cell{index % 8}", "error")
+        assert watch.tripped is True
+
 
 class TestTheTwoDefaultsAreDeliberatelyDifferent:
     """N is not one number across this repository, and the difference is load

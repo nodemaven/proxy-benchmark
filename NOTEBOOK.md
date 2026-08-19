@@ -336,6 +336,36 @@ answers themselves are not the test: `www.google.com:80` returned `Server: gws`
 in 2026-08-13 and returns 405 with no `Server` header at all in 2026-08-18, both
 on a clean path.
 
+### The second network arrived, and the CONNECT floor is the gateway's
+
+The control this file kept asking for is the VPS. It is a different machine on a
+different line in a different datacentre, with no VPN client on it and nothing
+in front of CONNECT, and `connect_integrity.py` says so rather than the operator
+saying so.
+
+Measured 2026-08-18 from the server: **25% of CONNECTs were accepted and never
+answered**, against 21.8% pooled over the whole history of the workstation. Two
+lines with nothing in common except the gateway produce the same floor, and the
+difference between them is not significant. The competing story - a middlebox on
+the operator's line that treats CONNECT differently from everything else - cannot
+survive that, because the second line has no such box and shows the same
+fraction.
+
+**So the support ticket is supported and may be sent.** It has been held since
+2026-08-13 on the correct ground that the evidence could not distinguish the
+gateway from our own transport. It can now: the reproduction is one line, the
+control is another, and the numbers are quoted with the Wilson interval like
+everything else here.
+
+The same measurement re-confirms the multiple implementations, and gives the
+discriminator a name. A 200 that carries `X-Proxy-Exit-IP` arrives as
+`Connection established`; the ones that arrive as `OK` or as
+`Connection Established` do not carry it. The reason phrase is therefore a free
+label for which implementation answered, available on every CONNECT the relay
+already parses, and any per-implementation figure has to be split on it rather
+than pooled - a rate averaged over three back ends is a rate belonging to none of
+them.
+
 ### Exit yield is a country axis, and US is the worst of them
 
 Measured 2026-08-12 by two runs of the same experiment four and a half hours
@@ -568,6 +598,83 @@ already called the arrow instead of unwrapping it; zendriver now does the same,
 and `TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass` asserts both shims
 together, because a difference between two adapters is a difference in what their
 columns mean.
+
+### What the first eight-engine run on the server exposed
+
+The move to the VPS is documented above as a build change. It is also a load
+change - 2 vCPU and 4 GB against a workstation - and a locale change, and the
+first run that put all eight engines in one matrix found something in four of
+them. None of these is a result about a target; all four are ways a row could
+have been written wrong.
+
+**zendriver declared the browser dead after 2.5 seconds, and its own error
+message named the wrong cause.** `browser_connection_timeout` 0.25 s times
+`browser_connection_max_tries` 10 is the whole of the patience it ships with,
+and the exception it raises when that runs out blames running as root and
+suggests `no_sandbox=True`. Measured 2026-08-18: the account is uid 1000, and
+the engine launches fine standalone, fine with a relay, fine after each of the
+four other Chromium engines in turn, and fine as the only cell of a matrix. It
+failed both of its cells **only** in the full eight-engine run, where fourteen
+browsers had already been launched on a 2-vCPU box and a 46 MB Amazon page was
+in flight. That is a cold start exceeding 2.5 s, not a sandbox. The tries are
+now 60, so the wait is 15 s; the launch itself is unchanged.
+
+Acting on the message instead would have added `--no-sandbox` to the browser
+under test to fix a timeout - a fingerprint change to the thing being measured,
+bought for nothing. An engine's own diagnostics are written for its usual
+audience and this repository is not it.
+
+**SeleniumBase UC mode rebuilds its option set and drops most of what the
+framework configures in normal mode.** Its `_set_chrome_options` adds
+`--disable-background-networking` on the ordinary path; under `uc=True` the
+option set is assembled elsewhere and the flag does not arrive. That is why this
+engine needs `chromium_arg` for a flag the framework already believed it was
+setting. The general form is the one to remember: **anything handed to this
+engine can be lost the same way**, so a setting that matters has to be verified
+on the browser's real command line rather than in the call that asked for it.
+`/proc/<pid>/cmdline` is where that is checked, and see the trap in the next
+paragraph before doing so.
+
+**Chrome rewrites its own argv into one space-separated string**, so
+`/proc/<pid>/cmdline` for a Chrome process cannot be split on NULs the way the
+interface promises. Split it and you get a single element, no element matches
+`--type=`, every renderer is mistaken for the browser process, and an `any()`
+over an empty set answers False. That is exactly the failure mode this file
+warns about elsewhere: a check whose negative result looks like a missing
+feature manufactures the defect it exists to find. It reported both flags
+missing on both engines, twice, and both flags were there. Read the whole line
+as one string.
+
+**The unaligned baseline is not the same baseline it was, and every row on disk
+was written against the old one.** The geo-alignment axis is defined in this file
+against a `ru-RU`, `Europe/Moscow` machine requesting US exits - "a US address
+with a Moscow timezone is a one-line inconsistency check". The server is **UTC**
+with `LANG=C.UTF-8`, so `geo: off` there is a browser reporting UTC and no
+regional locale at all. That is not the same client. It is less obviously
+contradictory than Moscow, and it is also not any real person's configuration,
+so it must not be read as "the server is aligned by default". What it does mean
+is that the 1907 `geo: off` rows from the workstation and the `geo: off` rows
+from the server are two different arms of the axis the file says it is holding
+constant, and any comparison across the move has to say which side it is on.
+
+**Camoufox needs its addon directory populated and nothing checks that it is.**
+`~/.cache/camoufox/addons` has to hold `UBO`; a `camoufox fetch` that was
+interrupted leaves the directory there and empty, and the engine still reports
+available, because `CamoufoxEngine.check` asks whether the package imports and
+nothing more. This is the same shape as the `cloakbrowser.download()` line in
+the setup section - an availability check that reads the installer rather than
+the thing installed - and the same fix applies: `--dry-run` is what tells you,
+so run it on a new machine before a matrix rather than after one.
+
+**Per-tunnel byte attribution has to use the tunnel's own thread, not
+differences.** `Relay._pump` runs in the thread `Relay._tunnel` is running in,
+so a `threading.local()` set at CONNECT time and read in a patched `_count`
+gives exact per-host bytes. Differencing the relay's global counters around each
+tunnel does not, because tunnels overlap: a long-lived one -
+`mtalk.google.com:5228` is the usual culprit - is charged for everything alive
+beside it, and the per-host sums come out at several hundred MB against a 43 MB
+total. The first version of the probe did that and the numbers were nonsense in
+a way that looked like a finding.
 
 ### The viewport is not what Google reads, and it was the obvious rival explanation
 
@@ -1040,6 +1147,86 @@ what the provider bills. The relay also adds a loopback hop, so **`elapsed_ms`
 on a relayed row is not comparable against an unrelayed one**; verdicts and
 bytes are.
 
+### Chrome pays its vendor 43 MB per profile, and the pool was billed for it
+
+Measured 2026-08-19 on the server, browser opened on `about:blank` with nothing
+navigated, 60 s, bytes charged to the CONNECT authority that carried them. A
+fresh-profile Chrome spends **43.2 MB of a 43.4 MB idle window** on
+`optimizationguide-pa.googleapis.com` and under 100 KB on every other host in
+the run. It is the Optimization Guide fetching an on-device model. At `--batch
+1` the profile is fresh on every attempt, so it is paid again on every attempt:
+about **43 GB per thousand attempts** of a 100 GB shared quota, billed as
+residential traffic, for a request no target ever sees and no verdict ever
+reads.
+
+It is the whole of the gap that looked like an engine property. Before this was
+attributed, seleniumbase and botasaurus read 40 times the bytes of the
+Playwright engines on the same target, and the obvious explanation - that
+`page.route` undercounts because it sees page resources rather than sockets -
+turned out to be worth 1.7x, not 40x: camoufox at Amazon is 817,150 counted
+through route against 1,410,665 counted through sockets in the same attempt. The
+factor of 1.7 is the real instrument difference and it is what the paragraph
+above is about. The rest was Chrome talking to Google.
+
+**Launch flags do not reach it, and this was established rather than assumed.**
+`--disable-background-networking` and `--disable-component-update` are verified
+present on the real browser command line for both engines and they remove
+everything else. SeleniumBase additionally ships `OptimizationHintsFetching`,
+`OptimizationTargetPrediction` and `OptimizationGuideModelDownloading` in its own
+`--disable-features` list, that list is on the command line too, and the fetch
+still happens: 43,041,458 bytes to that host in a 90 s window with all three
+names in force. Guessing further feature names until one appears to work is how
+a four-day run gets launched on a hope.
+
+`zendriver` is the control that makes this a flag question and not a host-Chrome
+question: same Chrome 151, same box, same relay, **72 KB idle**, where
+seleniumbase on the same host Chrome read 43.4 MB. Its own `Config` sets both
+flags by default, and Playwright sets them too - they are in its driver's switch
+list - which is why patchright idles at 43 KB. So the uncontrolled variable was
+never the browser family.
+
+**What that does not license is reading the flags as the cause, and the first
+hour of the matrix corrected it.** zendriver's own rows carry
+`relay_blocked=1`: it asks for the model too, and is refused at the relay like
+the other two. Its 72 KB idle window was a window in which it happened not to
+ask, not a window in which a flag stopped it. Botasaurus says the same thing
+from the other side - 43.6 MB, then 46 KB, then one refused request at 520 KB
+across three windows of the same length. **The fetch is intermittent on every
+engine that drives Chrome**, and a single idle window measures the coin rather
+than the engine. The flags remove the rest of the background traffic and they do
+not govern this request; nothing observed here has.
+
+By the same argument the Playwright engines cannot be said never to make it.
+They are not relayed, so nothing in this repository can see their CONNECTs at
+all, and their low idle figures are `page.route` counts of a browser that was
+not asked to navigate. What is measured is that the relayed engines make it and
+that the relay refuses it.
+
+**The relay refuses that one hostname**, because it is the only place left that
+can refuse it deterministically, it applies identically to all three relayed
+engines, and it cannot touch a verdict - no target is behind it. Verified the
+same day on seleniumbase, same engine minutes apart: **43,283,925 bytes idle
+without the block against 201,771 with it**, `blocked=1`. Matched on the host
+exactly and never as a suffix, so the rule cannot grow into `googleapis.com` and
+start eating a target's own traffic; `blocked` is counted and reaches the row as
+`relay_blocked`, because without it "the browser never asked" and "it asked and
+was refused here" are the same row; and `block_hosts=()` prices it again.
+
+Two things this does not license. It is **not** a hardening of the browser under
+test - nothing on the command line changes, no fingerprint moves, and the
+unmodified `chromium` control is untouched, which is the rule that makes it
+acceptable at all. And the fetch is **intermittent on botasaurus**: two of its
+idle windows came back 43.6 MB and 46 KB, and a third asked once and was refused
+at 520 KB total. A single idle window is not a measurement of this, which is
+exactly how the whole question started as a mystery about `chromium_arg` giving
+178 KB once and 43.2 MB the next time.
+
+One neighbour worth recording and deliberately not blocked: both botasaurus
+windows spent about 460 KB on an `r*.gvt1.com` CDN node. That is real, it is the
+same class of vendor traffic, and at 460 KB per session it is three orders of
+magnitude below the model fetch. Refusing more hosts than the measurement
+requires is how a measurement harness turns into a browser nobody else runs.
+
 **A capability only some engines have must be refused by the runner, not dropped
 quietly - and that now includes blocking.** `supports_headful`,
 `supports_geo_align` and `supports_humanize` were guarded; `supports_blocking`
@@ -1417,6 +1604,19 @@ pool, interleaved, a distinct /24 per attempt.
 So Amazon's cost sits on the browser after all, and it does not run along the
 patching: Firefox is served, Chromium is throttled, patched or not.
 
+**Every Amazon figure in this section is a reading of August 2026 on a
+workstation, and the first run from the server disagrees with it.** A smoke run
+on 2026-08-18, eight engines and one query each, was served on **6 of 7** engines
+that reached the target, including the two Chromium-family engines this table
+puts at 9% and 12%. Seven attempts is not a rate and this is deliberately not
+entered as one - it is a flag on the table above, not a replacement for it. What
+changed at the same time is the machine, the Chrome build, the locale baseline
+and the entry into a new hour, so nothing here can even name which. The
+eight-engine matrix running now answers it at 500 attempts per engine; until it
+lands, quote the Amazon columns above with the date attached or not at all. The
+`us = 0%` correction is the precedent: the direction survived replication and the
+magnitude did not.
+
 The obvious candidate is the TLS handshake, which no JavaScript patching reaches
 and which Camoufox gets for free by being Firefox. Two rows already on disk
 argue against it, and both sat in this file's own tables while it called TLS the
@@ -1715,6 +1915,33 @@ it there would silently make new rows incomparable with the committed ones.
 Whichever N is in force, the cost is N confirmed-automation retries per cell
 against a target that has already refused, so raising it is a pool-safety
 decision and not a patience one.
+
+**The run-level watchdog was tuned against a floor that has since moved, and it
+stopped a healthy run.** `TransportWatch` stops the whole matrix when a recent
+window is mostly `error` across several cells, which is the only way a shared
+transport failure can be told from a cell that is genuinely refused. Its share
+was 0.6 over a window of 20, and on 2026-08-19 that ended an eight-engine run at
+attempt 564 of 8000, after eight hours in which nothing had changed: the error
+rate was 33% in the first hour and 34% in the eighth, all of it
+`ERR_EMPTY_RESPONSE` from the gateway's unanswered-CONNECT floor, spread evenly
+over all sixteen cells.
+
+The threshold is an absolute line, so what it really asks is whether a window is
+improbable under the run's own error rate - and it does not know that rate. At
+34%, 12 errors in 20 has probability about 0.017, which is rare once and certain
+across the 8000 windows of a four-day run. The watchdog was guaranteed to fire.
+It is now 0.85, about 3e-7 per window at the same baseline, and detection costs
+nothing: a transport failure is not 60% errors, it is essentially all of them -
+every interception and every dead gateway in `data/runs/` reads near 100% - so
+17 of 20 still trips inside one window, about 17 minutes at the observed pace.
+
+The constant matters less than the shape of the mistake. **A fixed threshold
+cannot tell "the errors are new" from "the errors have always been this high",
+and the second is the normal condition on this gateway.** If the floor moves
+again this number has to be re-derived against it rather than nudged, and the
+two tests beside it are written as that derivation: one drives the watch at the
+measured floor for a full run length and requires it not to trip, the other
+drives a total failure and requires it to trip inside one window.
 
 **N=10 is now measured rather than argued.** Read 2026-08-12 over every
 `benchmark_*.jsonl`, 129 cells and 1464 attempts, as the chance an attempt
