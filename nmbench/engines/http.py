@@ -38,6 +38,20 @@ def supported_encodings() -> str:
 # A plain client announcing python-requests is refused on the header layer before
 # anything else gets a chance to matter. These headers do not disguise the TLS
 # handshake, which still has a Python shape - see BROWSER_HEADERS callers.
+#
+# The Chrome version is a pin, not a current value, and it is 24 releases behind
+# the browsers in the matrix: they report 145-151 and this says 127. Recorded and
+# deliberately not bumped, on the same grounds as every other pin here - 289 rows
+# in `data/runs/` were measured with this exact string, and changing it moves the
+# control's identity without moving anything else, so new rows would stop being
+# comparable with them for a reason no column records.
+#
+# It is a known confound rather than a settled choice. This repository's own
+# DuckDuckGo finding is that a User-Agent substring alone sorted a table 95/95
+# against 0/50, so a target that sorts on staleness would refuse this control and
+# the refusal would read as the scriptless client failing. Nothing here has
+# measured whether any target does. If it is ever bumped, bump it in a commit
+# that runs both values in one window, the way the geo axis was added.
 BROWSER_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"),
@@ -54,6 +68,15 @@ def looks_undecoded(text: str) -> bool:
 
     A verdict derived from undecoded bytes is always the fallback verdict, which
     silently looks like a block. Better to refuse to judge.
+
+    The two constants are a discriminator and not a tuning. Compressed bytes
+    decoded as text are replacement characters almost everywhere, so the real
+    figure is tens of percent; ordinary markup carries none at all, and the few
+    that appear come from a mis-declared charset on a single product title. 2%
+    sits in the empty gap between those, not near either. The 4000-character
+    sample is the head of the document, which is where the difference is already
+    total - a gzip magic number is in the first two bytes - and it keeps the
+    check off the megabyte of markup behind it on every attempt that is fine.
     """
     if not text:
         return False

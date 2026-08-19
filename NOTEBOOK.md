@@ -38,8 +38,10 @@ editing the runner. This repository will be published as open source.
         camoufox.py     patched Firefox over Playwright
         obscura.py      Rust browser with its own renderer, over CDP
         cloak.py        patched Chromium handing back a Playwright browser
+        rebrowser.py    a Playwright fork patching the Runtime.enable leak
         seleniumbase.py Chrome over ChromeDriver, the WebDriver family
         zendriver.py    Chrome over raw CDP, no WebDriver and no Playwright
+        botasaurus.py   Chrome over raw CDP, a second one, for the 2x2
         curlcffi.py     scriptless client wearing Chrome's ClientHello
     scripts/
       benchmark.py      the matrix runner
@@ -195,11 +197,11 @@ Other observations:
 
 **Resolved 2026-08-13, later the same day.** The interception described below
 was real and every measurement of it holds. The attribution did not: it was not
-the ISP and not a middlebox on the line, it was **Happ**
-(`C:\Progs\Happ\Happ.exe`) running `sing-box` and `xray` on this machine, with a
-`happ-tun` adapter holding the `0.0.0.0/0` default route via 172.18.0.2. Every
-packet was leaving through a Cloudflare-fronted remote, which is exactly why
-three unrelated hosts answered CONNECT in one voice and signed it `CF-RAY: -`.
+the ISP and not a middlebox on the line, it was **a VPN client on the
+workstation itself** - Happ, running `sing-box` and `xray`, with a `happ-tun`
+adapter holding the `0.0.0.0/0` default route. Every packet was leaving through
+a Cloudflare-fronted remote, which is exactly why three unrelated hosts answered
+CONNECT in one voice and signed it `CF-RAY: -`.
 
 Fixed without stopping Happ, by routing the gateway addresses around the tunnel:
 
@@ -230,9 +232,10 @@ Three things follow, and the first is the one with a deadline on it.
   every engine. Before any long run, re-add them and re-check, in that order.
 - **The route table cannot tell you whether traffic is tunnelled, so it must not
   be read as if it could.** `Find-NetRoute` sends `ipinfo.io` to `happ-tun`, and
-  the address ipinfo.io reports is the operator's own residential
-  ISP, identical when the request is bound to the LAN address
-  instead. The packets reach `sing-box` and `sing-box` decides, by
+  ipinfo.io nonetheless reports the operator's own ISP - the same address and the
+  same ASN as when the request is bound to the LAN adapter instead. So a request
+  routed *into* the tunnel came back out of the local line, and the two readings
+  are indistinguishable. The packets reach `sing-box` and `sing-box` decides, by
   its own policy, which of them to send through a remote; that decision is
   invisible from outside. The `/32` routes matter precisely because they take the
   gateway addresses out of that decision altogether, and they are the only

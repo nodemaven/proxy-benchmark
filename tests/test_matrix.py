@@ -351,6 +351,44 @@ class TestLoadCompleted:
         assert matrix.load_completed([first, second]) == {("c", "q0"), ("c", "q1")}
 
 
+class TestWhichGatewayTheRowsWereMeasuredThrough:
+    """Resume is the one door into a run that `build_cells` never sees.
+
+    A cell on the default provider carries no provider segment in its key, so two
+    gateways produce byte-identical keys and the resume cannot tell them apart on
+    the key alone. Read off the rows instead, and let the runner refuse.
+    """
+
+    def write(self, tmp_path, rows):
+        path = tmp_path / "run.jsonl"
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n",
+                        encoding="utf-8")
+        return path
+
+    def test_a_proxied_row_names_its_gateway(self, tmp_path):
+        path = self.write(tmp_path, [{"provider": "oxylabs", "direct": False}])
+        assert matrix.providers_named([path]) == {"oxylabs"}
+
+    def test_rows_predating_the_column_name_nothing(self, tmp_path):
+        # 2271 of the 2285 rows committed here are in this state. Reading an
+        # absent provider as a conflict would refuse every resume on disk.
+        path = self.write(tmp_path, [{"cell": "c", "query": "q", "verdict": "ok"}])
+        assert matrix.providers_named([path]) == set()
+
+    def test_a_direct_row_names_no_gateway(self, tmp_path):
+        # The row still carries the provider it would have used, and it used
+        # none: nothing it did went through a gateway, so it is not evidence
+        # about which one answered.
+        path = self.write(tmp_path, [{"provider": "nodemaven", "direct": True}])
+        assert matrix.providers_named([path]) == set()
+
+    def test_a_mixed_file_names_both(self, tmp_path):
+        path = self.write(tmp_path, [{"provider": "a", "direct": False},
+                                     {"provider": "b", "direct": False},
+                                     {"provider": "a", "direct": False}])
+        assert matrix.providers_named([path]) == {"a", "b"}
+
+
 class TestEstimate:
     def test_counts_the_plan_before_anything_is_sent(self):
         batches = matrix.plan(cells(), QUERIES, batch_size=5)

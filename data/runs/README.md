@@ -1,7 +1,9 @@
 # The rows
 
 Every measurement this repository has ever made, one JSONL row per attempt, one
-file per run. 131 files, about 4 MB, covering 2026-08-10 to 2026-08-14.
+file per run. Counted 2026-08-19: 143 files, 4.1 MB, covering 2026-08-10 to
+2026-08-18. Every count on this page carries that date because the directory
+grows, and a number without a date is the thing this repository is against.
 
 They are committed on purpose. Every claim in `NOTEBOOK.md` and in the top-level
 README names the run it came from, and a claim whose evidence is not in the
@@ -66,12 +68,12 @@ push, and run it again after adding a script that touches a gateway reply.
 
 | Prefix | Files | Written by | What it holds |
 |---|---|---|---|
-| `benchmark_` | 43 | `scripts/benchmark.py` | the matrix runs: engine x target x gateway parameters, interleaved, one row per attempt |
-| `gateway_health_` | 37 | `probes/gateway_health.py` | CONNECT probes with no browser: is the gateway usable right now |
+| `benchmark_` | 44 | `scripts/benchmark.py` | the matrix runs: engine x target x gateway parameters, interleaved, one row per attempt |
+| `gateway_health_` | 45 | `probes/gateway_health.py` | CONNECT probes with no browser: is the gateway usable right now |
 | `probehold_` | 19 | `probes/probe_and_hold.py` | the front-page entry protocol: one exit per identity, probe, then hold |
-| `engine_fingerprint_` | 7 | `probes/engine_fingerprint.py` | 21 markers per engine, read on `about:blank`, sends nothing |
+| `engine_fingerprint_` | 10 | `probes/engine_fingerprint.py` | 21 markers per engine, read on `about:blank`, sends nothing |
 | `availability_` | 7 | a script that no longer exists | Camoufox pass rates, 2026-08-10 and 11 |
-| `google_429_` | 5 | `probes/google_429.py` | the five-step layer isolation against Google |
+| `google_429_` | 6 | `probes/google_429.py` | the five-step layer isolation against Google |
 | `tls_echo_` | 3 | `probes/tls_echo.py` | JA4, JA3, HTTP/2 fingerprint and cipher counts per engine |
 | `walmart_recon_` | 2 | `probes/walmart_recon.py` | 33 bodies captured before any Walmart verdict rule was written |
 | `dsl_probe_` | 2 | a script that no longer exists | the gateway parameter DSL: what each malformed input returns |

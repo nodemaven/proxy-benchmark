@@ -212,12 +212,6 @@ class SeleniumBaseSession:
             row["elapsed_ms"] = round((time.perf_counter() - started) * 1000)
         return row
 
-    def close(self) -> None:
-        try:
-            self.driver.quit()
-        except Exception:
-            pass
-
 
 class SeleniumBaseEngine:
     name = "seleniumbase"

@@ -30,7 +30,9 @@ patchright==1.61.2
 # session class rather than adding a second request path. It is the only
 # Chromium-family engine here that can align geo and humanize input, which is
 # what makes those two flags measurable as axes instead of Camoufox-only
-# settings. # Ships its own browser binary, fetched by `cloakbrowser.ensure_binary()`.
+# settings.
+#
+# Ships its own browser binary, fetched by `cloakbrowser.ensure_binary()`.
 # `cloakbrowser.download` is a module and not a function, so the call this file
 # and NOTEBOOK.md both documented until 2026-08-18 raised TypeError: 'module'
 # object is not callable. It went unnoticed because the workstation had the

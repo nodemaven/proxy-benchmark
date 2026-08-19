@@ -20,7 +20,7 @@ happens before any upstream connection exists rather than after one.
 """
 import pytest
 
-from nmbench import relay
+from nmbench import providers, relay
 
 
 class FakeClient:
@@ -31,6 +31,23 @@ class FakeClient:
 
     def sendall(self, data):
         self.written += data
+
+
+class FakeUpstream:
+    """A gateway answering one CONNECT with a canned reply and no payload."""
+
+    def __init__(self, reply: bytes):
+        self._reply = reply
+
+    def sendall(self, data):
+        pass
+
+    def recv(self, _size):
+        reply, self._reply = self._reply, b""
+        return reply
+
+    def close(self):
+        pass
 
 
 def make(fake_credentials, **kwargs):
@@ -136,6 +153,57 @@ class TestTheCounterReachesTheRow:
         assert hop.since({"bytes_up": 0, "bytes_down": 0, "bytes": 0,
                           "tunnels": 0, "tunnel_failures": 0,
                           "exits": []})["blocked"] == 1
+
+
+class TestTheExitHeaderIsTheProvidersOwn:
+    """The header carrying the exit address is a gateway dialect, not a constant.
+
+    `gateway.identify` read it off the definition and this file spelled
+    NodeMaven's name in, which is the shape of mistake the provider layer exists
+    to prevent and the hardest kind to see: against another gateway nothing
+    raises, the relay simply never records an exit, and the column reads exactly
+    like a gateway that did not send one. It falls on zendriver, seleniumbase and
+    botasaurus, for which this list is the only per-tunnel exit evidence there is.
+    """
+
+    def dial(self, monkeypatch, vendor, reply: bytes):
+        """One CONNECT through a relay on `vendor`, answered with `reply`.
+
+        The credentials are set here rather than taken from `fake_credentials`
+        because their variable names are derived from the provider id, which is
+        the same mechanism being tested one layer down.
+        """
+        for field in ("LOGIN", "PASSWORD"):
+            monkeypatch.setenv(f"{vendor.id.upper()}_{field}", "x")
+        monkeypatch.setenv(f"{vendor.id.upper()}_HOST", "gw.example.invalid")
+        monkeypatch.setenv(f"{vendor.id.upper()}_PORT", "8080")
+
+        hop = relay.Relay(provider=vendor)
+        hop._open_upstream = lambda: FakeUpstream(reply)
+        hop._pump = lambda client, upstream: None
+        hop._tunnel(FakeClient(), "www.example.com:443", "")
+        return hop
+
+    def test_a_gateway_with_another_header_name_is_still_read(self, monkeypatch):
+        vendor = providers.Provider(id="other", label="Other",
+                                    known_params=frozenset({"country"}),
+                                    exit_ip_header="X-Egress-Address")
+        hop = self.dial(monkeypatch, vendor,
+                        b"HTTP/1.1 200 Connection established\r\n"
+                        b"X-Egress-Address: 1.2.3.4\r\n\r\n")
+        assert hop.snapshot()["exits"] == ["1.2.3.4"]
+
+    def test_a_gateway_that_declares_no_header_records_no_exit(self, monkeypatch):
+        """Not a defect: the definition says the address costs an echo request
+        instead, and reading a header this gateway never documented would
+        attribute another vendor's value to it."""
+        vendor = providers.Provider(id="quiet", label="Quiet",
+                                    known_params=frozenset({"country"}))
+        hop = self.dial(monkeypatch, vendor,
+                        b"HTTP/1.1 200 Connection established\r\n"
+                        b"X-Proxy-Exit-IP: 1.2.3.4\r\n\r\n")
+        assert hop.snapshot()["exits"] == []
+        assert hop.snapshot()["tunnels"] == 1
 
 
 class TestHostParsing:

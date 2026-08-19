@@ -233,14 +233,23 @@ def preflight(parser, args, cells, chosen: dict) -> None:
     # column for the one that could not, in one file, and the comparison would
     # read as a provider difference.
     for name, provider in sorted(chosen.items()):
-        if not config.available(provider):
-            wanted = config.variables(provider)
+        # The reason is taken from the exception rather than assumed to be a
+        # missing login. `credentials` refuses for two different causes, and a
+        # definition copied from `_template.toml` ships `host = ""` and
+        # `port = 0`, so the *likely* first failure for anyone adding their own
+        # gateway is the address and not the account. Telling that reader to set
+        # a login they have already set is the shape of error this repository's
+        # own convention exists to prevent: say what will happen, and say which
+        # value caused it.
+        try:
+            config.credentials(provider)
+        except (config.MissingCredentials, providers.ProviderError) as exc:
             parser.error(
-                f"no credentials for provider {name!r}, so none of its cells "
-                f"could leave through a gateway while the other cells in this "
-                f"matrix ran. Set {wanted['login']} and {wanted['password']} "
-                f"in .env, drop {name!r} from --providers, or pass --direct to "
-                f"run the control instead. Nothing has been sent.")
+                f"provider {name!r} cannot reach a gateway, so none of its "
+                f"cells could leave while the other cells in this matrix ran, "
+                f"and the file would hold a full column for one provider and an "
+                f"error column for the other. {exc} Drop {name!r} from "
+                f"--providers, or pass --direct to run the control instead.")
         # The country reaches the gateway as a username parameter, so a provider
         # that does not carry one refuses the axis rather than the flag. Checked
         # the only way it can be: the gateway answers an unknown parameter with
@@ -502,7 +511,24 @@ def main() -> int:
                                countries=countries, direct=args.direct,
                                headful=args.headful, geo=args.geo, extra=extra,
                                provider_names=provider_names)
-    done = matrix.load_completed(resolve_resume(args.resume))
+    resumed = resolve_resume(args.resume)
+    # The one place a provider can change without `build_cells` seeing it. A cell
+    # on the default gateway carries no provider segment in its key, so a run
+    # made through one gateway and a run made through another produce byte
+    # identical keys: resuming across them would skip attempts the second gateway
+    # never made and file its answers under a key that names the first. Refused
+    # rather than merged, because both files are then wrong and neither says so.
+    inherited = matrix.providers_named(resumed) - set(provider_names)
+    if inherited and not args.direct:
+        parser.error(
+            f"--resume points at rows measured through "
+            f"{sorted(inherited)} and this matrix runs "
+            f"{sorted(set(provider_names))}. The cell keys do not carry the "
+            f"default provider, so the two are indistinguishable in the file: "
+            f"resuming would treat the other gateway's answers as this one's "
+            f"and skip the queries it never asked. Start a fresh run, or pass "
+            f"--providers naming the gateway those rows were measured through.")
+    done = matrix.load_completed(resumed)
     batches = matrix.plan(cells, query_sets, args.batch, done)
     plan_estimate = matrix.estimate(batches)
 

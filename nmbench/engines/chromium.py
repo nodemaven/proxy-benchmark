@@ -77,6 +77,7 @@ from contextlib import contextmanager
 
 from .. import blocking, providers, proxy
 from .base import (
+    ENTRY_TIMEOUT_MS,
     EngineUnavailable,
     await_ready,
     blank_row,
@@ -179,7 +180,7 @@ class ChromiumSession:
         started = time.perf_counter()
         try:
             response = page.goto(url, wait_until="domcontentloaded",
-                                 timeout=60000)
+                                 timeout=ENTRY_TIMEOUT_MS)
             if response:
                 row["status"] = response.status
             row["ready"] = await_ready(page, target, self.ready_timeout_ms)

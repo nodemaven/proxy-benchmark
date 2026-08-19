@@ -330,13 +330,30 @@ def transport(attempts: list) -> None:
 
     proxied = [r for r in attempts if not r.get("direct")]
     failed = [r for r in proxied if r.get("verdict") == "error"]
-    if proxied and len(failed) / len(proxied) >= 0.15 \
+    # 0.50, and it was 0.15 until 2026-08-19. This is the analysis-side copy of
+    # the mistake `TransportWatch` made at 0.6: an absolute line cannot tell
+    # "the errors are new" from "the errors have always been this high", and on
+    # this gateway the second is the normal condition. The unanswered-CONNECT
+    # floor is 21.8% on the workstation and 25% on the server, and it reaches
+    # 34-37% in a matrix. Read over every committed run, 0.15 fired on eight,
+    # and six of them sat inside that floor - including `20260811T154830Z` and
+    # `...T213030Z`, which are the two runs the DuckDuckGo finding rests on. So
+    # the line told a reader not to quote the rows this repository quotes.
+    #
+    # 0.50 keeps the two that are genuinely broken (74% and 50%) and drops the
+    # six that are the gateway behaving as documented. It costs nothing in
+    # detection for the same reason 0.85 does not: a broken transport is not
+    # half errors, it is nearly all of them.
+    if proxied and len(failed) / len(proxied) >= 0.50 \
             and len({r.get("cell") for r in failed}) >= 3:
         print("\n  WARNING: errors at this level across this many cells are not "
               "a property of any engine or of any target. Unrelated engine "
               "stacks do not fail together except through what they share, "
-              "which is the path. Read every pass rate below as survivorship "
-              "over that, and fix the transport before quoting one.")
+              "which is the path. This is well above the gateway's own "
+              "unanswered-CONNECT floor of 21.8-25%, which is why it reads as "
+              "a broken path rather than as a bad afternoon. Read every pass "
+              "rate below as survivorship over that, and fix the transport "
+              "before quoting one.")
 
 
 def yield_split(attempts: list, label_of) -> None:

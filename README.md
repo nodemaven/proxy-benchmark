@@ -16,6 +16,11 @@ about this repository's data and not about its scope: the gateway dialect is a
 file, so a second provider is a file, and every definition declares whether rows
 exist behind it.
 
+**New to this, or to Python? Start with [docs/quickstart.md](docs/quickstart.md).**
+It assumes no terminal experience, needs no proxy account, and gets you to a real
+row of data in about twenty minutes. The rest of this file is written for someone
+who already knows what a ClientHello is.
+
 ## The layer model
 
 Every target checks a different layer, and debugging fails when you inspect a
@@ -54,9 +59,11 @@ A single engine against a single target tells you it failed, not where.
         chromium.py     unmodified Chromium (the control) and Patchright
         camoufox.py     patched Firefox over Playwright
         cloak.py        patched Chromium handing back a Playwright browser
+        rebrowser.py    a Playwright fork patching the Runtime.enable leak
         obscura.py      Rust browser with its own renderer, over CDP
         seleniumbase.py Chrome over ChromeDriver, the WebDriver family
         zendriver.py    Chrome over raw CDP, no WebDriver and no Playwright
+        botasaurus.py   Chrome over raw CDP, a second one, for the 2x2
         curlcffi.py     scriptless client wearing Chrome's ClientHello
     scripts/
       benchmark.py      the matrix runner: engines x targets, one time window
@@ -76,18 +83,41 @@ A probe that happens to send nothing says so, and `python -m nmbench` marks it
 
 ## Setup
 
+Python 3.11 or newer, and a checkout. There is no `[project]` section in
+`pyproject.toml` and that is deliberate: this repository is run from a checkout
+rather than installed, because the committed query lists and `data/` are part of
+the instrument and an installed copy would separate the code from its inputs.
+
     python -m venv .venv
-    .venv\Scripts\Activate.ps1
+    .venv\Scripts\Activate.ps1          # macOS, Linux: . .venv/bin/activate
     pip install -r requirements-dev.txt
     python -m playwright install chromium
     python -m patchright install chromium
+    python -m rebrowser_playwright install chromium
+    python -c "import cloakbrowser; cloakbrowser.ensure_binary()"
     camoufox fetch
-    copy .env.example .env      # then fill in credentials
+    copy .env.example .env               # macOS, Linux: cp .env.example .env
 
-Playwright and Patchright pin different Chromium builds and do not share a
-download, so both installs are needed. Nothing above is mandatory: an engine
-whose dependency is missing reports itself unavailable and the rest of the
-matrix still runs.
+Playwright, Patchright, rebrowser and cloakbrowser each pin a different Chromium
+build and **no two of them share a download**, so a fresh machine fetches four
+browsers before the first row. That is the point of the pins rather than an
+inconvenience: the build is what several findings here are about. `zendriver`,
+`seleniumbase` and `botasaurus` download nothing and drive the host's installed
+Chrome, so a machine without Chrome loses three engines and gains three columns
+whose build is not ours to hold constant.
+
+Nothing above is mandatory. An engine whose dependency is missing reports itself
+unavailable, names the install command, and the rest of the matrix still runs.
+`--dry-run` is what prints that list, so run it first on a new machine: a missing
+binary should cost a message rather than half a run.
+
+Headful on a headless host needs a display, and that is not a formality here.
+`--headful` is the difference between `Chrome/...` and `HeadlessChrome/...` on
+the wire, which is the whole of the DuckDuckGo finding, so a server run wraps the
+command in `xvfb-run -a`. What a virtual display does not restore is the GPU: the
+WebGL renderer falls back to software, which is one of the three markers in the
+layer model above, so a headful run on a server is not the same client as a
+headful run on a workstation.
 
 Obscura is not on PyPI. Download the **`-stealth`** archive for your platform
 from the project's releases, unpack it and put the directory on PATH - the plain
@@ -212,11 +242,15 @@ engine declares what it supports and the runner refuses a mixed matrix outright.
 
 | Flag | Declared by | Engines that have it |
 |---|---|---|
-| `--preset` | `supports_blocking` | the Playwright engines - `page.route` is a Playwright API |
-| `--headful` | `supports_headful` | everything with a window |
-| `--geo align` | `supports_geo_align` | camoufox, patchright, cloak, zendriver |
+| `--preset` | `supports_blocking` | the Playwright-driven ones plus obscura - `page.route` is a Playwright API and obscura has its own |
+| `--headful` | `supports_headful` | everything with a window, so everything except the two scriptless clients and obscura, whose `serve` has no such flag |
+| `--geo align` | `supports_geo_align` | camoufox, patchright, rebrowser, cloak, zendriver, botasaurus |
 | `--humanize` | `supports_humanize` | camoufox, cloak |
-| typed entry | `supports_typing` | the engines that can reach a search box |
+| typed entry | `supports_typing` | camoufox, chromium, patchright, rebrowser, cloak, zendriver |
+
+That table is a summary and the code is the authority. The attributes are class
+attributes on each engine, and `--dry-run` refuses a matrix before it starts
+rather than leaving the reader to check a list that has rotted.
 
 **A mixed matrix needs `--preset none`.** The default is `light`, and a matrix
 mixing Playwright engines with non-Playwright ones would block resources for
@@ -364,6 +398,15 @@ choke point every row passes through rather than at each call site, and
 `tests/test_runs_are_publishable.py` fails if a full address ever reaches disk.
 `scripts/tools/redact_runs.py` is what was run over the rows written before the
 rule existed.
+
+It is committed because every claim above names the run it came from, and a
+claim whose evidence is not in the repository is one a reader has to take on
+trust. Several of those claims are corrections of an earlier one, and the
+corrections were only possible because the original rows were still there to
+re-read. They are **not** a baseline to compare your own numbers against, for the
+reason stated throughout: a rate here is a reading of the hours it was taken in.
+`data/runs/README.md` says what they are and are not good for, what each filename
+prefix means, and what the masking guard has already failed to catch twice.
 
 **Estimate before launching anything above ~100 requests.** `--dry-run` prices
 traffic from constants calibrated by `scripts/analysis/calibrate.py`, keyed per

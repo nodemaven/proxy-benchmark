@@ -107,7 +107,13 @@ def parse_args():
     parser.add_argument("--countries", default="any",
                         help="comma separated, an axis. `us` is the worst "
                              "country this repository has measured for Google "
-                             "and is the one worth pairing against")
+                             "and is the one worth pairing against. NOTE: `any` "
+                             "is a value NodeMaven's gateway understands as 'do "
+                             "not pin a country', not a harness keyword - it is "
+                             "sent through as written. On another provider it is "
+                             "an ordinary country code, so it will be refused, or "
+                             "worse accepted and silently dropped. Pass a real "
+                             "code, or whatever that gateway spells this as")
     parser.add_argument("--identities", type=int, default=6,
                         help="fresh exits per cell. Each one is a probe, and a "
                              "probe that fails has spent an address")

@@ -231,8 +231,15 @@ class TestTheRestOfPreflight:
     def test_a_proxied_matrix_without_credentials_is_refused(self):
         """The check is reached only when the run needs the gateway, and it says
         what to do. Without it the first cell opens a browser, fails to build a
-        proxy URL and the run dies having launched one."""
-        with pytest.raises(Refused, match="credentials"):
+        proxy URL and the run dies having launched one.
+
+        Matched on the variable name rather than on the word "credentials",
+        because naming the value is the whole job here. `config.credentials`
+        refuses for two causes - no account, or a definition with no gateway
+        address - and a message that described only the first sent anyone adding
+        their own provider to check a login that was already set.
+        """
+        with pytest.raises(Refused, match="NODEMAVEN_LOGIN"):
             benchmark.preflight(Parser(), args(direct=False), proxied(), chosen())
 
     def test_the_direct_control_needs_no_credentials(self):
@@ -272,6 +279,26 @@ class TestTheProviderAxis:
         assert f"{missing.upper()}_LOGIN" in str(refusal.value), (
             "the refusal has to name the variable to set, or the operator is "
             "told an account is missing without being told what to fill in")
+
+    def test_a_definition_with_no_gateway_address_names_the_host_variable(
+            self, monkeypatch):
+        """The likely first failure for a stranger, and it is not the account.
+
+        `data/providers/_template.toml` ships `host = ""` and `port = 0`, so
+        anyone adding their own gateway by copying it has a definition that
+        cannot reach anything while their login is already in `.env`. Preflight
+        asked `config.available()` until 2026-08-19 and answered every refusal
+        with "set LOGIN and PASSWORD", which sends that reader to check the one
+        value they got right.
+        """
+        self.credentials(monkeypatch, "alpha")
+        with pytest.raises(Refused) as refusal:
+            benchmark.preflight(Parser(), args(direct=False), proxied(),
+                                {"alpha": synthetic("alpha", host="", port=0)})
+        assert "ALPHA_HOST" in str(refusal.value)
+        assert "ALPHA_LOGIN" not in str(refusal.value), (
+            "the login is set, so naming it sends the reader to the one value "
+            "that is not the problem")
 
     def test_both_credentialled_providers_are_allowed(self, monkeypatch):
         """The other half. A guard that refused every multi-provider matrix

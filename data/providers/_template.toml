@@ -53,6 +53,14 @@ known_params = ["country", "sid"]
 
 # The vendor's own spelling, keyed by the canonical name. Omit an entry when the
 # two agree. `country = "cc"` produces `cc-us` from `--countries us`.
+#
+# This renames the parameter and never its value. Values go to the gateway
+# exactly as they arrive on the command line, so a vendor whose values differ -
+# `country=any` is NodeMaven's way of saying "do not pin one", and another
+# gateway will read `any` as a country code and refuse it - has no entry here and
+# needs the right value passed on the command line instead. Say so under `notes`,
+# because the failure is the silent one: an unrecognised value is answered with
+# 200 on at least one gateway and the setting is dropped.
 [aliases]
 # country = "cc"
 # sid = "sessid"

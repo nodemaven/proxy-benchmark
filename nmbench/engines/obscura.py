@@ -70,6 +70,7 @@ from contextlib import contextmanager
 
 from .. import blocking, providers, proxy
 from .base import (
+    ENTRY_TIMEOUT_MS,
     EngineUnavailable,
     await_ready,
     blank_row,
@@ -249,7 +250,7 @@ class ObscuraSession:
         started = time.perf_counter()
         try:
             response = page.goto(url, wait_until="domcontentloaded",
-                                 timeout=60000)
+                                 timeout=ENTRY_TIMEOUT_MS)
             row["status"] = response.status if response else navigation["status"]
             row["ready"] = await_ready(page, target, self.ready_timeout_ms)
             html = page.content()
@@ -311,7 +312,6 @@ def _watch_navigation_status(page) -> dict:
 
     page.on("response", on_response)
     return seen
-
 
 
 class ObscuraEngine:

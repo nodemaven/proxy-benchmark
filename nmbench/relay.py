@@ -81,6 +81,15 @@ CONNECT_TIMEOUT = 30.0
 IDLE_TIMEOUT = 120.0
 CHUNK = 65536
 
+# How much of a request may arrive before the header block ends. A separate name
+# from `CHUNK` even though both are 64 KB today: one is how much is read from a
+# socket at a time and the other is when to give up on a peer that is sending
+# headers forever, and the first is a tuning knob while the second is a refusal.
+# They were one literal until 2026-08-19, which reads as if tuning the read size
+# would move the cap - it would not, and the aliasing is the only reason anyone
+# would think so.
+MAX_HEAD_BYTES = 65536
+
 # Chrome's own traffic, refused here because there is nowhere else to refuse it.
 #
 # Measured 2026-08-19 on the server, browser on `about:blank` with nothing
@@ -324,7 +333,17 @@ class Relay:
             _close(upstream)
             return
 
-        exit_ip = _header_value(reply, "X-Proxy-Exit-IP")
+        # Asked of the definition rather than spelled in. The header name is a
+        # gateway dialect like every other one, and this line named NodeMaven's
+        # until 2026-08-19 while `gateway.identify` already read it from the
+        # provider. The consequence was silent and fell on exactly the engines
+        # that cannot be measured any other way: for the three engines driven
+        # through a relay this list is the only per-tunnel exit evidence there
+        # is, so against any other gateway `session_exit_prefix` would simply
+        # have been absent, which reads as "the gateway did not say" rather than
+        # as "we looked for the wrong header".
+        exit_ip = (_header_value(reply, self.provider.exit_ip_header)
+                   if self.provider.exit_ip_header else "")
         with self._lock:
             self.tunnels += 1
             if exit_ip and (not self.exits or self.exits[-1] != exit_ip):
@@ -424,7 +443,7 @@ def _read_head(sock: socket.socket) -> str:
         if not chunk:
             return ""
         buffer += chunk
-        if len(buffer) > 65536:
+        if len(buffer) > MAX_HEAD_BYTES:
             return ""
     return buffer.decode("latin-1")
 

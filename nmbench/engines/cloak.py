@@ -104,8 +104,15 @@ class CloakEngine:
         except Exception as exc:
             return f"cloakbrowser could not report its binary: {exc}"
         if not info.get("installed"):
+            # `ensure_binary` and not `download`: `cloakbrowser.download` is a
+            # module, so the call this line printed until 2026-08-19 raised
+            # `TypeError: 'module' object is not callable`. The setup notes and
+            # requirements-dev.txt were corrected on 2026-08-18 and this copy was
+            # missed, which is the copy that matters - it is what `--dry-run`
+            # prints on a fresh clone, so the only reader who ever saw it was the
+            # one who did not already have the binary.
             return ("cloakbrowser has no browser binary: run "
-                    "python -c \"import cloakbrowser; cloakbrowser.download()\"")
+                    "python -c \"import cloakbrowser; cloakbrowser.ensure_binary()\"")
         return None
 
     @classmethod

@@ -180,14 +180,14 @@ def plan(cells: list, queries, batch_size: int,
     return batches
 
 
-def load_completed(paths: list) -> set:
-    """Every (cell, query) pair already judged in earlier runs.
+def _rows_of(paths: list):
+    """Every row in `paths`, skipping what cannot be read.
 
-    Rows that errored are deliberately not treated as done: an error is the
-    harness failing, not the target answering, and it is the one outcome worth
-    retrying.
+    A missing file and an unparseable line are both passed over rather than
+    raised on, because the caller is always a resume: the run that wrote the
+    file may have been killed mid-line, and refusing to start over the last
+    half-written row of a four-day run would cost more than the row is worth.
     """
-    done = set()
     for path in paths:
         path = Path(path)
         if not path.exists():
@@ -198,14 +198,46 @@ def load_completed(paths: list) -> set:
                 if not line:
                     continue
                 try:
-                    row = json.loads(line)
+                    yield json.loads(line)
                 except ValueError:
                     continue
-                cell, query, verdict = (row.get("cell"), row.get("query"),
-                                        row.get("verdict"))
-                if cell and query and verdict and verdict != "error":
-                    done.add((cell, query))
+
+
+def load_completed(paths: list) -> set:
+    """Every (cell, query) pair already judged in earlier runs.
+
+    Rows that errored are deliberately not treated as done: an error is the
+    harness failing, not the target answering, and it is the one outcome worth
+    retrying.
+    """
+    done = set()
+    for row in _rows_of(paths):
+        cell, query, verdict = (row.get("cell"), row.get("query"),
+                                row.get("verdict"))
+        if cell and query and verdict and verdict != "error":
+            done.add((cell, query))
     return done
+
+
+def providers_named(paths: list) -> set:
+    """Every gateway the proxied rows in `paths` positively name.
+
+    A cell on the default provider carries no provider segment in its key, and
+    the default is whatever `NMBENCH_PROVIDER` says it is. So one gateway's run
+    and another's produce byte-identical keys, and resuming across the two would
+    both skip attempts the second gateway never made and file its answers under
+    a key that reads as the first. That is the failure the provider axis exists
+    to prevent, arriving through the one door that does not go past `build_cells`.
+
+    Rows written before the column existed carry no provider at all, and are not
+    evidence of a mismatch: 2271 of the 2285 rows committed here are in that
+    state, so treating an absent value as a conflict would refuse every resume
+    on disk. Only a name that is present and different is a conflict. Direct rows
+    name no gateway for the same reason the axis collapses for them: nothing they
+    did went through one.
+    """
+    return {row["provider"] for row in _rows_of(paths)
+            if row.get("provider") and not row.get("direct")}
 
 
 # Bytes per attempt, measured per target, because one global constant cannot
