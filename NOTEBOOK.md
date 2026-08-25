@@ -60,6 +60,10 @@ Findings about the targets:
 - [Which engines have ever passed Google](#which-engines-have-ever-passed-google-and-the-denominator-that-shows-it) ·
   [Amazon answers four different ways](#amazon-answers-four-different-ways-and-two-of-them-are-2-kb) ·
   [Walmart and PerimeterX](#walmart-is-fronted-by-perimeterx-and-the-lock-is-on-the-address)
+- **[The eight-engine matrix landed and the Amazon table did not survive it](#amazon-answers-four-different-ways-and-two-of-them-are-2-kb)** -
+  7627 attempts, the unmodified control best at 96% and patchright worst at 63%,
+  and Google collapsed to 1%. **Read it before quoting any Amazon or Google
+  figure above**
 - [The handshake was read](#the-handshake-was-read-and-it-is-not-the-discriminator) -
   and it explains neither target
 - [DuckDuckGo is reading the User-Agent](#duckduckgo-is-reading-the-user-agent-and-the-split-is-total) -
@@ -1106,6 +1110,19 @@ can reach it. Run it after any Obscura upgrade.
   `ObscuraSession.search` is written and works; only the flag is False, so a
   fixed browser costs a one-line change.
 
+  **The browser was fixed upstream on 2026-08-23 and the flag still must not be
+  flipped on that news.** This defect was filed as `h4ckf0r0day/obscura` issue
+  **#685** on 2026-08-20 and closed as completed three days later by PR **#690**,
+  written by the maintainer `xrip`, which gives `<textarea>` an intrinsic control
+  box. So the reason recorded above has expired - which is the second time this
+  one flag has carried a reason that stopped being true, the first being the
+  missing HTTP status, and the first time it was flipped on the strength of an
+  argument rather than a measurement it was wrong within one query.
+  `obscura_defects.py` exists precisely so this is not argued again: the flag
+  flips when that probe reports a non-zero box on a build containing #690, and
+  the build in the setup instructions is 0.2.0, which predates it. Until someone
+  runs it, the correct state of this entry is "fixed upstream, unverified here".
+
 **`supports_headful` is False and it does not disqualify this engine the way it
 disqualifies a Chromium one.** `obscura serve` has no headless or headful flag
 at all, so there is nothing to turn on. The reason headful matters elsewhere is
@@ -1324,6 +1341,13 @@ unrelated and fixing the first did not touch the second - which is the argument
 for the probe rather than the note. A declared capability that is only argued
 about is one nobody re-checks, and this one had been carrying a reason that had
 stopped being true.
+
+**Both of its reasons have now stopped being true, and the flag is still False.**
+The zero-height textarea was fixed upstream by PR #690 on 2026-08-23. That makes
+this the same sentence for the third time, so the rule is worth stating plainly
+rather than re-deriving: **a capability flag moves on a probe result, never on a
+changelog.** The seleniumbase half of the paragraph above is untouched by any of
+this and still rests on the missing status.
 
 ### Measurement rules
 
@@ -1896,6 +1920,78 @@ eight-engine matrix running now answers it at 500 attempts per engine; until it
 lands, quote the Amazon columns above with the date attached or not at all. The
 `us = 0%` correction is the precedent: the direction survived replication and the
 magnitude did not.
+
+**It landed, and the table above does not survive it. Read this before quoting
+any Amazon figure.** `benchmark_20260819T055927Z.jsonl`, the server, eight
+engines against two targets in 16 interleaved cells, 7627 attempts over 130.2 h
+from 06:00 UTC on 2026-08-19. Pass rate is over judged attempts, so the 12% of
+attempts that never completed are excluded from it and shown separately.
+
+| engine | amazon, pass | amazon, P(live) | P(pass given live) |
+|---|---|---|---|
+| **chromium, the unmodified control** | **96% (419/436)** | 96% (419/436) | **100% (418/419)** |
+| rebrowser | 95% (420/440) | 96% (425/443) | 98% |
+| botasaurus | 94% (419/444) | 96% (429/445) | 98% |
+| camoufox | 92% (412/446) | 97% (431/446) | 95% |
+| seleniumbase | 92% (426/464) | no status recorded | - |
+| zendriver | 92% (371/404) | 96% (331/346) | 95% |
+| cloak | 80% (352/439) | 81% (357/439) | 97% |
+| **patchright** | **63% (288/457)** | 68% (313/457) | 90% |
+
+- **The unmodified control is the best engine on this target**, at 96% with 100%
+  of the pages it was served passing. The previous table had it at 10 of 60
+  served, and the entire Amazon story in this file was built on Firefox being
+  served where Chromium was throttled. **That story is gone.** Camoufox is at 92%
+  and so are three Chromium-family engines; the spread that used to run from 90%
+  to 9% now runs from 96% to 63%, and the top six engines sit inside four points
+  of each other. Two different browser families, patched and unpatched, are now
+  indistinguishable here.
+- **What survived replication is the direction on patchright and nothing else.**
+  It was the worst Chromium-family engine at 9% and it is the worst engine here
+  at 63%. The `us = 0%` precedent holds again, and this time it is the whole of
+  what holds: the ranking of one engine survived, the magnitude moved by 54
+  points, and every other engine's position changed.
+- **Patchright's loss is the address, not the page.** 90% of the pages it was
+  served passed, against 100% for the control - so the gap is almost entirely in
+  P(live), 68% against 96%. Whatever Amazon is doing to it happens before a page
+  exists. The old reading, that Chromium-family engines meet a throttle aimed at
+  the browser, would predict the opposite split.
+- **Nothing here names the cause and the run cannot.** The machine, the Chrome
+  build, the locale baseline and the calendar month all changed between the two
+  tables, exactly as the paragraph above warned, and this run varies none of
+  them. It replaces a set of numbers; it does not explain why they moved.
+
+**Google collapsed to almost nothing in the same window, and that is the larger
+result.** 19 live responses in 2673 attempts, 1%, against the 13-62% by country
+that the yield table records for August 12. Every engine is at 0% or 1%, so
+nothing separates them:
+
+    botasaurus  ok=5 captcha=452     camoufox   ok=1 captcha=451
+    seleniumbase ok=3 captcha=452    cloak      ok=1 captcha=436
+    rebrowser   ok=2 captcha=433     patchright ok=1 captcha=441
+    zendriver   ok=1 captcha=457     chromium   error=500, cell stopped
+
+The country table is not being corrected by this, because it is not the same
+experiment - `country=any` here against a country axis there, six days later, on
+another machine. What it does mean is that **the engine axis is unreadable at
+this target right now**: at 1% the difference between one engine and another is
+one or two pages, and no comparison can be built on that. A Google engine
+comparison needs the probe-and-hold protocol, which finds an exit that will serve
+at all and then holds it, rather than a matrix spending 450 fresh identities per
+engine to be refused 450 times.
+
+**The control's Google cell is `unmeasured`, not `0%`, and the breaker is why.**
+It was stopped after 500 consecutive failures having never been served a single
+body, so there is no denominator to divide by and reporting it as a zero would
+invent one. This is the breaker doing the job the operational-safety section
+describes, and it is the first time a cell in this repository has been stopped
+for the whole of its run.
+
+One caveat on the whole table. This run straddles 21:00 UTC on 2026-08-19, the
+moment the gateway's IP-ban counter started being reset by an authenticated
+request, so its 12% error rate pools two transports and must not be quoted as
+one. The pass rates are read over judged attempts, which excludes `error` by
+construction, and that is what keeps them comparable across the boundary.
 
 The obvious candidate is the TLS handshake, which no JavaScript patching reaches
 and which Camoufox gets for free by being Firefox. Two rows already on disk
