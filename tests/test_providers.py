@@ -53,6 +53,13 @@ RENAMED_SESSION = {**DIALECT,
                    "aliases": {"country": "cc", "session": "sessid"},
                    "session_param": "session"}
 
+# A proxy somebody already owns: one endpoint, a login and a password, and
+# nothing encoded in the username. This is the shape most proxies have, and the
+# harness has to be able to run through it without a line of code, so it is
+# tested as a first-class dialect rather than as a degenerate case.
+PLAIN = {"prefix": "{login}", "known_params": [], "session_param": "",
+         "host": "gw.example.invalid", "port": 8000}
+
 
 def _value(value) -> str:
     if isinstance(value, bool):
@@ -182,6 +189,71 @@ class TestTheSessionKeyComesFromTheProvider:
         assert proxy.session_params("bm1", provider=providers.load("nodemaven"),
                                    country="us") == {"country": "us",
                                                      "sid": "bm1"}
+
+
+class TestAProxyYouAlreadyOwn:
+    """The gateway that recognises nothing, which is what almost every proxy
+    outside this industry looks like.
+
+    It is not a lesser provider and it is not a stub: the engine and target axes
+    - which are most of what this repository measures - run through it exactly as
+    they run through a pool. What it cannot do is hand out a second exit, and the
+    whole of that limit has to be visible in the plumbing rather than argued
+    about in a README, because a run through it that quietly carried a session
+    parameter would record one held identity per row while every attempt drew
+    whatever the single exit was.
+    """
+
+    def test_it_needs_no_parameters_to_be_a_definition(self, definitions):
+        define(definitions, "mine", **PLAIN)
+        assert proxy.build_username(
+            "acct", provider=providers.load("mine")) == "acct"
+
+    def test_no_session_is_asked_for(self, definitions):
+        """Not `sid` under a guessed name, and not a refusal either. There is no
+        session to ask for: the connection is the session."""
+        define(definitions, "mine", **PLAIN)
+        assert proxy.session_params("held1", provider=providers.load("mine")) \
+            == {}
+
+    def test_the_url_carries_the_login_and_nothing_else(self, definitions,
+                                                        monkeypatch):
+        """The end of the path an operator's own proxy actually takes. Anything
+        appended here would be sent to a gateway with no parser for it."""
+        define(definitions, "mine", **PLAIN)
+        monkeypatch.setenv("MINE_LOGIN", "login")
+        monkeypatch.setenv("MINE_PASSWORD", "secret")
+        assert proxy.proxy_url(provider=providers.load("mine")) == \
+            "http://login:secret@gw.example.invalid:8000"
+
+    def test_a_setting_it_does_not_sell_is_refused_before_a_request_exists(
+            self, definitions):
+        """The one refusal that matters to this shape. `--countries us` against
+        a plain proxy is a setting nobody can apply, and a gateway that ignores
+        it silently would let the run complete and label every row `us`."""
+        define(definitions, "mine", **PLAIN)
+        with pytest.raises(proxy.ParamError, match="NOT be applied"):
+            proxy.build_username("acct", provider=providers.load("mine"),
+                                 country="us")
+
+    def test_a_definition_that_lists_nothing_and_still_names_a_session(
+            self, definitions):
+        """`session_param` defaults to `sid`, so a file that lists no parameters
+        and says nothing else is claiming a rotation it never described. Every
+        request built from it would be refused, so the refusal is moved to the
+        loader where it can say which line to write instead."""
+        define(definitions, "mine", **{**PLAIN, "session_param": None})
+        with pytest.raises(providers.ProviderError, match="session_param"):
+            providers.load("mine")
+
+    def test_the_shipped_definition_is_this_shape(self):
+        """`custom.toml` is what a reader copies, and the four environment
+        variables in its header are the whole of what it asks for. A field that
+        drifted back into it would put a parameter on somebody else's wire."""
+        provider = providers.load("custom")
+        assert provider.known_params == frozenset()
+        assert provider.session_param == ""
+        assert not provider.measured
 
 
 class TestRefusals:

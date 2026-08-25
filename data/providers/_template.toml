@@ -49,6 +49,11 @@ param_transport = "username"
 # List only what the vendor documents. A parameter left out costs an error
 # message; a parameter wrongly included costs a run whose rows claim a setting
 # the gateway ignored, and that one cannot be found afterwards.
+#
+# An empty list is a real answer and the common one outside this industry: a
+# plain authenticating proxy takes no settings in the username at all. If that is
+# what you have, `custom.toml` is already written for it and this template is the
+# wrong file to copy.
 known_params = ["country", "sid"]
 
 # The vendor's own spelling, keyed by the canonical name. Omit an entry when the
@@ -69,6 +74,14 @@ known_params = ["country", "sid"]
 # known_params: a session is how every probe in this repository holds one exit
 # across a series of queries, so a provider whose session parameter is missing
 # cannot run the method at all.
+#
+# Write "" when the gateway sells no session, and write it rather than leaving
+# the line out - the default is "sid", so silence claims a rotation nobody
+# described and every request built from the file is refused. An empty value here
+# is honest and has a consequence worth stating under `notes`: with nothing to
+# ask a fresh exit with, every attempt in a run leaves from the same address, so
+# engines and targets stay comparable and exit yield and rotation are not
+# measurable through it.
 session_param = "sid"
 
 # Documented gateway address. <ID>_HOST and <ID>_PORT override these, so the

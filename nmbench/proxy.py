@@ -97,8 +97,20 @@ def session_params(session_id: str, provider=None, **params) -> dict:
     query then draws a fresh exit while each row records one held session. That
     is the invisible one, and holding an exit is the whole of the probe-and-hold
     method.
+
+    A provider that declares no session parameter gets none, and the session id
+    is dropped rather than sent under a guessed name. That is the shape of a
+    proxy somebody already owns: one endpoint with one exit behind it, where the
+    session is the connection and there is nothing to ask for. Sending `sid` to
+    it anyway would either be refused - loud, and a harness that will not run for
+    no reason - or accepted and ignored, which is the failure this module exists
+    to prevent. The honest consequence is that every attempt through such a
+    gateway leaves from the same address, and the row says so by carrying no
+    session at all.
     """
     provider = provider or providers.load()
+    if not provider.session_param:
+        return dict(params)
     return {**params, provider.session_param: session_id}
 
 

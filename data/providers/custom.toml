@@ -1,0 +1,80 @@
+# Your own proxy. Fill in four variables and nothing else.
+#
+#     CUSTOM_HOST=1.2.3.4
+#     CUSTOM_PORT=8000
+#     CUSTOM_LOGIN=your_login
+#     CUSTOM_PASSWORD=your_password
+#
+# in `.env`, then
+#
+#     python -m nmbench gateway-health --provider custom
+#     python scripts/benchmark.py --providers custom --engines http --targets bing_serp
+#
+# This is the shape most proxies actually have: one endpoint, a login and a
+# password, and no settings encoded in the username. Anything you already own or
+# already pay for fits here, and it needs no code and no transcription of a
+# vendor's format.
+#
+# What you give up by using it is worth knowing before you read your own numbers.
+# A gateway with no session parameter has no way to be asked for a different
+# exit, so every attempt in a run leaves from the same address. Engine and target
+# comparisons are unaffected and they are most of what this harness measures; the
+# pool questions - exit yield, how many addresses a target burns through, whether
+# rotation helps - are not askable through it and the runner says so on the plan
+# line rather than producing a number that looks like an answer.
+#
+# If your provider does sell countries or sticky sessions inside the username,
+# copy `_template.toml` instead and write the format down there. That is the file
+# that turns a vendor into a comparable column.
+
+label = "Your own proxy"
+
+# "documented" and it stays that way here. The promotion to "measured" belongs to
+# a fork: the rows in this repository's `data/runs/` were not produced through
+# your gateway, and a definition claiming otherwise would be the one field a
+# reader checks first, wrong.
+status = "documented"
+source = "no vendor format to read: this describes a plain authenticating HTTP proxy, which takes no settings in the username"
+source_read = "2026-08-19"
+
+# Only "username" is implemented, and nothing is carried in it here.
+param_transport = "username"
+
+# Empty, and that is the whole point of this definition. Anything passed with
+# --param or --countries is refused before a request exists rather than sent to a
+# gateway that would ignore it. The refusal names the parameter, so it reads as
+# "this proxy has no such setting" and not as a broken run.
+known_params = []
+
+# No sticky session parameter, because there is no session to ask for. Written
+# out rather than left to the default: the default is `sid`, and a definition
+# that says nothing is claiming a rotation it cannot do.
+session_param = ""
+
+# Both come from CUSTOM_HOST and CUSTOM_PORT. There is no default to ship,
+# because the address is yours.
+host = ""
+port = 0
+
+# Some gateways name the exit address on the CONNECT reply, which makes it free
+# to record; most plain proxies do not, and then the harness pays one echo
+# request per session for it instead - about 330 bytes. If yours does send a
+# header, name it here and the request stops being paid.
+exit_ip_header = ""
+
+notes = """
+A plain HTTP proxy with Proxy-Authorization, which is what almost everything
+speaks. The three things worth checking before trusting a run through it:
+
+`python -m nmbench gateway-health --provider custom` opens ten CONNECTs and
+sends nothing to any target. It is the cheapest check that separates a wrong
+password from an unreachable host, and it costs a few hundred bytes.
+
+Whether the exit address is what you think it is. `--identify` on that command
+names the operator behind the exit, and a pool sold as residential that answers
+with a hosting ASN is a finding about the proxy rather than about the run.
+
+Whether it is HTTPS-capable. This harness only ever issues CONNECT, so a proxy
+that does not tunnel is unusable here and will fail every attempt identically -
+which the health probe shows in thirty seconds and a matrix shows in a night.
+"""
