@@ -11,14 +11,22 @@
 
 **Measures at which layer a target blocks you, and what getting through costs.**
 
-<!-- The `gate` badge reads a workflow through the shields.io API, which sees this
-     repository only once it is public - until then it renders "gate inaccessible"
-     rather than a status. The other three are static and render today. The row
-     count is re-derived, not carried forward: `cat data/runs/*.jsonl | wc -l` gave
-     12,173 across 156 files on 2026-08-25, where this badge had said 3,701 since
-     the first commit. Re-run that command before changing the number. -->
+<!-- No CI badge here, deliberately. shields.io reads the workflow anonymously and
+     this repository is internal, so the badge rendered a red
+     "gate: repo or workflow not found" - measured 2026-08-25 by fetching the badge
+     URL itself, not inferred. An earlier note here predicted "gate inaccessible";
+     the real string is the harsher one, and it reads as a broken repository rather
+     than a private one.
+     Nothing is wrong with the workflow: it is named `gate`, active at
+     .github/workflows/ci.yml, and its last three runs on `main` were green. A badge
+     simply cannot say that to a client that cannot see the repository.
+     Restore it the day the repository goes public, not before:
+     [![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
+     The row count below is re-derived, not carried forward:
+     `cat data/runs/*.jsonl | wc -l` gave 12,173 across 156 files on 2026-08-25,
+     where the badge had said 3,701 since the first commit. Re-run that command
+     before changing the number. -->
 
-[![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 <!-- Links to the workflow, not to pyproject.toml, because pyproject.toml declares no
      `requires-python` at all - the only thing backing "3.11 | 3.13" is the CI matrix
