@@ -241,9 +241,18 @@ def scope(paths: list, attempts: list, bookkeeping: list) -> None:
     stamps = [datetime.fromisoformat(r["ts"]) for r in attempts if r.get("ts")]
     span = ""
     if len(stamps) > 1:
-        hours = (max(stamps) - min(stamps)).total_seconds() / 3600
-        span = (f", {hours:.1f} h from {min(stamps):%Y-%m-%d %H:%M} to "
-                f"{max(stamps):%H:%M} UTC")
+        lo, hi = min(stamps), max(stamps)
+        hours = (hi - lo).total_seconds() / 3600
+        # The end date is printed whenever the run crosses midnight. Dropping it
+        # unconditionally, which this line did, made the primary run read
+        #   "130.2 h from 2026-08-19 06:00 to 16:12 UTC"
+        # - a ten-hour window labelled 130 hours, on the first line of the report
+        # the README sends readers to. The hours were right and the rendering was
+        # not, which is the worse way round: it reads as an arithmetic error in the
+        # analysis rather than a formatting one. Same-day runs keep the short form,
+        # because repeating the date there is noise.
+        end = f"{hi:%H:%M}" if hi.date() == lo.date() else f"{hi:%Y-%m-%d %H:%M}"
+        span = f", {hours:.1f} h from {lo:%Y-%m-%d %H:%M} to {end} UTC"
     sessions = len({(r.get("cell"), r.get("batch_index")) for r in attempts})
     print("=" * (LABEL_WIDTH + CELL_WIDTH * 4))
     print("SCOPE")
