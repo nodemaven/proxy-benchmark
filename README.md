@@ -67,9 +67,17 @@ you, which is the whole reason the axes are separate.
 - **For Google the address is the whole of it.** P(pass given a served page) was
   83 of 83 and did not vary by country, while P(served) ran from 13% on `us` to
   62% on `ru`. Do not pin `us`. The ranking among the other settings must not be
-  quoted: their intervals overlap almost entirely.
-- **Amazon inverts it.** A plain `requests` client is served, Camoufox is served
-  90% of the time, and every Chromium-family engine meets the throttle.
+  quoted: their intervals overlap almost entirely. **Those levels are a reading of
+  2026-08-12**: six days later on the server, `country=any` was served 19 times in
+  2673 attempts, 1%. The decomposition is unaffected - it is the second term that
+  stays flat - but no absolute Google rate here should be read as current.
+- **Amazon stopped separating the engines, and the correction is larger than the
+  finding was.** On the workstation in August, Camoufox was served 90% of the time
+  and every Chromium-family engine met the throttle. Re-measured on the server at
+  7627 attempts, the **unmodified control is the best engine on the target** at
+  96%, Camoufox is at 92% beside three Chromium-family engines, and only
+  Patchright is clearly worse at 63%. The Firefox-against-Chromium reading did not
+  survive; the direction on Patchright did.
 - **The hold is real, warming is not.** 108 of 109 held rows passed after a
   served probe. Warming the exit first measured 32% against 30%, on the arm where
   the published claim was 20% to 75%.
@@ -464,7 +472,8 @@ Where each headline lands:
 | DuckDuckGo, 0 of 50 for the engines announcing the mode | `report.py --all`, `WHOSE FAILURE WAS IT`, the `ddg_serp` block: chromium 0/8 and 0/19, patchright headless 0/9 and 0/14 |
 | DuckDuckGo, 95 of 95 for the ones that do not | `PASS RATE`, the `ddg_serp` column: camoufox 7/7 and 37/37, obscura 34/34 and 10/10, patchright headful 7/7. The winning side reads here rather than in the block above, because Obscura records no HTTP status and is absent from every served-versus-refused split |
 | For Google the address is the whole of it | `WHOSE FAILURE WAS IT`, the `google_serp` block. `P(live)` is the address and `P(pass\|live)` is the engine, and it is the second column that does not move |
-| Amazon inverts it | same block, `amazon_search`: camoufox live on 47/48, 42/42 and 25/25, against no Chromium-family cell above 33% |
+| Amazon used to invert it | same block, `amazon_search`: camoufox live on 47/48, 42/42 and 25/25, against no Chromium-family cell above 33%. This is the August workstation reading and it is the one that did not survive |
+| Amazon no longer separates the engines | `report.py data/runs/benchmark_20260819T055927Z.jsonl`, the `amazon_search` block: chromium 419/436 live at 100% pass, camoufox 431/446, patchright 313/457. Read this one against the row above - the two are six days and one machine apart, and the notebook keeps both |
 | The hold is real | `held.py`, `HOW LONG A GOOD EXIT LASTS`: 96%, 98% and 99% at positions 2, 3 and 4 |
 | Warming does not replicate | `held.py`, `BY WARM-UP`, which prints the published 20%-to-75% claim next to its own denominator |
 | Geo alignment costs yield | `held.py`, `BY GEO ALIGNMENT` |
