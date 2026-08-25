@@ -1,0 +1,63 @@
+# Read by GitHub, which turns it into the "Cite this repository" button, and by
+# cff-convert, Zenodo and Zotero. It is a claim about authorship and about what the
+# software does, so it is held to the same rule as every other claim here: nothing in
+# it is asserted that a reader cannot check in this repository.
+#
+# Two fields are deliberately absent until the first tagged release:
+#   version         - there is no tag yet, and a version nobody can check out is worse
+#                     than none. Add it in the same commit that cuts the tag.
+#   date-released   - same reason. CFF wants YYYY-MM-DD and it must be the tag's date.
+#   doi / identifiers - a DOI is what makes this citable in a paper rather than in a
+#                     blog post. Zenodo mints one per GitHub release once the
+#                     repository is connected to it; that is a per-repository switch
+#                     and it has not been thrown. Until it is, the citation below is
+#                     a software citation with a URL and no DOI, which is valid CFF
+#                     and is what most tooling will render.
+#
+# `make check` does not validate this file. `pip install cffconvert` and
+# `cffconvert --validate` is the check, and it is worth running after any edit -
+# an invalid CITATION.cff makes GitHub drop the button silently rather than
+# complain.
+
+cff-version: 1.2.0
+message: >-
+  If you use this harness, or quote a figure taken from data/runs/, please cite it
+  as below. Quoting a rate without the run it came from is the one use this
+  repository is written to make harder.
+title: >-
+  proxy-benchmark: a provider-agnostic harness for measuring where a target refuses
+  a client
+abstract: >-
+  A measurement harness for proxy providers, browser engines and scraping targets.
+  It reports at which layer a request is rejected - IP reputation, browser signals,
+  or the TLS handshake - and what passing that layer costs in traffic and time.
+  Every verdict is read from the response body rather than from the HTTP status,
+  because a refusal is routinely served as 200 with a stub body. Every attempt is
+  written as one JSONL row carrying its full parameter set, and the runs are
+  committed, so a published figure can be recomputed offline by a reader with no
+  proxy account. The runner is never told which provider it is talking to: it takes
+  a gateway host, port and username template from configuration, so measuring a
+  competitor, or a proxy the reader already owns, is a credentials change rather
+  than a code change. Results are published including the settings under which the
+  authors' own product performs worst.
+type: software
+authors:
+  - family-names: Kazmin
+    given-names: Alexandr
+    email: alexandr.kazmin@nodemaven.com
+    affiliation: NodeMaven
+    alias: aleekaz
+repository-code: "https://github.com/nodemaven/proxy-benchmark"
+url: "https://github.com/nodemaven/proxy-benchmark"
+license: MIT
+keywords:
+  - web-scraping
+  - proxy
+  - residential-proxy
+  - anti-bot
+  - bot-detection
+  - browser-fingerprinting
+  - tls-fingerprinting
+  - benchmark
+  - reproducibility
+  - measurement
