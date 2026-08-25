@@ -221,15 +221,49 @@ def main() -> None:
     print(f"own line: {line['exit_ip']}  {line.get('org') or '-'}  "
           f"{line.get('country') or '-'}")
     print(f"provider: {provider.label} ({provider.status}), {creds.gateway}")
-    if not provider.measured:
+    # The point of this line is to hand a refusal its most likely cause before
+    # the operator starts debugging their account. For a transcribed DSL that
+    # cause is the transcription; a definition carrying no DSL at all has
+    # nothing to have transcribed, so saying it anyway would send them looking
+    # through a vendor page that does not exist.
+    if not provider.measured and provider.known_params:
         print("          the username format below was read off the vendor's "
               "documentation and has never been sent from here, so a refusal "
               "may be the transcription rather than the account")
-    print(f"gateway:  {' '.join(f'{k}={v}' for k, v in sorted(extra.items())) or 'country=' + args.country}")
+    elif not provider.measured:
+        print("          nothing here has ever been sent through this gateway, "
+              "and it takes no settings in the username - so a refusal is the "
+              "address, the port or the password, and nothing else")
+    # The country is asked for only where the definition sells one. A gateway
+    # that recognises no parameters is the ordinary shape of a proxy somebody
+    # already owns, and putting `country-us` into its username would come back
+    # as an authentication failure - which is exactly the reading this probe
+    # exists to rule out. This is the first thing a new definition is pointed at,
+    # so it must not be the thing that manufactures the failure.
+    asks_country = "country" in provider.known_params
+    base = ({"country": args.country, **extra} if asks_country else dict(extra))
+    # The label is a cell key as well as a heading, so it stays short and the
+    # explanation goes on its own line.
+    label = f"country={args.country}" if asks_country else "no parameters"
+    if not provider.known_params:
+        print("          this definition recognises no parameters, so nothing "
+              "is asked for and every tunnel opens onto the same exit")
+    elif not asks_country:
+        # Distinguished from the line above because the two are different
+        # findings. A gateway with no parameters at all is a proxy somebody
+        # owns; a gateway with parameters and no `country` sells something, just
+        # not geography, and --country silently doing nothing there would be the
+        # dropped-setting failure this repository is built around.
+        print(f"          this definition sells no country, so --country "
+              f"{args.country} was not sent. It knows "
+              f"{sorted(provider.known_params)}")
+    print(f"gateway:  {' '.join(f'{k}={v}' for k, v in sorted(base.items())) or 'none'}")
     print(f"raw rows -> {sink.path}\n")
 
-    rounds = [("country=" + args.country, {"country": args.country, **extra})]
-    if args.bare:
+    rounds = [(label, base)]
+    # Nothing to strip when the first round already sends nothing, and a second
+    # identical round would read as a control against itself.
+    if args.bare and base:
         rounds.append(("no parameters", {}))
 
     results = {}

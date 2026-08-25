@@ -99,9 +99,14 @@ def args(**overrides):
     `direct` defaults True so the credential check at the end of preflight does
     not fire: the autouse fixture strips the gateway variables, and a test about
     a capability must not pass because of a missing `.env`.
+
+    `countries` carries the runner's own default rather than an empty string,
+    because that default is what makes the last check in preflight a judgement
+    call: one country is what an operator gets for saying nothing, so it cannot
+    be refused, and two is a comparison that was typed.
     """
     settings = {"headful": False, "geo": "off", "preset": "none",
-                "humanize": False, "direct": True}
+                "humanize": False, "direct": True, "countries": "us"}
     settings.update(overrides)
     return argparse.Namespace(**settings)
 
@@ -310,18 +315,84 @@ class TestTheProviderAxis:
                              for name in ("alpha", "omega")})
 
     def test_a_provider_that_cannot_carry_the_country_is_refused(self, monkeypatch):
-        """The country reaches the gateway inside the username, so a provider
-        whose dialect has no country parameter cannot join a country axis. It has
-        to be refused here for the reason every check in this file exists: the
-        measured gateway answers an unknown parameter name with 200 and the
+        """The country reaches the gateway inside the username, so a cell may not
+        carry one its provider cannot take. The failure is invisible without this:
+        the measured gateway answers an unknown parameter name with 200 and the
         setting dropped, so the run would complete and every row would claim a
-        country that was never applied."""
+        country that was never applied.
+
+        A backstop rather than a check an operator trips, since 2026-08-19.
+        `build_cells` collapses the country axis for a definition that sells
+        none, so the cell asserted on here is one it no longer builds - which is
+        why the cell has to name its provider explicitly. That is the point: the
+        invariant is what the whole provider layer rests on, and a test that only
+        drove it through the builder would stop covering the case the day the
+        builder was the thing that broke.
+        """
         self.credentials(monkeypatch, "alpha")
         with pytest.raises(Refused, match="country"):
             benchmark.preflight(
-                Parser(), args(direct=False), proxied(),
+                Parser(), args(direct=False), proxied(provider="alpha"),
                 {"alpha": synthetic("alpha",
                                     known_params=frozenset({"sid"}))})
+
+    def test_a_country_gateway_beside_one_that_sells_none_is_allowed(
+            self, monkeypatch):
+        """Your own proxy against a pool, in one window, which is the comparison
+        bring-your-own-proxy exists to make. It has to survive the check above.
+
+        The country axis exists for one gateway in this matrix and not for the
+        other, so a check scoped to the whole matrix rather than to each
+        provider's own cells would refuse this run for a parameter that was never
+        going to be sent to the gateway that cannot take it. It read that way
+        until 2026-08-19.
+        """
+        for name in ("mine", "pool"):
+            self.credentials(monkeypatch, name)
+        cells = (proxied(provider="pool", country="us")
+                 + proxied(provider="pool", country="de")
+                 + proxied(provider="mine", country=""))
+        benchmark.preflight(
+            Parser(), args(direct=False, countries="us,de"), cells,
+            {"pool": synthetic("pool"),
+             "mine": synthetic("mine", known_params=frozenset())})
+
+    def test_a_country_comparison_no_gateway_can_make_is_refused(self,
+                                                                 monkeypatch):
+        """Two countries and nothing in the matrix that sells one.
+
+        This is the reachable half of the pair. The axis collapses for every
+        provider, so the matrix builds a single cell and answers a different
+        question than the one typed - successfully, and with a run that looks
+        like a country comparison in every column of the output. Refused before
+        anything is sent, because after the fact nothing distinguishes it from a
+        comparison where the countries happened not to matter.
+        """
+        self.credentials(monkeypatch, "mine")
+        with pytest.raises(Refused, match="country") as refusal:
+            benchmark.preflight(
+                Parser(), args(direct=False, countries="us,de"),
+                proxied(provider="mine", country=""),
+                {"mine": synthetic("mine", known_params=frozenset())})
+        assert "us,de" in str(refusal.value), (
+            "the refusal has to quote what was asked for, or it reads as a "
+            "complaint about the provider rather than about the flag")
+
+    def test_one_country_against_a_gateway_that_sells_none_is_allowed(
+            self, monkeypatch):
+        """The other half, and the reason the refusal above starts at two.
+
+        `--countries` has a default, so it arrives whether or not anybody typed
+        it. Refusing at one would make the default value of an unrelated flag the
+        thing that blocks the common bring-your-own-proxy run - a plain proxy,
+        one exit, no geography sold. `describe` says the country was not asked
+        for; the run is valid and it starts.
+        """
+        self.credentials(monkeypatch, "mine")
+        benchmark.preflight(
+            Parser(), args(direct=False, countries="us"),
+            proxied(provider="mine", country=""),
+            {"mine": synthetic("mine", known_params=frozenset())})
 
     def test_a_direct_matrix_asks_nothing_of_any_provider(self, monkeypatch):
         """Direct never reaches a gateway, so a machine with no account at all

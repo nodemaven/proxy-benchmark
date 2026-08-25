@@ -35,8 +35,14 @@ class Cell:
 
     @property
     def key(self) -> str:
+        # The second segment is where this cell left from. `direct` is this
+        # machine's own line; a country is one the gateway was asked for; and
+        # `gateway` is a gateway that sells no country, so the address is
+        # whatever single exit it has and nothing was asked. Three readings of
+        # one axis, and the segment has to say which, because a key that omitted
+        # it would collide with a country run.
         parts = [f"benchmark/{self.target}/{self.engine}-{self.preset}",
-                 "direct" if self.direct else self.country]
+                 "direct" if self.direct else (self.country or "gateway")]
         parts += [f"{k}-{v}" for k, v in self.extra]
         if self.headful:
             parts.append("headful")
@@ -55,9 +61,17 @@ class Cell:
 
     @property
     def params(self) -> dict:
-        """Gateway parameters for this cell, without the session id."""
+        """Gateway parameters for this cell, without the session id.
+
+        An empty country is a gateway that sells none, and it is left out rather
+        than sent empty: the one gateway measured here hangs for about 20 s on an
+        empty value, and a gateway that does not know the name at all answers 200
+        and drops it. Neither failure is visible in a row.
+        """
         if self.direct:
             return {}
+        if not self.country:
+            return dict(self.extra)
         return {"country": self.country, **dict(self.extra)}
 
 
@@ -88,9 +102,14 @@ def parse_engine(spec: str) -> tuple:
 
 def build_cells(engines: list, targets: list, preset: str, countries: list,
                 direct: bool = False, headful: bool = False, geo: str = "off",
-                extra: dict = None, provider_names: list = None) -> list:
+                extra: dict = None, chosen: dict = None) -> list:
     """Cells for every provider, engine, target and country. Specs may carry
     `:direct`.
+
+    `chosen` maps a provider id to its loaded definition. The definitions and
+    not the names, because one axis of the matrix is only an axis for some
+    gateways: whether a country can be asked for is written in the definition,
+    and a caller passing names would have to answer that question for it.
 
     A global `direct` still forces every cell direct, so `--direct` keeps
     meaning "send nothing through the gateway" and cannot be partly undone by a
@@ -106,6 +125,14 @@ def build_cells(engines: list, targets: list, preset: str, countries: list,
     produce two cells with the same key, and the second would silently be
     treated as a resume of the first.
 
+    It collapses a second way, for a gateway whose definition sells no country.
+    A proxy somebody already owns is one endpoint with one exit behind it, so
+    `--countries us,de` against it is two names for one experiment, and running
+    it twice would present the repeat as a comparison. Asked of the definition
+    rather than of the provider's name, so a mixed matrix - your own proxy
+    against a pool, in one window, which is the comparison worth running - keeps
+    the axis for the gateway that has it and drops it for the one that does not.
+
     The provider axis collapses for a direct cell in exactly the same way and
     for the same reason: a request that never reaches a gateway cannot be
     attributed to one, and leaving the name on would run one identical direct
@@ -119,14 +146,15 @@ def build_cells(engines: list, targets: list, preset: str, countries: list,
     """
     extra_items = tuple(sorted((extra or {}).items()))
     default = providers.default_name()
-    names = list(provider_names or [default])
+    chosen = dict(chosen or {default: providers.load(default)})
     cells, seen = [], set()
-    for provider in names:
+    for provider, definition in chosen.items():
+        asked = countries if "country" in definition.known_params else [""]
         for spec in engines:
             name, spec_direct = parse_engine(spec)
             is_direct = direct or spec_direct
             for target in targets:
-                for country in countries:
+                for country in asked:
                     cell = Cell(
                         engine=name, target=target, preset=preset,
                         country=country, direct=is_direct, headful=headful,

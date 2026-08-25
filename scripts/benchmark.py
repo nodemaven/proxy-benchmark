@@ -195,19 +195,21 @@ def preflight(parser, args, cells, chosen: dict) -> None:
                          f"in the matrix, which aligns every engine at once")
         if args.preset != "none" and not engine.supports_blocking:
             parser.error(f"engine {name!r} has no resource blocking, so "
-                         f"--preset {args.preset} would be applied to the "
-                         f"engines driven through Playwright and silently "
-                         f"dropped for this one. That is not a small "
-                         f"difference: measured 2026-08-13 on one google_serp "
-                         f"attempt each, a blocked engine spent 4 KB and an "
-                         f"unblocked one spent 9.9 MB on the same refusal page, "
-                         f"and the byte column would show a 2000x engine "
-                         f"difference that is entirely our own flag. Blocking "
-                         f"can also change the verdict, since a page that never "
-                         f"loads its script is judged on markup that was never "
-                         f"finished. Run --preset none for a mixed matrix, or "
-                         f"drop the engine and measure blocking as its own axis "
-                         f"against an engine that has it")
+                         f"--preset {args.preset} would be dropped for it while "
+                         f"every row it writes still recorded the preset as "
+                         f"asked for. That is not a small difference: measured "
+                         f"2026-08-13 on one google_serp attempt each, a blocked "
+                         f"engine spent 4 KB and an unblocked one spent 9.9 MB "
+                         f"on the same refusal page, so the byte column would "
+                         f"show a 2000x engine difference produced entirely by "
+                         f"this flag. Blocking can also change the verdict, since "
+                         f"a page that never loads its script is judged on "
+                         f"markup that was never finished. It is refused even "
+                         f"when this engine is alone in the matrix, because the "
+                         f"rows are compared against other runs and the column "
+                         f"would claim a blocking that never happened. Add "
+                         f"--preset none, or drop the engine and measure "
+                         f"blocking as its own axis against one that has it")
         if args.humanize and not engine.supports_humanize:
             parser.error(f"engine {name!r} has no humanized input, so "
                          f"--humanize would move the cursor for the engines "
@@ -250,16 +252,65 @@ def preflight(parser, args, cells, chosen: dict) -> None:
                 f"and the file would hold a full column for one provider and an "
                 f"error column for the other. {exc} Drop {name!r} from "
                 f"--providers, or pass --direct to run the control instead.")
-        # The country reaches the gateway as a username parameter, so a provider
-        # that does not carry one refuses the axis rather than the flag. Checked
-        # the only way it can be: the gateway answers an unknown parameter with
-        # 200 and the setting silently dropped.
-        for country in sorted({c.country for c in cells if not c.direct}):
+        # The country reaches the gateway as a username parameter, so a cell may
+        # not carry one its provider cannot take. `build_cells` no longer builds
+        # such a cell - it collapses the axis for a definition that sells no
+        # country - so this is a backstop on that invariant rather than a check
+        # an operator will trip. It stays because the invariant is the one this
+        # whole layer rests on and the failure is invisible: the measured gateway
+        # answers an unknown parameter with 200 and the setting silently dropped,
+        # so a cell that slipped through would complete and every row would claim
+        # a country that was never applied.
+        #
+        # Scoped to this provider's own cells rather than to the whole matrix,
+        # and that is the difference between refusing a mistake and refusing a
+        # valid run. In a mixed matrix the country axis exists for one gateway
+        # and not for the other, so checking every country against every provider
+        # would take `--providers custom,nodemaven --countries us,de` - your own
+        # proxy against a pool in one window, which is the comparison worth
+        # running - and refuse it for a parameter that was never going to be sent
+        # to the gateway that cannot take it.
+        #
+        # The empty country is skipped for the same reason it is never sent:
+        # `build_cells` writes it for a gateway that sells none, and building a
+        # username with `country=""` would be refused for having an empty value,
+        # which is a true statement about a parameter nobody asked for.
+        #
+        # `c.provider` is empty on the default provider, because the key of a
+        # single-provider run has to stay byte-identical to the 132 already on
+        # disk. Read it back through that default rather than comparing to "".
+        default = providers.default_name()
+        for country in sorted({c.country for c in cells
+                               if not c.direct and c.country
+                               and (c.provider or default) == name}):
             try:
                 proxy.build_username("check", provider=provider,
                                      country=country)
             except proxy.ParamError as exc:
                 parser.error(f"provider {name!r}: {exc}")
+
+    # Two or more countries and nothing in the matrix that sells one. The axis
+    # collapses for every provider, so the run builds a single cell and answers
+    # a different question than the one typed - and it answers it successfully,
+    # which is the failure mode that costs a night rather than a minute.
+    #
+    # Refused at two and merely noted at one, because `--countries` carries a
+    # default. One country is what an operator gets for saying nothing, and
+    # stopping a perfectly good bring-your-own-proxy run over a value nobody
+    # typed would make the default of an unrelated flag the thing that blocks
+    # the common case. Two is not a default and not an accident: it is a
+    # comparison, and this matrix cannot make it.
+    asked = [c.strip() for c in args.countries.split(",") if c.strip()]
+    sells_country = [name for name, provider in chosen.items()
+                     if "country" in provider.known_params]
+    if len(asked) > 1 and not sells_country and any(not c.direct for c in cells):
+        parser.error(
+            f"--countries {args.countries} asks for a comparison across "
+            f"{len(asked)} countries, and no gateway in this matrix takes a "
+            f"country: {sorted(chosen)}. Every cell would leave from the same "
+            f"exit and the run would finish looking like a country comparison "
+            f"that never happened. Drop --countries, or add a provider whose "
+            f"definition lists it")
 
 
 def describe(plan_estimate: dict, args, cells, batches, lists_used: dict,
@@ -305,15 +356,20 @@ def describe(plan_estimate: dict, args, cells, batches, lists_used: dict,
               "the cell that ran first. Use a smaller --batch to interleave.")
     proxied = sorted({c.engine for c in cells if not c.direct})
     bypassing = sorted({c.engine for c in cells if c.direct})
-    countries = sorted({c.country for c in cells if not c.direct})
+    countries = sorted({c.country for c in cells if not c.direct and c.country})
+    # A gateway that sells no country produces cells with none, and saying
+    # `country=` with nothing after it would read as a flag that failed to
+    # arrive rather than as an axis that does not exist here.
+    where = (f"country={','.join(countries)}" if countries
+             else "whatever exit the gateway has, no country asked for")
     if not proxied:
         print("gateway : none, direct control")
     elif not bypassing:
-        print(f"gateway : country={','.join(countries)}")
+        print(f"gateway : {where}")
     else:
         # Both in one window is the point of the suffix, so the plan has to show
         # which engines are on which side rather than one summary line.
-        print(f"gateway : country={','.join(countries)} for {proxied}")
+        print(f"gateway : {where} for {proxied}")
         print(f"          bypassed for {bypassing}, which will reach the "
               f"targets from this machine's own address")
     if proxied:
@@ -322,14 +378,61 @@ def describe(plan_estimate: dict, args, cells, batches, lists_used: dict,
         # transcribed from the vendor's own documentation and never run from
         # here, so its username DSL is a claim about their docs: the first thing
         # to suspect if its cells fail in a way the measured provider's do not.
+        #
+        # Read off the command line rather than off the cells, because the cells
+        # are what is left after the collapse and the question here is what was
+        # asked for before it.
+        asked_countries = [c.strip() for c in args.countries.split(",")
+                           if c.strip()]
         for name, provider in sorted(chosen.items()):
-            note = ("" if provider.measured else
-                    "  <- DSL read off the vendor's docs, never measured here")
-            print(f"provider: {name} ({provider.status}), "
-                  f"{provider.host}:{provider.port}{note}")
+            # A definition with no parameters has no transcription to be wrong
+            # about, so pointing at the vendor's docs would send the reader to
+            # look for a mistake that cannot exist there. What `documented`
+            # still means for it is the part worth saying: no row on disk came
+            # through this gateway.
+            if provider.measured:
+                note = ""
+            elif provider.known_params:
+                note = "  <- DSL read off the vendor's docs, never measured here"
+            else:
+                note = "  <- no row in data/runs/ came through it"
+            # The definition's address is a documented default and the
+            # environment overrides it, so a definition that ships none - which
+            # is every proxy somebody already owns, because the address is
+            # theirs - would print `:0` and read as a gateway pointing nowhere.
+            # Say where the address comes from instead of printing a zero.
+            variables = config.variables(provider)
+            address = (f"{provider.host}:{provider.port}"
+                       if provider.host and provider.port
+                       else f"address from {variables['host']} and "
+                            f"{variables['port']}")
+            print(f"provider: {name} ({provider.status}), {address}{note}")
+            # Said before the run rather than discovered in the numbers. With no
+            # session parameter there is nothing to ask a fresh exit with, so
+            # every session in the whole matrix leaves from one address: the
+            # engine and target axes still mean what they say, and anything that
+            # reads as a property of the pool - yield, rotation, how fast an
+            # address is burned - is a property of that one address instead.
+            if not provider.session_param:
+                print(f"          {name}: no session parameter, so every "
+                      f"attempt leaves from the same exit. Engines and targets "
+                      f"are still comparable; exit yield and rotation are not "
+                      f"measurable through it")
+            # `--countries` has a default, so it arrives whether or not anybody
+            # typed it, and a gateway that does not sell one collapses the axis
+            # to a single cell. That collapse is correct and it is also a
+            # setting the operator asked for and did not get, which is the exact
+            # shape of failure this repository refuses everywhere else. It is
+            # said rather than refused because refusing would make the default
+            # value of an unrelated flag stop a run that is perfectly valid.
+            if "country" not in provider.known_params and asked_countries:
+                print(f"          {name}: sells no country, so "
+                      f"{','.join(asked_countries)} was not asked for and its "
+                      f"cells are built once. The address is whatever single "
+                      f"exit it has")
             if not config.available(provider):
                 print(f"          {name}: credentials not set "
-                      f"({config.variables(provider)['login']}), so its cells "
+                      f"({variables['login']}), so its cells "
                       f"will be refused")
     print(f"geo     : {args.geo}"
           + ("" if args.geo == "align" else
@@ -425,7 +528,11 @@ def summarise(rows: list, breakers: dict) -> None:
         # they left from, which is the whole point of the country axis. Printing
         # them as one line would average two measurements into neither.
         params = first.get("params") or {}
-        where = "direct" if first.get("direct") else params.get("country", "-")
+        # `gateway` and not `-`, for the same reason the cell key says it: a
+        # gateway selling no country is a place these rows left from, and a dash
+        # would read as a column that failed to be filled in.
+        where = ("direct" if first.get("direct")
+                 else params.get("country") or "gateway")
         if first.get("geo") == "align":
             where += "+geo"
         if many_providers and first.get("provider"):
@@ -510,7 +617,7 @@ def main() -> int:
     cells = matrix.build_cells(engine_names, target_names, preset=args.preset,
                                countries=countries, direct=args.direct,
                                headful=args.headful, geo=args.geo, extra=extra,
-                               provider_names=provider_names)
+                               chosen=chosen)
     resumed = resolve_resume(args.resume)
     # The one place a provider can change without `build_cells` seeing it. A cell
     # on the default gateway carries no provider segment in its key, so a run

@@ -20,6 +20,19 @@ def cells(engines=("camoufox", "obscura"), targets=("bing_serp",), **kwargs):
     return matrix.build_cells(list(engines), list(targets), **options)
 
 
+def picked(*names, sells=("country", "sid")):
+    """A `chosen` mapping of synthetic definitions, one per name.
+
+    Synthetic rather than loaded from disk, because these tests are about what
+    the scheduler does with a definition and not about what any vendor sells. A
+    shipped file that stopped listing `country` would otherwise quietly rewrite
+    the country tests into tests of something else, and they would still pass.
+    """
+    return {name: providers.Provider(id=name, label=name,
+                                     known_params=frozenset(sells))
+            for name in names}
+
+
 class TestCell:
     def test_key_names_every_axis(self):
         cell = cells(("camoufox",))[0]
@@ -125,34 +138,32 @@ class TestProviderAxis:
     """
 
     def test_the_default_provider_leaves_the_key_alone(self):
-        built = cells(("camoufox",),
-                      provider_names=[providers.default_name()])
+        built = cells(("camoufox",), chosen=picked(providers.default_name()))
         assert built[0].key == "benchmark/bing_serp/camoufox-light/us"
 
     def test_naming_the_default_and_omitting_the_axis_are_one_cell(self):
         """The interleaved multi-provider run is the only shape whose keys
         change, which is what makes the axis free to add."""
         omitted = cells(("camoufox",))[0]
-        named = cells(("camoufox",),
-                      provider_names=[providers.default_name()])[0]
+        named = cells(("camoufox",), chosen=picked(providers.default_name()))[0]
         assert omitted.key == named.key
         assert omitted == named
 
     def test_a_second_provider_reaches_the_key(self):
-        built = cells(("camoufox",), provider_names=["synth"])
+        built = cells(("camoufox",), chosen=picked("synth"))
         assert built[0].key.endswith("/provider-synth")
 
     def test_the_two_do_not_collide(self):
         """Averaging two gateways into one cell is the failure this axis exists
         to prevent, and a shared key is how it would happen."""
         built = cells(("camoufox",),
-                      provider_names=[providers.default_name(), "synth"])
+                      chosen=picked(providers.default_name(), "synth"))
         assert len({c.key for c in built}) == 2
 
     def test_the_axis_multiplies_the_matrix(self):
         built = cells(("camoufox", "chromium"), ("bing_serp", "ddg_serp"),
                       countries=["ru", "us"],
-                      provider_names=[providers.default_name(), "synth"])
+                      chosen=picked(providers.default_name(), "synth"))
         assert len({c.key for c in built}) == 16
 
     def test_a_direct_cell_is_not_run_once_per_provider(self):
@@ -160,13 +171,13 @@ class TestProviderAxis:
         Leaving the name on would run one identical direct experiment twice and
         present the copies as a provider comparison."""
         built = cells(("chromium:direct",),
-                      provider_names=[providers.default_name(), "synth"])
+                      chosen=picked(providers.default_name(), "synth"))
         assert len(built) == 1
         assert built[0].key.endswith("/direct")
         assert built[0].provider == ""
 
     def test_a_direct_cell_sends_no_gateway_parameters_under_any_provider(self):
-        built = cells(("chromium:direct",), provider_names=["synth"],
+        built = cells(("chromium:direct",), chosen=picked("synth"),
                       extra={"filter": "medium"})
         assert built[0].params == {}
 
@@ -175,9 +186,52 @@ class TestProviderAxis:
         still be read left to right by eye."""
         built = cells(("camoufox",), countries=["us"], headful=True,
                       geo="align", extra={"filter": "medium"},
-                      provider_names=["synth"])
+                      chosen=picked("synth"))
         assert built[0].key == ("benchmark/bing_serp/camoufox-light/us/"
                                "filter-medium/headful/geo-align/provider-synth")
+
+
+class TestAGatewayThatSellsNoCountry:
+    """A proxy somebody already owns is one endpoint with one exit behind it,
+    and that is the shape most proxies actually have. It is a definition with an
+    empty `known_params`, not a special case in the runner, so what has to hold
+    is that the country axis collapses for it the way it already collapses for a
+    direct cell - otherwise `--countries us,de` produces two cells with one key,
+    and the second reads as a resume of the first.
+
+    Both halves are asserted, because the collapse is asked of the definition
+    rather than of the provider's name: a mixed matrix - your own proxy against a
+    pool, in one window, which is the comparison worth running at all - has to
+    keep the axis for the gateway that has it.
+    """
+
+    def test_the_countries_asked_for_collapse_to_one_cell(self):
+        built = cells(("camoufox",), countries=["ru", "us"],
+                      chosen=picked("mine", sells=()))
+        assert len(built) == 1
+
+    def test_the_key_says_where_it_left_from(self):
+        """`gateway` rather than an empty segment: these rows left from a real
+        address, and a key ending in a bare slash would read as a country that
+        failed to arrive."""
+        built = cells(("camoufox",), chosen=picked("mine", sells=()))
+        assert built[0].key == ("benchmark/bing_serp/camoufox-light/gateway/"
+                                "provider-mine")
+
+    def test_no_country_is_put_on_the_wire(self):
+        """The gateway measured here hangs about 20 s on an empty value and
+        answers an unknown name with 200 and the setting dropped. Neither is
+        visible in a row, so the parameter is left out rather than sent empty."""
+        built = cells(("camoufox",), countries=["us"],
+                      extra={"filter": "medium"},
+                      chosen=picked("mine", sells=()))
+        assert built[0].params == {"filter": "medium"}
+
+    def test_a_country_gateway_in_the_same_matrix_keeps_its_axis(self):
+        built = cells(("camoufox",), countries=["ru", "us"],
+                      chosen={**picked("pool"), **picked("mine", sells=())})
+        assert sorted(c.country for c in built) == ["", "ru", "us"]
+        assert len({c.key for c in built}) == 3
 
 
 class TestEngineSpec:
