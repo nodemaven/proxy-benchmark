@@ -1,18 +1,36 @@
-<!-- Relative rather than absolute, so it survives a fork and renders before this
-     repository is public. This README is not shipped to a package index, so nothing
-     here needs an absolute URL. -->
-<img src="assets/nodemaven-mark.svg" alt="NodeMaven" height="56">
+<div align="center">
+
+<!-- The mark is byte-identical to the one on the org profile (md5
+     2fbcc1624ea51bacf95ca6e9c5c7c686, checked 2026-08-25) so the two pages read as
+     one set. Relative rather than absolute, so it survives a fork and renders
+     before this repository is public; this README is not shipped to a package
+     index, so nothing here needs an absolute URL. -->
+<a href="https://github.com/nodemaven"><img src="assets/nodemaven-mark.svg" alt="NodeMaven" height="56"></a>
 
 # proxy-benchmark
 
-[![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](pyproject.toml)
-[![rows](https://img.shields.io/badge/rows-3%2C701%20published-blue?style=flat-square)](data/runs)
-
 **Measures at which layer a target blocks you, and what getting through costs.**
 
+<!-- The `gate` badge reads a workflow through the shields.io API, which sees this
+     repository only once it is public - until then it renders "gate inaccessible"
+     rather than a status. The other three are static and render today. The row
+     count is re-derived, not carried forward: `cat data/runs/*.jsonl | wc -l` gave
+     12,173 across 156 files on 2026-08-25, where this badge had said 3,701 since
+     the first commit. Re-run that command before changing the number. -->
+
+[![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+<!-- Links to the workflow, not to pyproject.toml, because pyproject.toml declares no
+     `requires-python` at all - the only thing backing "3.11 | 3.13" is the CI matrix
+     at .github/workflows/ci.yml:50, which is exactly ["3.11", "3.13"]. A badge whose
+     link does not contain its own evidence is the kind of thing this repository
+     exists to not do. -->
+[![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
+[![rows](https://img.shields.io/badge/rows-12%2C173%20published-blue?style=flat-square)](data/runs)
+
 [Quickstart](docs/quickstart.md) · [Commands](#command-reference) · [Findings](#what-the-rows-say) · [Reproduce](#reproduce-these-numbers) · [Notebook](NOTEBOOK.md)
+
+</div>
 
 Three layers can reject a request - the address, the browser, the handshake - and
 one engine against one target tells you it failed, not where. This harness varies
@@ -477,7 +495,7 @@ Where each headline lands:
 | The hold is real | `held.py`, `HOW LONG A GOOD EXIT LASTS`: 96%, 98% and 99% at positions 2, 3 and 4 |
 | Warming does not replicate | `held.py`, `BY WARM-UP`, which prints the published 20%-to-75% claim next to its own denominator |
 | Geo alignment costs yield | `held.py`, `BY GEO ALIGNMENT` |
-| The unanswered-CONNECT floor | `report.py --all`, `DID THE RUN MEASURE THE TARGETS OR THE PATH TO THEM`: 23% of proxied attempts against 0% direct. Read the third caveat before reading that as anyone's - the cause turned out to be in our own traffic |
+| The unanswered-CONNECT floor | `report.py --all`, `DID THE RUN MEASURE THE TARGETS OR THE PATH TO THEM`: 23% of proxied attempts against 0% direct. Read the third caveat before reading that as anyone's - the cause turned out to be in the harness's own traffic |
 
 Four caveats the tools print and a table cannot:
 
@@ -488,8 +506,8 @@ Four caveats the tools print and a table cannot:
   never served a body, so it carries no observation of the engine at all. Printing
   0% there would hand the pool's condition to the framework, which is why the
   DuckDuckGo losers are quoted out of the served block and not the pass-rate table.
-- **The CONNECT floor was our own traffic, and every row above it predates the
-  fix.** 23% against 0% put the failures on the proxied path rather than on a
+- **The CONNECT floor was the harness's own traffic, and every row above it
+  predates the fix.** 23% against 0% put the failures on the proxied path rather than on a
   flaky local link, and a second machine on another line in another datacentre
   read 25%, which looked like proof that the path was the provider's problem. It
   was not that simple. HTTP proxy authentication is challenge-response, so a

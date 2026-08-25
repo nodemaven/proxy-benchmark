@@ -27,7 +27,7 @@ of them needs an account or a proxy. Everything after step 7 is optional.
 | 8 | [Add a browser, and a control](#step-8-add-a-browser-and-a-control) | about 2 GB of disk |
 | 9 | [Optional: send it through a proxy](#step-9-optional-send-it-through-a-proxy) | a proxy, yours or anybody's |
 | | [Using a different provider](#using-a-different-provider) | a provider account |
-| 10 | [Read our numbers, and check them](#step-10-read-our-numbers-and-check-them) | nothing |
+| 10 | [Read the numbers, and check them](#step-10-read-the-numbers-and-check-them) | nothing |
 | | [When something goes wrong](#when-something-goes-wrong) | |
 | | [Where to go next](#where-to-go-next) | |
 
@@ -206,7 +206,7 @@ and none of them is "success":
 | `captcha` | there was something to solve or click before results |
 | `consent` | a cookie or consent wall was in the way and was not cleared |
 | `block` | the target refused |
-| `empty` | the page came back but our client could not make anything of it. **Our shortcoming, not a refusal** |
+| `empty` | the page came back but the parser could not make anything of it. **A harness shortcoming, not a refusal** |
 | `error` | the attempt never completed. **Ours, always. Never counted against the target** |
 
 The last two lines matter more than they look. A harness that scored its own
@@ -246,7 +246,7 @@ afternoon.
 
 That prints the pass rates with a confidence interval on each. Read the interval,
 not the percentage. Five out of ten is 50%, and it is also "somewhere between 19%
-and 81%", which is another way of writing "we do not know yet".
+and 81%", which is another way of writing "not known yet".
 
 ## Step 9. Optional: send it through a proxy
 
@@ -346,11 +346,11 @@ at 14:00 measures the afternoon as well as the providers, so the runner walks th
 cells round-robin inside one window instead of finishing one before starting the
 other.
 
-## Step 10. Read our numbers, and check them
+## Step 10. Read the numbers, and check them
 
 Every measurement this repository has ever made is in the folder `data/runs/`,
 one line of text per attempt. They are committed on purpose: a claim whose
-evidence is not in the repository is a claim you would have to take our word for.
+evidence is not in the repository is a claim you would have to take on trust.
 
 Three commands read them. None of them sends anything, none needs an account, and
 none needs anything installed - not even the sandbox from step 3. If you skipped
@@ -363,7 +363,7 @@ straight to here from step 2, they still work:
 The first is the big one. It prints a row per configuration and a column per
 target, and the number in each cell is how often a page actually arrived. It also
 prints, near the top, how many attempts never completed at all - 23% of the ones
-that went through a proxy against 0% of the ones that went from our own line,
+that went through a proxy against 0% of the ones that went from an unproxied line,
 which is a fact about the gateway rather than about any browser.
 
 Two habits to pick up while reading it, because they are the difference between
@@ -371,7 +371,7 @@ using this and being misled by it:
 
 - **A cell saying `unmeasured` is not a cell that scored zero.** It means the run
   was stopped there before the target ever answered once, so there is nothing in
-  it about the browser - only about the addresses. Zero and "we never found out"
+  it about the browser - only about the addresses. Zero and "never found out"
   look identical in most benchmarks and they are opposite facts.
 - **`--all` mixes runs from different weeks.** It says so when you run it. A
   single file is the stronger reading: `python scripts/analysis/report.py
@@ -383,13 +383,13 @@ exact block of output it comes from. It also shows how to count something in fiv
 lines of Python straight out of the files, with no code from this repository in
 between - which is the version to use if you suspect the aggregator.
 
-Two things you cannot check, and we would rather say so than let you find out.
+Two things you cannot check, named here rather than left to be discovered.
 The pages themselves are not published: they are stored compressed in
 `data/artifacts/`, which is deliberately excluded from git, because scraped pages
 carry the exit address inside them. And addresses in the rows are cut down to
 their first three numbers - `203.0.113.0/24` rather than the whole thing -
 because a residential proxy pool is other people's home internet connections, and
-one arm of these runs is our own.
+one arm of these runs is NodeMaven's own.
 
 ## When something goes wrong
 
