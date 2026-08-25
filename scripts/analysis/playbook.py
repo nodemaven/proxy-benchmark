@@ -31,7 +31,8 @@ whole reason the ladder is worth computing at all:
                     configuration; a fresh exit will meet the same wall
     no reply        the CONNECT was never answered. Retry. It is neither the
                     address nor the engine, and this repository has never been
-                    able to attribute it further than "the gateway or our line"
+                    able to attribute it further than "the gateway, or the line
+                    it was measured from"
 
 So each step in the ladder carries its own diagnosis, and the SDK's retry
 policy reads off the column rather than off a global constant.
@@ -210,7 +211,7 @@ def within_run_axis(rows, axis, label, note) -> None:
 def pooled_axis(rows, axis, label) -> None:
     """The same axis over everything, with the confounding named.
 
-    Printed because "we cannot read this" is a weaker answer than "here is what
+    Printed because "this cannot be read" is a weaker answer than "here is what
     it looks like and here is why it is not a result", and because a reader who
     wants the pooled number will otherwise compute it themselves without the
     warning attached.

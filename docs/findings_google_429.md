@@ -4,6 +4,19 @@ Measured 2026-08-10 and 2026-08-11. Raw rows in `data/runs/google_429_*.jsonl` a
 `data/runs/availability_*.jsonl`. One discarded run is kept in
 `data/runs/invalid/` with the reason it cannot be used.
 
+## Contents
+
+- [Question](#question) - what was asked, and why 6 of 6 was not an answer
+- [Result table](#result-table) · [The same address, judged by three targets](#the-same-address-judged-by-three-targets)
+- [Which layer](#which-layer) - the five-step isolation
+- [Correction: two sufficient causes, not one](#correction-two-sufficient-causes-not-one) -
+  **read this before quoting anything above it**, it is where the first reading
+  was wrong
+- [What this evidence does not establish](#what-this-evidence-does-not-establish)
+- [Instrument defects found during this investigation](#instrument-defects-found-during-this-investigation) -
+  four of them, and each one could have produced a finding on its own
+- [Traffic](#traffic) · [Recommendation](#recommendation)
+
 ## Question
 
 Google SERP returned 429 on 6 of 6 requests through Camoufox and a US

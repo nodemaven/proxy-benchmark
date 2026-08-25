@@ -132,6 +132,99 @@ def test_no_boolean_success_field(path):
     assert not re.search(r"[\"']success[\"']\s*:", text)
 
 
+ANALYSIS = sorted(p for p in (SCRIPTS / "analysis").glob("*.py")
+                  if "__pycache__" not in p.parts)
+
+
+def test_the_analysis_scripts_are_a_list_that_can_go_stale():
+    """The rule below is derived from a directory, so an empty one would leave it
+    passing over nothing - the one way a source-reading test fails silently."""
+    assert ANALYSIS, "no analysis scripts found, so the rule below checks nothing"
+
+
+@pytest.mark.parametrize("path", ANALYSIS, ids=lambda p: p.name)
+def test_re_deriving_a_published_number_needs_nothing_installed(path):
+    """The README tells a sceptic to check our numbers with a clone and three
+    commands, and says explicitly that nothing has to be installed first.
+
+    That is a promise about imports and it rots in one commit: the day somebody
+    reaches for a dataframe in `report.py`, the verification path silently grows
+    a dependency install, and the person it was written for is the one who finds
+    out. A verification path a sceptic can be blocked on is worth less than no
+    claim at all, so the promise is pinned here rather than in prose.
+
+    Read off the AST rather than by running the scripts, because an import that
+    only fires inside a function would pass a smoke run on this machine - every
+    third-party package the rest of the repository needs is installed here - and
+    fail on the fresh clone this is about. `nmbench` is ours and `report` is a
+    sibling in the same directory; everything else has to be in the standard
+    library that ships with the interpreter.
+    """
+    ours = {"nmbench", "report"}
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported.add(node.module.split(".")[0])
+    outside = sorted(imported - ours - sys.stdlib_module_names)
+    assert not outside, (
+        f"{path.name} imports {outside}, which is not in the standard library. "
+        f"The README promises the analysis scripts run on a bare interpreter, "
+        f"so this either moves into nmbench or the promise comes out of the "
+        f"README - not both.")
+
+
+# Import every third-party package out of the interpreter, and fail loudly on the
+# attempt rather than falling back to something. Reading `sys.modules` afterwards
+# would not do: the machines this suite runs on have the whole of
+# `requirements-dev.txt` installed, so a `import requests` inside `nmbench` would
+# succeed here and fail only on the fresh clone the promise is written for.
+BLOCK_THIRD_PARTY = """
+import sys, runpy
+allowed = set(sys.stdlib_module_names) | {"nmbench", "report", "__main__"}
+
+
+class Guard:
+    def find_spec(self, name, path=None, target=None):
+        root = name.split(".")[0]
+        if root not in allowed and not root.startswith("_"):
+            raise ImportError("third-party import on the verification path: "
+                              + name)
+        return None
+
+
+sys.meta_path.insert(0, Guard())
+sys.argv = [sys.argv[1], "--help"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+
+
+@pytest.mark.parametrize("path", ANALYSIS, ids=lambda p: p.name)
+def test_nothing_the_analysis_scripts_reach_needs_installing_either(path):
+    """The same promise, asked of the whole import chain rather than one file.
+
+    The AST check above reads the script and stops there, so it cannot see a
+    `nmbench` module that grows a dependency - and every analysis script imports
+    `nmbench`. This runs each one with every third-party package refused at the
+    finder, which is the only way to ask the question on a machine that has them
+    all installed.
+
+    `--help` rather than the real work: it exercises every module-level import in
+    the script and everything those pull in, costs milliseconds, and reads no
+    run files. The pair is complementary and neither is redundant - a lazy import
+    inside a function would survive this and is caught by the AST, and a
+    dependency two levels down inside `nmbench` would survive the AST and is
+    caught here.
+    """
+    result = subprocess.run([sys.executable, "-c", BLOCK_THIRD_PARTY, str(path)],
+                            capture_output=True, text=True, timeout=120, cwd=ROOT)
+    assert result.returncode == 0, (
+        f"{path.name} cannot run on a bare interpreter:\n"
+        f"{result.stderr[-1500:]}")
+
+
 PRINTS_REMOTE_TEXT = sorted(
     p for p in SOURCES
     if p.parent != PACKAGE

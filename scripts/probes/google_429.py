@@ -1,4 +1,4 @@
-"""Locate the layer at which Google SERP rejects us through a residential proxy.
+"""Locate the layer at which Google SERP rejects a residential exit.
 
 Background: Google returned 429 on 6 of 6 requests through Camoufox and a US
 residential exit, with no warm-up. 429 is rate limiting, not a fingerprint

@@ -2,6 +2,17 @@
 
 Measured 2026-08-11, obscura 0.2.0 on Windows x86_64.
 
+## Contents
+
+- [The question this started from](#the-question-this-started-from) - a flag the
+  plain build also accepts, so the flag proves nothing
+- [Method](#method) - the build acting as its own control, no reference
+  fingerprint needed
+- [Result](#result) - JA4, JA3, the HTTP/2 fingerprint and the counts, both ways
+- [What this establishes](#what-this-establishes) ·
+  [What this does not establish](#what-this-does-not-establish)
+- [Cost](#cost)
+
 ## The question this started from
 
 `nmbench/engines/obscura.py` passes `--stealth` on every launch. The engine's own
@@ -10,12 +21,18 @@ release archives, and that **the plain archive accepts the flag and runs without
 TLS impersonation anyway**. The flag is therefore not evidence that the feature
 is present - only the build is.
 
-The archive on the measuring machine is named `obscura-win.zip`, with no
-`-stealth` suffix. If that name were accurate, every row this harness writes for
-Obscura would be labelled as a stealth run while measuring a build with no TLS
-impersonation in it. Nothing in the output would show the discrepancy, and the
-Obscura column of the report would be attributing a result to a feature that was
-never compiled in.
+That matters because a mislabelled build is invisible downstream: every row would
+be written as a stealth run while measuring a binary with no TLS impersonation in
+it, nothing in the output would show the discrepancy, and the Obscura column
+would be attributing a result to a feature that was never compiled in.
+
+An earlier version of this document added that the archive on the measuring
+machine was named `obscura-win.zip`, with no `-stealth` suffix. That was
+mis-transcribed and is withdrawn on 2026-08-19: the v0.2.0 release publishes
+`obscura-x86_64-windows.zip` and `obscura-x86_64-windows-stealth.zip` and no
+asset by the recorded name, and the archive is no longer on the machine to
+re-read. It changes nothing below. A file name was never the evidence - the
+handshake is - which is the point the rest of this document is about.
 
 ## Method
 

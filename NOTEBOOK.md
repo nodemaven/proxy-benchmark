@@ -3,6 +3,85 @@
 Working notes for the NodeMaven benchmark harness. Read this before writing any code
 in this repository.
 
+## Contents
+
+This file is long because it keeps the claims that did not survive replication
+next to the ones that did. Several sections are corrections of an earlier section
+in the same file, so **where two of them disagree the later date wins**, and the
+earlier one stays to show what the mistake looked like from the inside. If you
+are about to write code, the last four sections are the ones that constrain you.
+
+Orientation:
+
+- [What this is](#what-this-is) · [Repository layout](#repository-layout) ·
+  [Setup](#setup)
+- [Three layers of anti-bot detection](#three-layers-of-anti-bot-detection) - the
+  model every experiment here is designed against
+
+The transport, in the order it was understood, each section correcting the one
+above it:
+
+- [Measured gateway behaviour](#measured-gateway-behaviour) - seven malformed
+  inputs, seven replies, none of which names the cause
+- [This line intercepts CONNECT](#this-line-intercepts-connect-and-the-direct-arm-never-controlled-for-it) -
+  the diagnosis, and the hole it found in our own control
+- [It was our own VPN client](#the-connect-interception-was-our-own-vpn-client-and-it-is-now-bypassed) -
+  the attribution was wrong, the measurements held
+- [The second network arrived](#the-second-network-arrived-and-the-connect-floor-is-the-gateways) -
+  25% against 21.8% on two unrelated lines, so the floor is the gateway's - and
+  the conclusion drawn from that does not survive the next section
+- [The floor was an IP ban](#the-floor-was-an-ip-ban-and-this-harness-was-tripping-it-itself) -
+  the gateway's, and triggered by the one unauthenticated CONNECT our own
+  browsers send per session. **Read this before quoting any transport figure**
+
+Findings about the pool:
+
+- [Exit yield is a country axis](#exit-yield-is-a-country-axis-and-us-is-the-worst-of-them) -
+  and `us = 0%` is the correction this whole file is written in the shadow of
+- [The entry shape is a new axis](#the-entry-shape-is-a-new-axis-and-it-is-what-probe-and-hold-changes) -
+  probe, hold, and the three traps that had to be fixed to ask it
+
+Findings about the engines:
+
+- [Measured engine behaviour](#measured-engine-behaviour) - 21 markers on
+  `about:blank`, the cheapest re-check in the repository
+- [Two engines were added for the geo axis](#two-engines-were-added-for-the-geo-axis-and-screening-them-inverted-one-premise) -
+  one of them came back the opposite of its sales pitch
+- [What the first eight-engine run exposed](#what-the-first-eight-engine-run-on-the-server-exposed) -
+  four ways a row could have been written wrong
+- [The viewport is not what Google reads](#the-viewport-is-not-what-google-reads-and-it-was-the-obvious-rival-explanation) ·
+  [Obscura's two exclusions](#obscuras-two-exclusions-re-checked-2026-08-14-and-only-one-survives) ·
+  [Verifying the Obscura build](#the-obscura-build-is-verified-by-its-handshake-never-by-the-flag)
+
+Findings about the targets:
+
+- [A refused address diverts the request](#a-refused-address-diverts-the-request-and-reading-the-status-alone-got-this-wrong) -
+  reading the status alone got this wrong for eight days
+- [Which engines have ever passed Google](#which-engines-have-ever-passed-google-and-the-denominator-that-shows-it) ·
+  [Amazon answers four different ways](#amazon-answers-four-different-ways-and-two-of-them-are-2-kb) ·
+  [Walmart and PerimeterX](#walmart-is-fronted-by-perimeterx-and-the-lock-is-on-the-address)
+- [The handshake was read](#the-handshake-was-read-and-it-is-not-the-discriminator) -
+  and it explains neither target
+- [DuckDuckGo is reading the User-Agent](#duckduckgo-is-reading-the-user-agent-and-the-split-is-total) -
+  95 of 95 against 0 of 50, on one substring
+
+Cost:
+
+- [Chrome pays its vendor 43 MB per profile](#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it) -
+  the largest single line of the traffic bill, for a request no target sees
+- [What a run costs](#what-a-run-costs-and-why-one-constant-could-not-track-it) -
+  and why one constant could not track it
+
+The rules, which is what to read if you are about to write code:
+
+- [Measurement rules](#measurement-rules) - verdicts from content, `error` is
+  ours, a session is the unit
+- [The axes](#the-axes-and-the-capabilities-that-are-refused-rather-than-dropped) -
+  a capability only some engines have is refused, never dropped quietly
+- [Operational safety](#operational-safety) - the breaker, the watchdog, and what
+  a retry costs somebody else on this account
+- [Code conventions](#code-conventions) · [Tests](#tests) · [Style](#style)
+
 ## What this is
 
 A measurement harness for proxy providers, browser engines and scraping targets.
@@ -169,6 +248,30 @@ Sticky sessions:
 - `ttl` does not participate in the key, `filter` does
 - consequence: adding or removing any parameter silently moves you to another IP
 
+**The gateway cuts a value at the separator, measured 2026-08-20.** `separator`
+and `pair_separator` are both `-` in this dialect, so `sid-order-4417` is
+ambiguous by construction: `sid=order-4417`, or `sid=order` followed by a
+parameter named `4417`. `probes/sid_separator.py` settles it in twelve CONNECTs
+and no target traffic - `sid_separator_20260820T202737Z.jsonl`, `country=de`,
+three arms interleaved, four rounds each. `order8e3bf9-4417` and `order8e3bf9`
+drew **one exit address**, 4 of 4 each; `order8e3bf94417` drew a different one,
+4 of 4. The session key is the whole recognised parameter set, so one exit for
+two usernames means one parsed key: the tail was cut off. A caller using a
+hyphenated order id would share one exit with every order beginning `order`, and
+the connection would succeed the whole time.
+
+**The obvious version of that probe measures nothing, and it was written first.**
+Comparing `sid-order-4417` against `sid-order4417` gives two distinct session
+keys under *either* reading, so the gateway holds two exits whichever is true
+and the experiment is empty. The discriminating arm is `sid-order` alone, which
+is byte-identical to the cut form of the hyphen arm. The third arm decides
+nothing and stays anyway: two arms agreeing proves nothing unless a third is seen
+to disagree in the same window, or "every arm gave one exit" reads as a result
+when it is a pool that stopped rotating. `nmbench/proxy.py` does not refuse a
+separator inside a value, which is what let the probe send the ambiguous username
+at all; the published SDK does refuse it, and this run is why that refusal is no
+longer inference.
+
 Error handling, seven inputs and seven different reactions, none of which names
 the cause:
 
@@ -263,7 +366,9 @@ Two consequences larger than the fix itself.
   clean path.** Now it can be. Hold the support ticket until the floor is
   reproduced with the bypass in place. The reasoning in the next section is
   unchanged and was right to withhold it; only the name of the box has changed,
-  and it turns out to have been ours.
+  and it turns out to have been ours. *(The floor was resolved on 2026-08-20 and
+  the ticket was closed rather than sent - see "The floor was an IP ban". The
+  hold was right and the reason given for it was not the reason it mattered.)*
 
   **First reading with the bypass verified rather than assumed, 2026-08-18:
   `gateway-health` opened 8 of 10 tunnels**, two `TimeoutError`, `country=us`,
@@ -331,6 +436,14 @@ Two consequences, and the second is the expensive one.
   because as it stands it is an accusation the data does not support. The
   correct control is a second network, not a second arm.
 
+  *Resolved 2026-08-20, and this paragraph is the closest anything here came.
+  "The direct arm never issues a CONNECT" was the right observation, and the
+  cause did turn out to live in a CONNECT the direct arm cannot emit - just not
+  a middlebox eating them. It was the gateway banning the address over the one
+  **unauthenticated** CONNECT our own browsers open per session. A second
+  network was the wrong control for that, because both networks ran the same
+  browsers. See "The floor was an IP ban".*
+
 The cheap re-check, and it needs no credentials: send an unauthenticated CONNECT
 to two or three unrelated hosts and compare the replies to each other. One voice
 across all of them - the same status, the same `Server`, `CF-RAY: -` - is the
@@ -360,6 +473,11 @@ gateway from our own transport. It can now: the reproduction is one line, the
 control is another, and the numbers are quoted with the Wilson interval like
 everything else here.
 
+**That paragraph is wrong and the ticket was never sent. The next section says
+why.** It is left standing because the control it rests on was sound and the
+conclusion still did not follow, which is the more useful thing to have written
+down than the conclusion would have been.
+
 The same measurement re-confirms the multiple implementations, and gives the
 discriminator a name. A 200 that carries `X-Proxy-Exit-IP` arrives as
 `Connection established`; the ones that arrive as `OK` or as
@@ -368,6 +486,125 @@ label for which implementation answered, available on every CONNECT the relay
 already parses, and any per-implementation figure has to be split on it rather
 than pooled - a rate averaged over three back ends is a rate belonging to none of
 them.
+
+### The floor was an IP ban, and this harness was tripping it itself
+
+**Resolved 2026-08-20, and the heading above is right only in the narrowest
+sense.** The floor was the gateway's. It was not a defect, it was a security
+control reacting to correct browser behaviour coming from our own address, and
+the ticket was never sent.
+
+The gateway runs an IP banner: it counts unauthenticated and malformed requests
+per address and bans the address on reaching a threshold. HTTP proxy
+authentication is challenge-response, so a browser handed credentials opens the
+**first CONNECT of a session without one**, takes the 407, and retries with the
+credential. At `--batch 1` the profile is fresh on every attempt, so this
+harness emitted one unauthenticated CONNECT per attempt for hours at a stretch
+and banned its own address. A fix deployed on the EU cluster at 21:00 UTC on
+2026-08-19 resets the counter whenever any request from that address
+authenticates.
+
+The regime change is visible from outside and is measured **inside one
+uninterrupted run**, `benchmark_20260819T055927Z.jsonl`, rather than across two
+runs an hour apart - one process, one `run_id`, eight engines, read at 2135 rows:
+
+| | attempts | all errors | `ERR_EMPTY_RESPONSE` |
+|---|---|---|---|
+| before 21:00 UTC 19.08 | 1131 | 298, 26.3% | **207, 18.3%** |
+| after | 1004 | 94, 9.4% | **1, 0.10%** |
+
+Three controls, and the third is the one that matters. The same hour on
+consecutive days gives 26 of 73 against 0 of 62 at 06:00 UTC and 20 of 66
+against 0 of 50 at 07:00 UTC, so it is not the time of day. The process never
+restarted. And **only one error class moved**: `empty_response` went 207 to 1
+while navigation timeouts went 72 to 79 and tunnel failures 13 to 8 - so this is
+not the run getting generally healthier, it is one specific failure
+disappearing, and a 9.4% error rate remains that is now mostly navigation
+timeouts and is a different problem.
+
+**The split that names the mechanism was in every run on disk and nobody asked
+for it.** Engines divide by who opens the tunnel: `zendriver`, `seleniumbase`
+and `botasaurus` go through `nmbench/relay.py`, which puts
+`Proxy-Authorization` on the first CONNECT it sends upstream and therefore never
+emits an unauthenticated one; the rest are handed credentials and open their own.
+
+| | before | after |
+|---|---|---|
+| through the relay | 10/421, 2.4% | 10/375, 2.7% |
+| browser opens its own CONNECT | 288/710, 40.6% | 84/628, 13.4% |
+| the same, excluding the `chromium` control | 185/568, 32.6% | 17/502, 3.4% |
+
+The control is excluded from the third row because it fails Google 125 of 125
+in this run at exactly 60 s, identically on both sides of the cut, while passing
+Amazon in the same hours - an engine-target property that has nothing to do with
+transport and would otherwise sit in the denominator on one side only.
+
+**The browser half of that was measured rather than reasoned about, and it cost
+no traffic.** `scripts/probes/proxy_auth_shape.py` runs a proxy on loopback that
+challenges exactly like the gateway and then joins the tunnel straight to the
+target, so it measures the client and touches no pool. Chromium under Playwright,
+Chromium under Patchright with a persistent profile, and Camoufox all behave
+identically: one CONNECT with no credential, the 407, the retry, and from then
+on the credential is on every tunnel immediately. **It is one unauthenticated
+CONNECT per browser session, not per tunnel** - the credential is cached for the
+life of the session - so the volume is one per attempt at `--batch 1` and not
+tens per page. That is small, and it lands where it is expensive: it is the
+CONNECT that opens the navigation, so losing it kills the whole attempt rather
+than degrading it.
+
+**Why an always-authenticated probe measured a floor at all.** `gateway_health`
+authenticates on its first CONNECT and cannot trip the counter. It shared an
+address with the matrix, and the ban is on the address, so the 47 of 140 in the
+section above is collateral rather than a reading of the gateway's health. Same
+probe, same VPS, same 40+40 shape, re-run 2026-08-20: **0 of 80.**
+
+Two lessons, and the first generalises past this incident.
+
+- **A control that varies the environment cannot see a cause that lives in your
+  own traffic.** The second network was the right control for the hypothesis on
+  the table - a middlebox on the operator's line - and it killed that hypothesis
+  correctly. What it held constant without anyone noticing was the harness: both
+  machines ran the same engines emitting the same unauthenticated CONNECT into
+  the same counter. Two lines agreeing rules out a per-line cause and says
+  nothing about a per-behaviour one. Before quoting a control, say what it
+  varied and what it silently held fixed.
+- **The discriminating split had already appeared once and was correctly
+  dismissed.** The probe-and-hold section records the floor "lopsided - 8 on
+  patchright against 2 on zendriver. Too few to read as an engine property."
+  That is patchright opening its own CONNECTs against zendriver behind the relay,
+  it points the right way, and 10 events genuinely could not carry it. The
+  judgement was right and the finding was still sitting there. When an
+  underpowered asymmetry turns up on an axis nobody is varying deliberately, it
+  is worth a cheap probe rather than a note.
+
+**What this does to the rows already on disk.** Every proxied attempt made
+before 21:00 UTC on 2026-08-19, from either machine, was made from an address
+subject to this. Verdicts and exit addresses survive it exactly as they survived
+the VPN correction - a request that completed, completed - but the error rate of
+that period is not a property of the gateway's health, and pooling across the
+boundary mixes two transports. Worse than that, the contamination is **uneven
+across engines**: a third of the browser-CONNECT engines' attempts died before
+any page existed while the relayed engines lost 2%, so any figure using attempts
+as its denominator is biased between columns, in a direction that flatters the
+relayed engines. Rates quoted as ok-given-served are largely protected, because
+`error` is excluded from them by construction, and that convention is what keeps
+most of this file readable across the boundary.
+
+**One asymmetry is unexplained and is deliberately left open.** The gateway team
+states the ban is IP-level. If it were blanket the relayed engines should have
+died beside the others - same address, same minutes - and `relay.py` does not
+retry, so it cannot be absorbing failures as latency. They did not: 10 in 421
+against 185 in 568. Either the counter or the enforcement is scoped narrower
+than the address, or the control behaves more selectively than intended. Agreed
+with the gateway team to accumulate data rather than argue it; the running
+matrix produces both client shapes from one address, so it is the instrument for
+this without any new work.
+
+Deploy geography, from the gateway team on 2026-08-20, because it decides
+whether a future run crosses another boundary: **RU traffic routes to the EU
+cluster**, which was fixed on 2026-08-19, so this run is on one regime from
+21:00 UTC onward. US completed about 10:15 UTC on 2026-08-20 and SG is pending,
+and neither touches a run made from this VPS.
 
 ### Exit yield is a country axis, and US is the worst of them
 
@@ -426,6 +663,12 @@ Three consequences for how runs are designed:
   `ERR_TUNNEL_CONNECTION_FAILED` 32, `NS_ERROR_PROXY_*`, plus 83 navigation
   timeouts. This is the reproducible case to send to provider support, and the
   direct arm is what makes it an accusation rather than a complaint.
+
+  *The floor was the gateway's and it was ours as well, which is the one
+  combination this file kept treating as two options - see "The floor was an IP
+  ban". Nothing was sent to support. The country table above is unaffected:
+  every rate in it is read under `completed`, which drops the unanswered
+  CONNECTs before the arithmetic starts.*
 
 The single most important caveat is what replication did to this table. The
 first window read `us = 0%` and this file said so, hedged as "no US exit got
@@ -627,16 +870,31 @@ under test to fix a timeout - a fingerprint change to the thing being measured,
 bought for nothing. An engine's own diagnostics are written for its usual
 audience and this repository is not it.
 
-**SeleniumBase UC mode rebuilds its option set and drops most of what the
-framework configures in normal mode.** Its `_set_chrome_options` adds
-`--disable-background-networking` on the ordinary path; under `uc=True` the
-option set is assembled elsewhere and the flag does not arrive. That is why this
-engine needs `chromium_arg` for a flag the framework already believed it was
-setting. The general form is the one to remember: **anything handed to this
-engine can be lost the same way**, so a setting that matters has to be verified
-on the browser's real command line rather than in the call that asked for it.
-`/proc/<pid>/cmdline` is where that is checked, and see the trap in the next
-paragraph before doing so.
+**SeleniumBase UC mode moves sixteen option branches, and the flag this file
+named was not one of them.** The claim here until 2026-08-19 was that
+`_set_chrome_options` adds `--disable-background-networking` on the ordinary
+path and loses it under `uc=True`. Read against the installed source,
+seleniumbase 4.51.12, that is false: line 2773 adds it unconditionally, outside
+every branch - which is also what the 43 MB section of this file says two screens
+below. Two sections of one notebook disagreed, and the wrong one was the one
+about to be filed upstream.
+
+The general form survives and now has a count. Between lines 2297 and 2864 there
+are **sixteen separate `is_using_uc(...)` branches**, and they move the options
+class itself (2353), `mobile_emulator` (2437), `user_data_dir` (2535),
+`--disable-3d-apis` (2769), `--disable-renderer-backgrounding` (2771),
+`IsolateOrigins` and `site-per-process` (2811), `--remote-debugging-pipe` with
+webextensions and BiDi (2828), and `--no-pings` with `--homepage` (2833). So
+**anything handed to this engine can be lost this way**, and a setting that
+matters has to be verified on the browser's real command line rather than in the
+call that asked for it. `/proc/<pid>/cmdline` is where that is checked, and see
+the trap in the next paragraph before doing so.
+
+How the wrong version got written is the part worth keeping. The flag was
+missing from one early command line for an unrelated reason, UC mode was the
+salient difference, and the explanation was written down without being read off
+the source. A cause that fits is not a cause that was checked, and this one
+survived four days inside a file whose own next section contradicted it.
 
 **Chrome rewrites its own argv into one space-separated string**, so
 `/proc/<pid>/cmdline` for a Chrome process cannot be split on NULs the way the
@@ -891,8 +1149,16 @@ reference fingerprint, no gateway and no quota:
     obscura fetch --stealth --quiet https://tls.peet.ws/api/all
     obscura fetch --quiet https://tls.peet.ws/api/all
 
-Measured 2026-08-11, obscura 0.2.0. The archive on this machine is named
-`obscura-win.zip` with no `-stealth` suffix and is nonetheless the stealth build:
+Measured 2026-08-11, obscura 0.2.0. This file recorded until 2026-08-19 that the
+archive it was unpacked from was named `obscura-win.zip`, with no `-stealth`
+suffix, and was the stealth build regardless. **No asset by that name exists in
+the v0.2.0 release** - it publishes `obscura-x86_64-windows.zip` and
+`obscura-x86_64-windows-stealth.zip`, and its README carries a table of the four
+variants - and the archive is no longer on this machine, so the name cannot be
+re-checked. Treat it as mis-transcribed. Nothing rests on it: the evidence that
+this build impersonates is the handshake below, which is the whole point of the
+section, and an archive name would not have been evidence even if it had been
+right:
 
 | | `--stealth` | no flag |
 |---|---|---|
@@ -997,6 +1263,13 @@ Read with `scripts/analysis/held.py`.
   engine property, but this is the first measurement of the floor taken with the
   VPN tunnel bypassed, so it is the first one that can be attributed to the
   gateway rather than to our own line.
+
+  *That lopsidedness was the answer and it is 10 events, so it could not have
+  been read as one. Patchright opens its own CONNECTs and zendriver goes through
+  the relay, which is exactly the split that separated the two groups at n=1131
+  six days later - see "The floor was an IP ban". Recorded here because the
+  dismissal was correct on the evidence available and the pattern was still
+  worth carrying forward as a thing to re-check at scale.*
 
 Four things had to be built or fixed to ask it at all, and three of them are
 traps rather than features.
@@ -1229,6 +1502,8 @@ windows spent about 460 KB on an `r*.gvt1.com` CDN node. That is real, it is the
 same class of vendor traffic, and at 460 KB per session it is three orders of
 magnitude below the model fetch. Refusing more hosts than the measurement
 requires is how a measurement harness turns into a browser nobody else runs.
+
+### The axes, and the capabilities that are refused rather than dropped
 
 **A capability only some engines have must be refused by the runner, not dropped
 quietly - and that now includes blocking.** `supports_headful`,
@@ -1469,6 +1744,8 @@ a soft refusal after the fact. `data/queries/amazon_1000.txt` is the product
 list, built by the same generator and the same seed as `serp_1000` so neither is
 privileged. `--query-list` still forces one list on the whole matrix when that
 is the question being asked.
+
+### Amazon answers four different ways, and two of them are 2 KB
 
 **Amazon's `ok` rule is verified, its refusal rules are not.** Measured
 2026-08-11, direct from the operator's line: a plain `requests` client with
@@ -1787,6 +2064,8 @@ A naive consent rule of the kind Google needs would fire on a perfectly good
 Amazon result list. This is the Bing "captcha appears in the telemetry of a good
 page" problem again, and it is why marker rules get read off a body first.
 
+### Walmart is fronted by PerimeterX, and the lock is on the address
+
 **Walmart is the third target, and all of its rules were read off bodies.**
 Measured 2026-08-12 by `scripts/probes/walmart_recon.py`, 18 responses direct
 from the operator's line plus 15 through the pool. It was chosen because it
@@ -1861,6 +2140,8 @@ filed a working search as a refusal.
 measurement: no scriptless client has ever got past the handshake, so whether
 the markup survives without JavaScript is unknown, and the wrong guess would let
 our own preset masquerade as the target's refusal.
+
+### What a run costs, and why one constant could not track it
 
 **Estimator constants are calibrated, not guessed, and bytes are per target.**
 `matrix.estimate` prices traffic from `MEASURED_BYTES`, keyed by target name,
@@ -1945,6 +2226,17 @@ again this number has to be re-derived against it rather than nudged, and the
 two tests beside it are written as that derivation: one drives the watch at the
 measured floor for a full run length and requires it not to trip, the other
 drives a total failure and requires it to trip inside one window.
+
+**The floor it was re-derived against disappeared the day after, and 0.85
+stays.** The 34% baseline was the IP ban of the next-but-one section; from 21:00
+UTC on 2026-08-19 the same uninterrupted run reads 9.4%, and the fraction that
+was `ERR_EMPTY_RESPONSE` went from 18.3% to 0.10%. A threshold derived against a
+baseline that then falls errs in the safe direction - it is now roughly 1e-19 per
+window rather than 3e-7, and a genuine transport failure is still near 100% and
+still trips inside one window. What it does mean is that **0.85 is not evidence
+about the current gateway**, it is a number carried over from a condition that no
+longer exists, and the sentence above about the normal condition on this gateway
+described August 2026 and not the gateway.
 
 **N=10 is now measured rather than argued.** Read 2026-08-12 over every
 `benchmark_*.jsonl`, 129 cells and 1464 attempts, as the chance an attempt

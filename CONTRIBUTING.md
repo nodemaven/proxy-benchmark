@@ -7,6 +7,20 @@ it passed every test at the time.
 Read `NOTEBOOK.md` before writing code. It is the working notebook: every measured
 claim, the run it came from, and the ones that did not survive replication.
 
+## Contents
+
+- [The gate](#the-gate) - the one command a change has to pass
+- [What a change has to respect](#what-a-change-has-to-respect) - the invariants,
+  and the commit that broke each one
+- [Data](#data) - what is committed, what is masked, what is never edited by hand
+- [Adding a provider](#adding-a-provider) - a `.toml`, not a module, and why
+- [Operational safety](#operational-safety) - this is a shared production pool
+- [Claims](#claims) - what a number needs before it can be written down
+- [Style](#style) · [Dependencies](#dependencies)
+
+The two rules that catch people first: **do not harden the unmodified control**,
+and **nothing branches on an engine, provider or target name**.
+
 ## The gate
 
     make check

@@ -3,8 +3,8 @@
 Every verdict in this harness is a claim about a body: `targets.py` reads the
 markup and decides. That makes the classifier the instrument, and this harness
 has already had it wrong twice - `block` absorbed Google's no-JS scaffold, so
-"the target refused us" and "our own client cannot run JavaScript" were recorded
-as the same thing, and no row written before the fix could be re-read to tell
+"the target refused" and "the client cannot run JavaScript" were recorded as
+the same thing, and no row written before the fix could be re-read to tell
 which one it had been. Ten hours of run time became unusable for a one-line
 change in a classifier.
 

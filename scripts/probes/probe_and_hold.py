@@ -188,7 +188,7 @@ def parse_args():
                         help="seed for the gaps, the dwells and the typing "
                              "delays. Set it to make a run repeatable; left "
                              "unset the run records nothing that would let a "
-                             "target key on our timing")
+                             "target key on the timing")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan, send nothing")
     parser.add_argument("--no-bodies", action="store_true")

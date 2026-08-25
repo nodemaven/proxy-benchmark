@@ -1,9 +1,21 @@
 # The rows
 
 Every measurement this repository has ever made, one JSONL row per attempt, one
-file per run. Counted 2026-08-19: 143 files, 4.1 MB, covering 2026-08-10 to
-2026-08-18. Every count on this page carries that date because the directory
+file per run. Counted 2026-08-19: 143 files, 3,701 rows, 4.3 MB, covering
+2026-08-10 to 2026-08-18. Every count on this page carries that date because the directory
 grows, and a number without a date is the thing this repository is against.
+
+## Contents
+
+- [Why they are here when you are going to measure your own](#why-they-are-here-when-you-are-going-to-measure-your-own)
+- [Masking](#masking) - what is replaced, and the two times the guard failed
+- [Filename prefixes](#filename-prefixes) - which script wrote which file
+- [invalid/](#invalid) - the quarantined run, kept rather than deleted
+- [Reading a run](#reading-a-run) - four offline commands, and the four columns
+  that are easy to misread
+
+In one line: these are evidence for the claims made elsewhere in the repository,
+not a baseline for you to compare your own numbers against.
 
 They are committed on purpose. Every claim in `NOTEBOOK.md` and in the top-level
 README names the run it came from, and a claim whose evidence is not in the
@@ -26,7 +38,10 @@ What they are good for:
   which attempt. If a rule looks arbitrary, the row says what it was reading.
 - **Re-deriving a claim before trusting it.** `scripts/analysis/` sends nothing
   and reads only this directory. `report.py`, `playbook.py` and `held.py` on a
-  fresh clone reproduce the tables in `NOTEBOOK.md`.
+  fresh clone reproduce the tables in `NOTEBOOK.md`. The top-level README has a
+  section called **Reproduce these numbers** that maps each published headline
+  onto the command and the section of output it comes out of, including the two
+  places where the pooled reading and the quoted one differ and why.
 - **Seeing what a run actually looks like** before spending traffic on your own:
   the column set, the shape of a failure, how much of a run is `error` rather
   than a verdict.

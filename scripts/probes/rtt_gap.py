@@ -199,7 +199,7 @@ def main() -> None:
         p = statistics.median(r["gap_ms"] for r in both[1])
         print(f"\nthe proxied TLS handshake travelled {p - d:.1f} ms further "
               f"than the direct one ({p:.1f} against {d:.1f}).")
-        print("This is our side of the chain, not the target's. A target "
+        print("This is the client side of the chain, not the target's. A target "
               "measuring the same asymmetry sees its own numbers, and this "
               "one cannot be read as 'what Google sees'.")
 
