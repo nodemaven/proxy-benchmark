@@ -357,10 +357,50 @@ class BotasaurusEngine:
         # was that some engines chatted to the vendor and some did not, and
         # setting them here removes it rather than adding one.
         #
-        # Not a hardening of the browser under test: neither flag is visible to
+        # **The zendriver control does not hold and the two flags do not work.**
+        # Re-measured 2026-08-25, Windows, Chrome 149.0.7827.201, loopback
+        # CONNECT proxy counting per authority, 60 s on `about:blank`:
+        #
+        #   zendriver                             39.46 MB, not 72 KB
+        #   botasaurus, no flags                  45.17 MB
+        #   botasaurus, both flags, run 1          0.10 MB
+        #   botasaurus, both flags, run 2         39.32 MB
+        #
+        # zendriver sets both flags at `zendriver/core/config.py:129,132` and
+        # pays 39.37 MB to the same host anyway, so the engine this note cites as
+        # proof that the flags work is the one that refutes it.
+        #
+        # What the mistake looked like from the inside: the flags were credited
+        # on a single quiet run, and a quiet run is cheap to get because the
+        # fetch does not fire every time - 7 of 8 unflagged runs fetched, not 8.
+        # Run 1 above reproduces the original error exactly; run 2 is the repeat
+        # that should have been done in the first place.
+        #
+        # The flag that does work is `--disable-features=OptimizationHints`, the
+        # master switch rather than the three `OptimizationGuide*` sub-features
+        # SeleniumBase ships. With it the host is absent from the count in 4 of 4
+        # runs across two engines. It is kept alongside the other two, which
+        # still earn their place on the component updater: dropping them puts
+        # 5.8 MB of CRX download back.
+        #
+        # It reaches the browser here by luck, and that is worth knowing before
+        # anyone edits this line. Chrome keeps switches in a map, so only the
+        # last `--disable-features` survives and the earlier one is discarded
+        # whole - measured 2026-08-25 by ordering this flag first and then last
+        # and watching the fetch appear and vanish. `Config.browser_args` returns
+        # `sorted(default_arguments + arguments)`, and `default_arguments`
+        # already carries `--disable-features=IsolateOrigins,site-per-process`.
+        # `I` sorts before `O`, so ours lands last and wins. Give the value a
+        # name sorting before `IsolateOrigins` and this line goes silently dead -
+        # no error, no change in the logs, only the 39 MB coming back. Merging
+        # into the one existing switch is the fix and is proposed upstream as
+        # botasaurus-driver #29.
+        #
+        # Not a hardening of the browser under test: no flag here is visible to
         # a page, and `ChromiumEngine` - the control - is deliberately left
         # alone whatever it costs.
         driver = Driver(headless=headless, proxy=proxy_url, arguments=[
+            "--disable-features=OptimizationHints",
             "--disable-background-networking", "--disable-component-update"])
         try:
             driver.get("about:blank")

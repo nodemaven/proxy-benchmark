@@ -108,6 +108,26 @@ MAX_HEAD_BYTES = 65536
 # fetch still happens. Guessing further feature names until one works is how a
 # four-day run gets launched on a hope.
 #
+# **The flag exists and it is `--disable-features=OptimizationHints`.** Found
+# 2026-08-25 on Windows, Chrome 149.0.7827.201, same method - a loopback CONNECT
+# proxy counting bytes per authority, 60 s parked on `about:blank`. It is the
+# master switch for the whole Optimization Guide; the three `OptimizationGuide*`
+# names above are sub-features of a service that is still constructed, which is
+# why disabling them does nothing. With it, this host does not appear in the
+# count at all - not "smaller", absent - in 4 of 4 runs across two engines:
+#
+#   botasaurus  39.19 MB -> absent   seleniumbase  24.27 and 30.09 MB -> absent
+#
+# Without it, 7 of 8 runs fetched 24-39 MB. The 8th was quiet under flags that a
+# repeat then showed do nothing, so it is variance in the fetch, not a fix; that
+# single quiet run is exactly the shape of evidence that produced the wrong claim
+# in `engines/botasaurus.py`, and it is why the runs above are quoted as counts
+# rather than as one before/after pair.
+#
+# The paragraph above stands because its narrow claim was right - those two flags
+# do not reach it - and because the sentence about guessing names records the
+# reasoning that stopped the search one name short of the answer.
+#
 # The five Playwright engines never make this request, so refusing it is what
 # makes the relayed engines comparable with them rather than a special case: the
 # uncontrolled variable was which browsers talk to their vendor mid-measurement.
