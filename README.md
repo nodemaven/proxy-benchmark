@@ -620,12 +620,3 @@ denominator.
 
     pip install -r requirements-ci.txt
     make check          # ruff plus the suite: offline, no credentials, no browser
-
-## Disclosure
-
-Obscura lists NodeMaven as a paid sponsor. That does not make the measurements
-wrong, but a benchmark that scores a sponsor's product using a sponsored tool has
-to declare the relationship. As it turned out, Obscura is not a candidate engine
-here - it has never passed Google or Amazon - and it stays in the registry as the
-control that separates "headless" from "announces headless" in the DuckDuckGo
-finding.
