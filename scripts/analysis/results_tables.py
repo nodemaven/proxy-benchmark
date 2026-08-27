@@ -111,7 +111,8 @@ CONFOUNDED = {
 ENGINE_CAVEATS = {
     "obscura": [
         "**Two confounds under the `obscura` row, both found 2026-08-26 by "
-        "reading upstream rather than by running anything.**",
+        "reading upstream rather than by running anything. One of them has "
+        "since been run, and the run corrected it - see below.**",
 
         "- **Timezone.** Upstream ships `OBSCURA_TIMEZONE` and "
         "`OBSCURA_GEOLOCATION`; this harness sets neither, so the browser "
@@ -125,19 +126,46 @@ ENGINE_CAVEATS = {
         "`ddg_serp` 100%s - those targets pass everything - but it does sit "
         "directly under the `google_serp` 0%, and it means that cell is not "
         "yet a measurement of the engine.\n"
-        "- **Its navigation ceiling is half what the harness asks for.** "
-        "`nmbench/engines/base.py` sets `ENTRY_TIMEOUT_MS = 60000` and every "
-        "engine's `goto` is called with it, but `OBSCURA_NAV_TIMEOUT_MS` and "
-        "`OBSCURA_SCRIPT_DEADLINE_MS` default to 30000 upstream and this "
-        "adapter sets neither. So obscura gives up at 30 s while the harness "
-        "is still waiting to 60 s, and an `obscura` row reading `error` on a "
-        "slow target is at a ceiling this document never stated and never "
-        "moved. Any error-rate comparison that includes `obscura` is comparing "
-        "two different ceilings.",
+        "- **There are two navigation ceilings and the run does not pick the "
+        "lower one.** `nmbench/engines/base.py` sets `ENTRY_TIMEOUT_MS = 60000` "
+        "and every engine's `goto` is called with it, while "
+        "`OBSCURA_NAV_TIMEOUT_MS` and `OBSCURA_SCRIPT_DEADLINE_MS` default to "
+        "30000 upstream and this adapter sets neither. An `obscura` row reading "
+        "`error` on a slow target is therefore at a ceiling this document never "
+        "stated and never moved, and any error-rate comparison including "
+        "`obscura` is comparing two different ceilings.",
 
-        "Both are adapter gaps, not engine defects, and both are fixed by "
-        "wiring the three variables into `nmbench/engines/obscura.py`. Until "
-        "that is run, read the `obscura` column as coverage only.",
+        "**The 30 s half of that was measured on 2026-08-27 and it is not what "
+        "this entry said.** Written on 2026-08-26 off the upstream defaults, it "
+        "asserted flatly that obscura gives up at 30 s while the harness waits "
+        "to 60 s. Four `probe_and_hold` runs against `google_serp` produced 13 "
+        "failures, and the 30 s deadline was the binding one in 4 of them - the "
+        "other 8 ran to `Timeout 60000ms exceeded`, so the harness ceiling "
+        "fired and obscura's did not. The deadline is also not a wall-clock "
+        "30 s: the two rows that named it came back at 33.5 s and 42.9 s, so it "
+        "bounds some inner phase and surfaces late. The claim was not wrong "
+        "about the constants, it was wrong about which one you meet, and it was "
+        "the majority case it got backwards.",
+
+        "What the mistake looked like from the inside: two defaults in a config "
+        "file are a complete story if you only read the config file. `30000 < "
+        "60000` is arithmetic, it needs no run to check, and that is exactly "
+        "why it was written as though it had been. The entry even labelled "
+        "itself `by reading upstream rather than by running anything` - the "
+        "provenance was disclosed honestly and then the sentence was phrased "
+        "with the confidence of a measurement anyway. Disclosing where a claim "
+        "came from does not downgrade the claim; only hedging the claim does.",
+
+        "The remaining three causes in those 13, none of them a timeout: a "
+        "socket-level `operation timed out`, a `client error (SendRequest)` at "
+        "2.2 s, and an `InvalidHeaderValue` at 1.2 s while following Google's "
+        "own `&sei=` redirect. The last is a candidate defect in obscura rather "
+        "than in this adapter and has not been reduced to a repro yet.",
+
+        "The timezone gap and the ceiling mismatch are both adapter gaps rather "
+        "than engine defects, and both are fixed by wiring the three variables "
+        "into `nmbench/engines/obscura.py`. Until that is run, read the "
+        "`obscura` column as coverage only.",
     ],
 }
 
