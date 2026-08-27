@@ -681,6 +681,26 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
     return probe_verdict
 
 
+def one_line(text: str, width: int) -> str:
+    """Collapse to a single line and elide the middle, never the tail.
+
+    Playwright and CDP errors put the call that failed at the front and the
+    reason at the back - `net::ERR_TUNNEL_CONNECTION_FAILED`, a deadline, a
+    host - so a plain `[:width]` keeps the half that is the same in every
+    message and drops the half that identifies this one. At width 40 that turned
+    every navigation failure of the 2026-08-27 obscura run into the identical
+    string `Error: Page.goto: Protocol error (Page.n`, which names the call and
+    says nothing about why it failed. Keeping both ends costs three characters.
+    """
+    flat = " ".join(text.split())
+    if len(flat) <= width:
+        return flat
+    if width <= 3:
+        return flat[:width]
+    head = (width - 3) // 2
+    return f"{flat[:head]}...{flat[head + 3 - width:]}"
+
+
 def report(row: dict) -> None:
     """One line per row while the run works, warm-up visits included.
 
@@ -689,16 +709,21 @@ def report(row: dict) -> None:
     conclusion this run is most likely to reach on its own.
     """
     if not row.get("query"):
-        note = row.get("error") or "ok"
+        # Same shape as a probe row below: a token in the column, the message on
+        # its own line. Putting the message in the column meant it was cut to
+        # fit, and what fitted was the part every message shares.
+        error = row.get("error")
         print(f"      warm       {(row.get('url') or '')[:44]:<46}"
-              f"{row.get('elapsed_ms', 0):>6} ms  {note[:40]}")
+              f"{row.get('elapsed_ms', 0):>6} ms  {'error' if error else 'ok'}")
+        if error:
+            print(f"        -> {one_line(error, 160)}")
         return
     ready = {True: "ready", False: "no-markup", None: "-"}[row.get("ready")]
     print(f"      {row['phase']:<6}#{row['position'] + 1:<4}"
           f"{row['query'][:26]:<28}{row['status'] or '-'!s:<5}"
           f"{row['verdict']:<8}{ready:<10}{row['elapsed_ms']:>6} ms")
     if row.get("error"):
-        print(f"        -> {row['error'][:92]}")
+        print(f"        -> {one_line(row['error'], 160)}")
 
 
 def smallest_separable(n_a: int, n_b: int, alpha: float = 0.05) -> str:
