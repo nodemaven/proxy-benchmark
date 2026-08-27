@@ -142,8 +142,9 @@ def main() -> int:
 
     probe_table(rows, lambda r: r["engine"].split("/")[0], "BY ENGINE")
     probe_table(rows, lambda r: "warm-on" if r.get("warm") else "warm-off",
-                "BY WARM-UP - the claim is 20% to 75%, and this is its "
-                "denominator")
+                "BY WARM-UP - read against its own denominator and nothing "
+                "else. The 75% an operator reports is one number from another "
+                "pool and hour, not the far end of this arm")
     probe_table(rows, lambda r: r["cell"].split("/")[3], "BY PARAMETER ARM")
     probe_table(rows, lambda r: f"geo-{r.get('geo')}", "BY GEO ALIGNMENT")
     probe_table(rows, lambda r: r.get("entry"), "BY ENTRY SHAPE")

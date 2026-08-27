@@ -15,17 +15,20 @@ This runs the other one, as an operator described it:
 plus, separately claimed and separately measured here: warm the exit by opening
 a page or two on the target before the first query.
 
-Three claims, and the script is built so each one has a denominator:
+Three parts of that protocol are unpriced, and the script is built so each one
+gets a denominator here rather than being taken on trust:
 
   the entry shape   `--entry home,url` runs both, holding everything else fixed.
                     Without the `url` arm this run could only be compared
                     against rows taken on other days, and Google's yield moves
                     by 20 points between two afternoons
-  the warm-up       `--warm off,L1,L2,L3` is an axis for the same reason, and it
-                    is the biggest claimed effect here: 20% to 75% is larger than
-                    any engine difference this repository has measured, which is
-                    exactly why it gets a control rather than being switched on.
-                    It is a ladder rather than a switch because "warmed" is not
+  the warm-up       `--warm off,L1,L2,L3` is an axis for the same reason. The
+                    operator reports 75% on a warmed exit; that is one number
+                    from one pool and hour, it attributes nothing to any
+                    particular rung, and it is not the far end of an arm. So the
+                    warm-up gets a control here rather than being switched on and
+                    credited. It is a ladder rather than a switch because "warmed"
+                    is not
                     one treatment, and because running the rungs one after
                     another would measure the hour: the same gateway, the same
                     country and the same browser moved 69 points to 52 between
@@ -33,7 +36,7 @@ Three claims, and the script is built so each one has a denominator:
                     process so that the hour is held across them and not only
                     inside each
   the hold          every held query carries `position`, so P(pass) at position
-                    k is read off the rows. The claimed 88% is a conditional -
+                    k is read off the rows. The operator's 88% is a conditional -
                     given a probe that was served - and the probe is the only
                     attempt in an identity that is not
 
@@ -681,9 +684,9 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
 def report(row: dict) -> None:
     """One line per row while the run works, warm-up visits included.
 
-    The warm visits are printed because they are the axis with the largest
-    claimed effect in this run, and an arm whose warming was silently failing
-    would look exactly like the warm-up not working.
+    The warm visits are printed because an arm whose warming was silently
+    failing would look exactly like the warm-up not working, and that is the
+    conclusion this run is most likely to reach on its own.
     """
     if not row.get("query"):
         note = row.get("error") or "ok"

@@ -137,12 +137,13 @@ class GoogleSerp:
     # listed rather than one being assumed, so a variant swap is a slower page
     # and not a run of `error` rows.
     search_box = "textarea[name='q'], input[name='q']"
-    # Pages to open on a fresh exit before asking it anything, in rungs. The
-    # claim under test is that this alone moves the yield from 20% to 75%, which
-    # is a larger effect than any engine difference in this repository, so it is
-    # an axis in `probe_and_hold.py` rather than something the probe always
-    # does. One rung was not enough to say which part of a warm-up does the
-    # work, so the axis carries levels and the probe runs them interleaved.
+    # Pages to open on a fresh exit before asking it anything, in rungs. This is
+    # an axis in `probe_and_hold.py` rather than something the probe always does,
+    # because an operator reports reaching 75% on a warmed exit and nothing says
+    # which part of the warming earned it - a probe that always warmed would
+    # carry the treatment in every row and be unable to price it. One rung was
+    # not enough to say which part does the work, so the axis carries levels and
+    # the probe runs them interleaved.
     #
     # Declared on the target and not in the probe for the usual reason: a probe
     # that knew a domain would be a probe that could warm one target better than

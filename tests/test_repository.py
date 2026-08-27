@@ -235,17 +235,37 @@ def test_the_rows_badge_is_the_number_of_rows():
     Re-derived here rather than by asking the generator, so that this fails if
     the definition of a published row quietly changes as well as when the count
     does.
+
+    Tracked files only, for the same reason the generator counts them: an
+    untracked run file is not published. The first version of this test globbed
+    the directory, which made it agree with a badge that a fresh clone would
+    contradict - it passed locally on 2026-08-27 while four uncommitted obscura
+    runs held the badge 25 rows above what the repository actually shipped. A
+    guard that only fails on somebody else's machine is worse than one that fails
+    on yours.
+
+    `:(glob)` keeps `*` from crossing a slash. Git's default pathspec wildcard
+    does cross it and swept in `data/runs/invalid/`, which exists precisely to
+    hold rows that must never be counted.
     """
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     match = re.search(r"badge/rows-([\d%A-Fa-f]+)%20published", readme)
     assert match, "README.md has lost its rows badge, so nothing counts the runs"
     claimed = int(match.group(1).replace("%2C", ""))
-    actual = sum(1 for path in sorted((ROOT / "data" / "runs").glob("*.jsonl"))
+    listed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z", "--",
+         ":(glob)data/runs/*.jsonl"],
+        capture_output=True, text=True, timeout=60, check=True).stdout
+    tracked = [ROOT / name for name in listed.split("\0") if name]
+    assert tracked, "no run files are tracked, so the badge has nothing to count"
+    actual = sum(1 for path in tracked
                  for line in path.read_text(encoding="utf-8").splitlines()
                  if line.strip())
     assert claimed == actual, (
-        f"the rows badge says {claimed:,} and data/runs/ holds {actual:,} - "
-        f"regenerate it with `make docs`")
+        f"the rows badge says {claimed:,} and the committed run files hold "
+        f"{actual:,} - regenerate it with `make docs`. If the difference is a "
+        f"run you have not committed yet, commit it first: the badge counts what "
+        f"a reader receives, not what is in your working tree")
 
 
 def test_the_package_imports_without_credentials():

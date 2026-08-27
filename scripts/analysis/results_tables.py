@@ -53,6 +53,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 from contextlib import redirect_stdout
 
@@ -839,14 +840,42 @@ def readme_block(flagship, rest, span):
     print(MARK_END)
 
 
-def published_rows():
-    """Every row under `data/runs/`, which is what the badge claims.
+def run_files():
+    """The run files a reader of this repository would actually receive.
 
-    Counts all of them and not just `benchmark_*`, because the badge links to
-    the directory rather than to the matrix runs.
+    Tracked files only. The badge says `published`, and a run file sitting
+    untracked in a working tree is not published, it is somebody's afternoon.
+    Counting the directory instead put the badge 25 rows ahead of the repository
+    on 2026-08-27, off four exploratory obscura runs nobody had committed, and
+    the number it wrote could not then be committed without either shipping those
+    runs or failing CI on a fresh clone.
+
+    Falls back to the directory when `git` is absent or this is not a
+    repository - which is the case of an unpacked archive, and there every file
+    present is a file that shipped, so the two definitions agree. Counts every
+    name rather than only `benchmark_*`, because the badge links to the
+    directory rather than to the matrix runs.
+
+    The pathspec carries `:(glob)` so that `*` stops at a slash. Git's default
+    pathspec wildcard crosses `/`, unlike the `glob` module's, and without the
+    magic this walked into `data/runs/invalid/` and added its 30 quarantined rows
+    to the badge - a directory whose whole purpose is to hold rows that must not
+    be counted. It read as +30 published rows and would have been committed.
     """
+    try:
+        listed = subprocess.run(
+            ["git", "-C", ROOT, "ls-files", "-z", "--",
+             ":(glob)data/runs/*.jsonl"],
+            capture_output=True, text=True, timeout=30, check=True).stdout
+        return [os.path.join(ROOT, name) for name in listed.split("\0") if name]
+    except (OSError, subprocess.SubprocessError):
+        return sorted(glob.glob(os.path.join(RUNS_DIR, "*.jsonl")))
+
+
+def published_rows():
+    """Rows across every published run file, which is what the badge claims."""
     total = 0
-    for path in glob.glob(os.path.join(RUNS_DIR, "*.jsonl")):
+    for path in run_files():
         with open(path, encoding="utf-8") as fh:
             total += sum(1 for line in fh if line.strip())
     return total

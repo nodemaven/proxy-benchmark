@@ -88,10 +88,18 @@ EARLY_DEATH_S = 600
 # a rung. It printed four cells reading 3, 4, 3 and 3 served, which reads as a
 # clean negative until the denominators are looked at: errors left 11, 9, 7 and
 # 10 judged attempts, and at 11 against 9 the smallest difference Fisher can
-# separate at p<0.05 is 0/11 against 4/9. About 40 points. The claim the ladder
-# exists to test is a move from 20% to 75%, so an effect half that size would
-# have come back indistinguishable from nothing, and the run would have been
-# quoted as evidence the warm-up does not work.
+# separate at p<0.05 is 0/11 against 4/9. About 40 points. A test that coarse
+# returns "no effect" for almost anything put in front of it, and the run would
+# then have been quoted as evidence the warm-up does not work.
+#
+# This paragraph used to justify the floor by saying the ladder exists to test a
+# move from 20% to 75%, so a 40-point resolution would miss half of it. There is
+# no such effect size: 20% to 75% was never claimed by anyone, it was assembled
+# here out of an operator's single 75% and this harness's own baseline. Corrected
+# 2026-08-27, see NOTEBOOK.md. The floor is unchanged, because the argument for
+# it never needed the number - 40 points is too coarse to act on whatever the
+# effect turns out to be, and sizing an experiment against a guessed effect size
+# is how you end up measuring the guess.
 #
 # 40 identities a rung brings the detectable difference to roughly 20 points,
 # which is the smallest number worth acting on. The default is 60 because

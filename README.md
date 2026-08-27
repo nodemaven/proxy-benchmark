@@ -60,26 +60,28 @@ id, the denominator and the date it stopped being true.
   At one profile per attempt that is about 43 GB per thousand attempts, billed as
   residential traffic, for a file no target ever sees.
   [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
-- **2026-08-24** - **On Amazon the unmodified browser is the best engine we
-  tested.** Stock Chromium 96% (419/436) against 63% (288/457) for the worst
+- **2026-08-24** - **On Amazon the unmodified browser finished in the leading
+  group.** Stock Chromium 96% (419/436) against 63% (288/457) for the lowest
   anti-detect engine, over 7627 attempts. Six engines sit within four points at
-  the top and no test separates them, so the honest reading is that most of what
-  you would pay for is not showing up.
+  the top and no test separates them, so the top of that table is a tie rather
+  than a ranking - and the control is inside it.
   [Full table](RESULTS.md#amazon_search-in-the-130-hour-run)
 - **2026-08-26** - **The same code, gateway and target scored 39% on one machine
   and 0% on another.** 24/61 from a Windows workstation against 0/84 from a Linux
-  VPS in overlapping hours, Fisher p = 3.7e-11. Before you blame a proxy, check
-  whether your box is the variable.
+  VPS in overlapping hours, Fisher p = 3.7e-11. The client machine is a variable
+  a proxy comparison usually holds fixed without saying so.
   [The split](RESULTS.md#the-host-separated-from-the-date)
-- **2026-08-12** - **DuckDuckGo blocks on one substring in the User-Agent and
-  nothing else.** 95 of 95 pass for engines whose UA omits `HeadlessChrome`, 0 of
-  50 for the two that carry it, across three browser families and two drivers.
-  Benchmarking a headless Chromium there measures the UA, not the proxy.
+- **2026-08-12** - **On DuckDuckGo one substring in the User-Agent accounted for
+  the whole split.** 95 of 95 pass for engines whose UA omits `HeadlessChrome`, 0
+  of 50 for the two that carry it, across three browser families and two drivers.
+  Nothing else varied moved it, so a headless Chromium measured there is
+  reporting its own UA rather than its exit.
   [The split](NOTEBOOK.md#duckduckgo-is-reading-the-user-agent-and-the-split-is-total)
-- **2026-08-12** - **For Google the exit address is the whole of it.** Given a
-  served page, pass was 83 of 83 and did not vary by country, while the chance of
-  being served ran from 13% to 62% depending on the exit. The browser is not what
-  decides, and no absolute rate here should be read as current.
+- **2026-08-12** - **On Google the exit address dominated everything else we
+  varied.** Given a served page, pass was 83 of 83 and did not vary by country,
+  while the chance of being served ran from 13% to 62% depending on the exit. The
+  browser did not separate the cells, and no absolute rate here should be read as
+  current.
   [The decomposition](NOTEBOOK.md#exit-yield-is-a-country-axis-and-us-is-the-worst-of-them)
 - **2026-08-12** - **The TLS handshake explains neither Google nor Amazon.**
   Chromium, Patchright and Obscura emit a byte-identical ClientHello and their
@@ -87,17 +89,21 @@ id, the denominator and the date it stopped being true.
   shuffles extension order per connection, so a JA3 difference between two
   Chromium engines is noise.
   [What was read](NOTEBOOK.md#the-handshake-was-read-and-it-is-not-the-discriminator)
-- **2026-08-19** - **Timezone and locale alignment buys nothing and can cost a
-  lot.** Flat on Patchright (34% against 35%), and zendriver lost six sevenths of
-  its yield, 57% down to 9%, p = 0.0008. Do not turn it on.
+- **2026-08-19** - **Timezone and locale alignment did not pay off in either arm
+  we ran.** Flat on Patchright (34% against 35%), and zendriver lost six sevenths
+  of its yield, 57% down to 9%, p = 0.0008. Two engines is a thin basis for a
+  rule, but nothing measured here argues for switching it on.
   [Both arms](NOTEBOOK.md#the-axes-and-the-capabilities-that-are-refused-rather-than-dropped)
 - **2026-08-20** - **Our own harness was getting the pool banned.** One
   unauthenticated CONNECT per session, sent by the browser before anything else,
   was tripping an IP ban that looked like a gateway floor for days.
   [How it was found](NOTEBOOK.md#the-floor-was-an-ip-ban-and-this-harness-was-tripping-it-itself)
-- **2026-08-26** - **One page of warm-up does nothing**, against a published
-  claim that it moves yield from 20% to 75%. Measured 32% against 30%. That rules
-  out one page rather than warming, which is what the ladder is now for.
+- **2026-08-26** - **One page of warm-up moved nothing in our window.** 32%
+  against 30%, intervals almost coincident. This refutes nobody: the protocol
+  came to us from an operator, and the 75% that travels with it was mentioned in
+  conversation as a figure once reached - not as a before-and-after pair, and
+  with no denominator behind it. What our arm rules out is one page, which is
+  what the ladder now goes past.
   [The ladder](#the-warm-up-ladder)
 
 Nothing here is a NodeMaven sales number. Where the pool loses, the run file
@@ -331,9 +337,16 @@ is served. Read the result with `scripts/analysis/held.py`.
 
 ### The warm-up ladder
 
-The published claim is that opening a page or two on the target before asking it
-anything moves the yield from 20% to 75%. Measured here it moved 32% to 30% - no
-effect, on the largest claimed effect in this repository.
+The operator's protocol above includes opening a page or two on the target before
+asking it anything, and a figure of 75% travels with it. Measured here, one page
+moved 32% to 30%.
+
+Be careful what that is being compared against, because this document was not for
+two days. The 75% reached us in conversation, as a number an operator had once
+seen on their own pool, country mix and hour. It was never stated as a
+before-and-after pair, so there is no 20%-to-75% effect to fail to replicate and
+no claim of anyone's to refute. What this arm has is its own denominator, and
+that is all it has.
 
 That result has two readings and one arm cannot tell them apart: either warming
 does nothing, or **one page is not warming**. `--warm` is a ladder rather than a
@@ -699,7 +712,7 @@ Where each headline lands:
 | Amazon used to invert it | same block, `amazon_search`: camoufox live on 47/48, 42/42 and 25/25, against no Chromium-family cell above 33%. This is the August workstation reading and it is the one that did not survive |
 | Amazon no longer separates the engines | `report.py data/runs/benchmark_20260819T055927Z.jsonl`, the `amazon_search` block: chromium 419/436 live at 100% pass, camoufox 431/446, patchright 313/457. Read this one against the row above - the two are six days and one machine apart, and the notebook keeps both |
 | The hold is real | `held.py`, `HOW LONG A GOOD EXIT LASTS`: 96%, 98% and 99% at positions 2, 3 and 4 |
-| Warming does not replicate | `held.py`, `BY WARM-UP`, which prints the published 20%-to-75% claim next to its own denominator |
+| One page of warming moved nothing | `held.py`, `BY WARM-UP`. The 75% an operator mentioned is not a before-and-after pair, so this cell is read against its own denominator and against nothing else |
 | Geo alignment costs yield | `held.py`, `BY GEO ALIGNMENT` |
 | The unanswered-CONNECT floor | `report.py --all`, `DID THE RUN MEASURE THE TARGETS OR THE PATH TO THEM`: 23% of proxied attempts against 0% direct. Read the third caveat before reading that as anyone's - the cause turned out to be in the harness's own traffic |
 

@@ -1229,12 +1229,36 @@ is what asks the question.
 The protocol it implements is an operator's, not ours: one sticky exit per
 session, land on the front page, type, and if the probe is refused drop the
 address rather than retry it; if the probe is served, hold that exit and run a
-series on it with 8-20 s between queries. Two claims come with it - that warming
-the exit on a page or two first moves the yield from 20% to 75%, and that after
-a served probe the next queries land about 88% of the time - so `--warm on,off`
-is a real arm and `position` is on every held row.
+series on it with 8-20 s between queries. Two figures travel with it - a 75% the
+operator had reached on a warmed exit, and about 88% for the queries following a
+served probe - so `--warm on,off` is a real arm and `position` is on every held
+row.
 
-**Both claims now have a denominator, and they do not survive equally.**
+**Neither figure is a claim, and this entry called them claims for two weeks.**
+Corrected 2026-08-27 after the person who relayed them read it back. What was
+actually said is that an operator had once got to 75%. That is one number, with
+no denominator, no arm it was measured against and no attribution to any part of
+the protocol. It never was "20% to 75%": the 20% is ours, it is this harness's
+own baseline, and pairing the two into an effect size was done here and nowhere
+else.
+
+What the mistake looked like from the inside: the pairing is what made the arm
+worth building, and once built, the arm needed something to be an arm *against*.
+A single reported number does not fill that slot and an effect size does, so the
+number quietly became one. Nothing was invented at any single step - the 75% is
+real and was said, the 20% is real and was measured - and the sentence that
+joined them was never checked against either source. It then hardened: `README.md`
+promoted it to "the published claim", `probe_and_hold.py` to "the biggest claimed
+effect here", and `run_ladder.py` sized the experiment against it. By the time it
+was caught, a number nobody had claimed was setting our sample size.
+
+The general form is the third instance of the same error in this notebook, after
+`OptimizationHints` and `norotate`: something that arrived from a credible source
+was allowed to stand in for a measurement. This one is the worst of the three,
+because here the source was credible *and accurate* - it was the arithmetic done
+on top of it that was ours.
+
+Both figures now have a denominator, and they do not survive equally.
 Measured 2026-08-13 into 2026-08-14 by `probehold_20260813T202606Z`: patchright
 and zendriver, google_serp, `country=any`, entry `home`, 12 cells interleaved at
 identity granularity, 120 fresh exits and 229 attempts in one window of 1 h 54.
@@ -1257,13 +1281,13 @@ Read with `scripts/analysis/held.py`.
   stops at its first refusal, so later positions are drawn from the survivors.
   The consequence for cost is direct - the expensive event is finding an exit
   Google will serve, and once found it is worth a series rather than one query.
-- **Warming does not replicate at all.** 32% against 30%, intervals almost
-  coincident, on the arm where the claim was 20% to 75%. It is not merely
-  unconfirmed here, it is measured and absent, and two extra page loads per
-  identity is what it costs to keep asking. This is not a refutation of the
-  operator's own figure, which was taken on another provider, another country
-  mix and another hour; it is a statement that this pool in this window did not
-  behave that way.
+- **One page of warming is measured and absent.** 32% against 30%, intervals
+  almost coincident, and two extra page loads per identity is what it costs to
+  keep asking. Say what this is not: it is not a refutation of the operator's
+  75%, which was one number on another provider, another country mix and another
+  hour, and which was never offered as the result of a controlled arm in the
+  first place. There is nothing here for it to contradict. What the cell says is
+  that this pool, in this window, with one page, did not move.
 - **The filter ladder does not separate.** `medium` reads highest and its
   interval overlaps both neighbours over most of their range, so the ranking
   must not be quoted, on exactly the grounds that `de`/`gb`/`any`/`ru` must not
