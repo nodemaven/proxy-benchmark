@@ -230,6 +230,7 @@ class ChromiumEngine:
     # silently ignored, so asking for alignment fails loudly instead of
     # producing a cell that claims an alignment it never had.
     supports_geo_align = False
+    supports_geoip = False
     # No humanized input. The row already records humanize=False for this
     # engine, but a flag accepted at the command line and honoured by only one
     # column is a difference nobody reads back out of the rows.
@@ -327,6 +328,7 @@ class PatchrightEngine(ChromiumEngine):
     # everywhere else: patched JavaScript properties do not survive those three
     # readings and browser-level emulation does.
     supports_geo_align = True
+    supports_geoip = False
 
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,

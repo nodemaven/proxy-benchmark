@@ -320,8 +320,24 @@ class ObscuraEngine:
     # Headless only: there is no display, so the headful comparison that removes
     # the compositor and GPU tells cannot be run for this engine at all.
     supports_headful = False
-    # No exit-derived timezone or locale, so it reports the host's own.
+    # These two are statements about this adapter, not about the engine.
+    #
+    # Upstream ships `OBSCURA_TIMEZONE` and `OBSCURA_GEOLOCATION` (documented in
+    # `docs/Environment-variables.md`), and the timezone one drives the process
+    # zone so `Date` and `Intl.DateTimeFormat` agree. This adapter sets neither,
+    # so the browser reports the host's own zone against an exit that is usually
+    # somewhere else: measured 2026-08-26 on this Windows workstation,
+    # `Intl.DateTimeFormat().resolvedOptions().timeZone` reads `Europe/Moscow`
+    # and `getTimezoneOffset()` reads -180 while the exit was drawn from
+    # `country=any`. That mismatch is a signal in its own right, and it rides
+    # under every obscura row this harness has produced.
+    #
+    # Flipping these to True means wiring the two variables into `_spawn` and
+    # deriving their values from the exit, which is the same lookup the geo-align
+    # axis already does for the other engines. Until then the flags stay False so
+    # no run claims an alignment it did not perform.
     supports_geo_align = False
+    supports_geoip = False
     supports_humanize = False
     runs_script = True
     # `ObscuraSession.search` exists and this still answers False, which is the

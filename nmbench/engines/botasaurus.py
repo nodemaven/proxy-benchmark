@@ -274,6 +274,7 @@ class BotasaurusEngine:
     # second post-tab installer, against two pre-context installers, and the
     # `--geo align` result is currently unattributable without the pair.
     supports_geo_align = True
+    supports_geoip = False
     supports_humanize = False
     runs_script = True
     # One `Input.dispatchKeyEvent` of type `char` per character and nothing

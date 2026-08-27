@@ -443,6 +443,7 @@ class ZendriverEngine:
     # than a framework feature. The language list is left on the host's, for the
     # reason `base.ROW_FIELDS` gives.
     supports_geo_align = True
+    supports_geoip = False
     supports_humanize = False
     runs_script = True
     # `ZendriverSession.search` exists, written against zendriver's own API

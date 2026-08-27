@@ -133,6 +133,15 @@ class CamoufoxEngine:
     supports_blocking = True
     supports_headful = True
     supports_geo_align = True
+    # How this engine aligns, not whether it can. It resolves the exit address
+    # against a bundled database and takes a boolean, so the runner has no zone
+    # to hand it and passing one is a silently dropped option. The Chromium
+    # family is the other way round. Declared because a runner that had to ask
+    # which is which would be a runner that knows engine names.
+    #
+    # It is also a wider treatment than the zone: locale and geolocation move
+    # with it. A geo arm compared across the two kinds is not like-for-like.
+    supports_geoip = True
     # The only engine here with humanized input. Declared so the runner can
     # refuse a mixed matrix rather than humanize this column alone.
     supports_humanize = True

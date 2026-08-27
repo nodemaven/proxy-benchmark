@@ -150,6 +150,7 @@ class HttpEngine:
     supports_blocking = False
     supports_headful = False
     supports_geo_align = False
+    supports_geoip = False
     supports_humanize = False
     runs_script = False
     # No box to type into either. A client could post the form by hand, and that

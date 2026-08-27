@@ -222,6 +222,7 @@ class SeleniumBaseEngine:
     # Reports the host timezone and language list whatever address it leaves
     # from, the same as the Chromium-family engines.
     supports_geo_align = False
+    supports_geoip = False
     supports_humanize = False
     runs_script = True
     # This session has no `search`. The reason is `record_status`, which the

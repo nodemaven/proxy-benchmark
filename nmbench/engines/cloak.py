@@ -77,6 +77,7 @@ class CloakEngine:
     supports_blocking = True
     supports_headful = True
     supports_geo_align = True
+    supports_geoip = True
     supports_humanize = True
     runs_script = True
     # Yields a `ChromiumSession`, so `search` comes with it. See

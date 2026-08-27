@@ -11,10 +11,22 @@ served 48% of the time through the pool while the Chromium-family engines sit at
 engines. Both readings survive, and they say opposite things about what to buy.
 
 This engine holds the browser absent and moves the handshake to Chrome's.
-Against `http` it changes only the ClientHello; against `cloak` it changes only
-the browser, because cloakbrowser ships Chromium 146 and the default profile
-here is `chrome146`. Two edges of one triangle, and the target's answer names
-which of them it is reading.
+Against `http` it changes only the ClientHello. Against `cloak` it was meant to
+change only the browser, because cloakbrowser ships Chromium 146 and the profile
+here is `chrome146` - **and that second contrast is not clean.** Measured
+2026-08-26 against curl_cffi 0.16.0: `chrome146` announces macOS, not Windows.
+The bundled `libcurl-impersonate` carries 37 UA strings and its only Chrome/146
+one is `Macintosh; Intel Mac OS X 10_15_7`; the newest Windows Chrome it carries
+at all is 116. So a `curlcffi` vs `cloak` difference moves two things at once,
+the browser and the announced platform, and neither is attributable on its own.
+
+There is no version of this pairing that fixes it here: picking a
+Windows-announcing profile costs 30 Chrome versions, which is a larger
+difference than the one it removes. The clean form of the question needs
+cloakbrowser moved to a macOS profile instead, and until that is run the
+`curlcffi` vs `cloak` edge should be quoted as two variables rather than one.
+The `http` edge is unaffected - that comparison holds the browser absent on both
+sides and only the handshake moves.
 
 **The headers are not ours and must not be.** `http` sets `BROWSER_HEADERS`
 because a client announcing `python-requests` is refused on the header layer
@@ -122,6 +134,7 @@ class CurlCffiEngine:
     supports_blocking = False
     supports_headful = False
     supports_geo_align = False
+    supports_geoip = False
     supports_humanize = False
     runs_script = False
     # No box to type into. See `HttpEngine` for why posting the form by hand

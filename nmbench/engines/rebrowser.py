@@ -80,6 +80,7 @@ class RebrowserEngine(ChromiumEngine):
     # installation. This engine is a second pre-context installer, so it is one
     # half of the pair that can test that.
     supports_geo_align = True
+    supports_geoip = False
 
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,
