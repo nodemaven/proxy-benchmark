@@ -34,8 +34,15 @@ exit_ip_header = "X-Proxy-Exit-IP"
 # modes and builds three of them out of `filter` and `speed` together, while the
 # fourth passes neither. A name we do not know is indistinguishable from a name
 # the gateway does not know, so the generator was the only place it could surface.
+#
+# `type` was missing until 2026-08-26 and is the expensive one. It selects mobile
+# against residential exits, which is a different pool and not a filter over the
+# same one, and no row in data/runs/ can ever have asked for it - strict
+# validation refused the name before a request existed. It surfaced by reading
+# the vendor's own public SDK at `nodemavencom/proxy`, which neither of ours
+# matches, and was then verified two ways rather than assumed from it.
 known_params = ["country", "region", "city", "isp", "sid", "ttl", "filter",
-                "ipv4", "speed"]
+                "ipv4", "speed", "type"]
 
 notes = """
 Measured 2026-08-10 by raw CONNECT probes. None of this is documented by the
@@ -57,4 +64,44 @@ Seven inputs, seven reactions, none of which names the cause:
 
 The 407 cases are actively misleading - they send the operator to check
 credentials. With no `country` the default country is not stable.
+
+Re-probed 2026-08-26 from the VPS to settle which names the gateway knows,
+because four sources disagreed: this file, our Python SDK, the vendor's public
+SDK at `nodemavencom/proxy`, and the help pages. Acceptance proves nothing here,
+so every phase carried a negative control - `zzqqx`, a name nobody implemented -
+and a positive one, `filter`, known recognised since 2026-08-10.
+
+  name          junk value   reading
+  zzqqx           200        the control: unknown names answer 200 for anything
+  filter          407        the control: known names refuse what is not on the list
+  type            407        recognised - an unknown name cannot produce this
+  speed           407        recognised, confirming the 2026-08-12 generator read
+  norotate        200        indistinguishable from the unknown name
+
+`type` selects the network and not merely a label on it. 5 echo requests per arm,
+fresh sid each, country=us: `type=mobile` drew AS21928 T-Mobile three times, one
+AS6167 - that is Cellco, the wireless side of Verizon, whatever ipinfo labels it -
+and one AS7018. `type=residential` and the unset arm drew Comcast, Charter,
+Windstream, Metronet, Fidium, Planet and AS701 Verizon wireline, and no mobile
+ASN between them. So the parameter moves you to a carrier pool, which is a
+different set of addresses rather than a quality filter over the same one.
+
+`filter=high` and `filter=low` both answer 200 and are therefore on the
+whitelist, against a junk filter value answering 407. Every run in data/runs/
+used `filter=medium` and nothing here has ever measured the other two.
+
+**`ttl` is documented wrong and fails misleadingly.** The help pages give TTL in
+seconds; `ttl=60` is refused 407 and `ttl=1m` is accepted. Both SDKs emit
+`60s / 1m / 1h / 24h` and they are right. An operator following the documentation
+gets a 407 and goes to check credentials that are fine.
+
+**`norotate` is not recognised on this account and this gateway.** Three
+independent probes: junk value answers 200 exactly like the unknown name; with no
+sid it rotated 6 distinct exits of 6, as did both controls; with a fixed sid and
+`ttl=1m` sampled at 0, 78 and 157 seconds it drew 3 distinct of 3, as did both
+controls. Our own SDK ships it as a valid parameter, so a user setting it gets a
+200 and no rotation change. That is measured against `gate.nodemaven.com:8080` on
+one account on 2026-08-26 and does not rule out the name being real on another
+product or plan - a name the gateway does not know is invisible by design, so
+this is the strongest negative the method can produce and it is not a proof.
 """

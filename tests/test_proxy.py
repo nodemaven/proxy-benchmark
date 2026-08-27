@@ -62,6 +62,22 @@ class TestBuildUsername:
         the gateway does not recognise would have answered 200 with the setting
         silently dropped, which is indistinguishable from success.
 
+        `type` joined on 2026-08-26 the same way and with the same control.
+        Probed from the VPS: `type` with a junk value answers 407, while the
+        negative control `zzqqx` - a name nobody has implemented - answers 200
+        for anything, so a 407 is a name the gateway parses. It selects a
+        carrier pool rather than filtering one: 5 echo requests an arm, fresh
+        sid, `country=us`, `type=mobile` drew T-Mobile three times plus Cellco
+        and AS7018, while `type=residential` and the unset arm drew wireline
+        ASNs only.
+
+        `norotate` was probed in the same session and is deliberately NOT here.
+        It answered 200 with a junk value, exactly like the unknown name, and
+        rotated 6 exits of 6 with no sid and 3 of 3 under a fixed sid - which is
+        what this gateway does with a name it does not know. It is in the
+        vendor's own proxy generator, and that is provenance rather than a
+        measurement.
+
         The set moved into the provider definition when the DSL became data. It
         is still asserted here, spelled out rather than read from the file,
         because a test that loads the same file it is checking would follow an
@@ -69,7 +85,7 @@ class TestBuildUsername:
         """
         assert providers.load("nodemaven").known_params == {
             "country", "region", "city", "isp", "sid", "ttl", "filter",
-            "ipv4", "speed"}
+            "ipv4", "speed", "type"}
 
 
 class TestParseParams:

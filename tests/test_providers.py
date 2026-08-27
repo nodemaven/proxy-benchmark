@@ -439,15 +439,23 @@ class TestTheShippedDefinitions:
         assert providers.FALLBACK in providers.names()
 
     def test_the_measured_dsl_is_pinned(self):
-        """The nine parameters and the separators were read off the gateway on
-        2026-08-12 by raw CONNECT probes, and the gateway answers a tenth name
-        with 200 and the setting dropped. Pinned so the set cannot be widened
-        from a vendor page without a run behind it."""
+        """The ten parameters and the separators were read off the gateway by
+        raw CONNECT probes - nine on 2026-08-12 and `type` on 2026-08-26 - and
+        the gateway answers a name it does not know with 200 and the setting
+        dropped. Pinned so the set cannot be widened from a vendor page without
+        a run behind it.
+
+        That guard earned itself on 2026-08-26. `norotate` came off the same
+        vendor proxy generator that `speed` and `type` came off, and it is the
+        one of the three that probing refuses: junk value answered 200 like the
+        unknown-name control, 6 distinct exits of 6 with no sid, 3 of 3 under a
+        fixed sid with `ttl=1m`. Two names from that page are real and one is
+        not, which is exactly the case a test reading the file cannot catch."""
         provider = providers.load("nodemaven")
         assert provider.measured
         assert provider.known_params == frozenset(
             {"country", "region", "city", "isp", "sid", "ttl", "filter",
-             "ipv4", "speed"})
+             "ipv4", "speed", "type"})
         assert (provider.prefix, provider.separator, provider.pair_separator) \
             == ("{login}", "-", "-")
         assert provider.aliases == {}
