@@ -167,6 +167,35 @@ def test_every_link_inside_the_repository_resolves(path):
     assert not broken, f"{path.relative_to(ROOT)}: " + "; ".join(broken)
 
 
+def test_the_engine_list_in_the_readme_is_the_registry():
+    """The list of frameworks at the top of README.md is generated, so check it.
+
+    Adding an engine is one import and one registry line, and nothing about that
+    change looks like it should have touched a prose section of the README. The
+    results block below it has the same shape and no such guard, which is
+    survivable there because a stale results table is contradicted by the run
+    files next to it. A stale engine list is contradicted by nothing: it reads as
+    a complete answer to "what does this drive" and a reader has no way to tell
+    it is a year old.
+
+    Runs the generator rather than re-implementing it, so this fails when the
+    README drifts and not when the wording changes.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    begin, end = "<!-- ENGINES:BEGIN -->", "<!-- ENGINES:END -->"
+    assert begin in readme and end in readme, (
+        "README.md has lost the ENGINES:BEGIN/ENGINES:END markers, so nothing is "
+        "checking that its engine list matches nmbench.engines.REGISTRY")
+    published = begin + readme.split(begin, 1)[1].split(end, 1)[0] + end
+    result = subprocess.run([sys.executable, str(SCRIPTS / "engine_table.py")],
+                            capture_output=True, text=True, timeout=120, cwd=ROOT)
+    assert result.returncode == 0, result.stderr[-1500:]
+    generated = result.stdout.replace("\r\n", "\n")
+    assert published.strip() == generated.strip(), (
+        "README.md engine block no longer matches the registry - regenerate it "
+        "with `python scripts/engine_table.py --readme`")
+
+
 def test_the_package_imports_without_credentials():
     """Verdicts, the scheduler and the query list must be testable on a machine
     that has no .env at all."""

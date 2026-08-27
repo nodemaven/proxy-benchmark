@@ -36,7 +36,7 @@
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
 [![rows](https://img.shields.io/badge/rows-12%2C173%20published-blue?style=flat-square)](data/runs)
 
-[Quickstart](docs/quickstart.md) · [Commands](#command-reference) · [Findings](#what-the-rows-say) · [Reproduce](#reproduce-these-numbers) · [Notebook](NOTEBOOK.md)
+[Findings](#research-findings) · [Quickstart](#quickstart) · [What it drives](#what-is-under-test) · [Commands](#command-reference) · [Reproduce](#reproduce-these-numbers) · [Notebook](NOTEBOOK.md)
 
 </div>
 
@@ -48,16 +48,143 @@ A gateway is a `.toml` file and an engine is a module plus one registry line, so
 neither ever edits the runner. Point it at NodeMaven, at a competitor, or at
 [a proxy you already own](#bringing-your-own-proxy).
 
-New to this, or to Python? [docs/quickstart.md](docs/quickstart.md) needs no proxy
-account and no terminal experience. This file assumes you know what a ClientHello
-is.
+## Research findings
+
+Measured with this harness. Each line links to the section that carries the run
+id, the denominator and the date it stopped being true.
+
+- **2026-08-19** - **Chrome spends 43 MB per fresh profile talking to Google
+  before you ask it for anything.** 43.2 MB of a 43.4 MB idle window on
+  `optimizationguide-pa.googleapis.com`, on a browser parked on `about:blank`.
+  At one profile per attempt that is about 43 GB per thousand attempts, billed as
+  residential traffic, for a file no target ever sees.
+  [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
+- **2026-08-24** - **On Amazon the unmodified browser is the best engine we
+  tested.** Stock Chromium 96% (419/436) against 63% (288/457) for the worst
+  anti-detect engine, over 7627 attempts. Six engines sit within four points at
+  the top and no test separates them, so the honest reading is that most of what
+  you would pay for is not showing up.
+  [Full table](RESULTS.md#amazon_search-in-the-130-hour-run)
+- **2026-08-26** - **The same code, gateway and target scored 39% on one machine
+  and 0% on another.** 24/61 from a Windows workstation against 0/84 from a Linux
+  VPS in overlapping hours, Fisher p = 3.7e-11. Before you blame a proxy, check
+  whether your box is the variable.
+  [The split](RESULTS.md#the-host-separated-from-the-date)
+- **2026-08-12** - **DuckDuckGo blocks on one substring in the User-Agent and
+  nothing else.** 95 of 95 pass for engines whose UA omits `HeadlessChrome`, 0 of
+  50 for the two that carry it, across three browser families and two drivers.
+  Benchmarking a headless Chromium there measures the UA, not the proxy.
+  [The split](NOTEBOOK.md#duckduckgo-is-reading-the-user-agent-and-the-split-is-total)
+- **2026-08-12** - **For Google the exit address is the whole of it.** Given a
+  served page, pass was 83 of 83 and did not vary by country, while the chance of
+  being served ran from 13% to 62% depending on the exit. The browser is not what
+  decides, and no absolute rate here should be read as current.
+  [The decomposition](NOTEBOOK.md#exit-yield-is-a-country-axis-and-us-is-the-worst-of-them)
+- **2026-08-12** - **The TLS handshake explains neither Google nor Amazon.**
+  Chromium, Patchright and Obscura emit a byte-identical ClientHello and their
+  pass rates differ by 44 points. If you do compare, compare JA4 - Chrome
+  shuffles extension order per connection, so a JA3 difference between two
+  Chromium engines is noise.
+  [What was read](NOTEBOOK.md#the-handshake-was-read-and-it-is-not-the-discriminator)
+- **2026-08-19** - **Timezone and locale alignment buys nothing and can cost a
+  lot.** Flat on Patchright (34% against 35%), and zendriver lost six sevenths of
+  its yield, 57% down to 9%, p = 0.0008. Do not turn it on.
+  [Both arms](NOTEBOOK.md#the-axes-and-the-capabilities-that-are-refused-rather-than-dropped)
+- **2026-08-20** - **Our own harness was getting the pool banned.** One
+  unauthenticated CONNECT per session, sent by the browser before anything else,
+  was tripping an IP ban that looked like a gateway floor for days.
+  [How it was found](NOTEBOOK.md#the-floor-was-an-ip-ban-and-this-harness-was-tripping-it-itself)
+- **2026-08-26** - **One page of warm-up does nothing**, against a published
+  claim that it moves yield from 20% to 75%. Measured 32% against 30%. That rules
+  out one page rather than warming, which is what the ladder is now for.
+  [The ladder](#the-warm-up-ladder)
+
+Nothing here is a NodeMaven sales number. Where the pool loses, the run file
+saying so is in `data/runs/` with everything else.
+
+**Five of these nine replaced an earlier claim of ours, and both versions are
+still in the notebook** - Amazon, the warm-up, the Google levels, the idle
+traffic and the ban. The Amazon one reversed outright: on a workstation in early
+August, Camoufox was served 90% while every Chromium engine met the throttle,
+which read as a Firefox-against-Chromium result. On the server at 7627 attempts
+the unmodified control came out on top and the Firefox reading was gone. A number
+here is a reading of the hours it was taken in, and the ones that changed are
+labelled rather than quietly edited.
+
+## Quickstart
+
+A real measurement, no proxy account, no browser download. Measured 2026-08-27 on
+a fresh clone: 22 s to install, 31 s to run.
+
+    git clone https://github.com/nodemaven/proxy-benchmark && cd proxy-benchmark
+    python -m venv .venv
+    .venv\Scripts\Activate.ps1                 # macOS, Linux: . .venv/bin/activate
+    pip install -r requirements-ci.txt
+    python scripts/benchmark.py --engines http --targets ddg_serp \
+        --queries 5 --direct --preset none
+
+It prints the plan and what it will cost before it sends anything, then one line
+per attempt and a summary:
+
+    engine              target        exit                n   pass  verdicts
+    http-direct         ddg_serp      direct              5   100%  {'ok': 5}
+
+Every attempt is also a JSONL row under `data/runs/`, which is the only thing
+this repository treats as evidence.
+
+Three directions from here, in the order most people want them:
+
+| you want | do this |
+|---|---|
+| the same thing through a proxy | [Bringing your own proxy](#bringing-your-own-proxy) - any proxy, no account here needed |
+| real browsers instead of a bare client | [Setup](#setup) - four Chromium builds, and why no two share a download |
+| to check a number above rather than take it | [Reproduce these numbers](#reproduce-these-numbers) - each headline mapped onto its command |
+
+Never used Python, or want the version that explains every step?
+[docs/quickstart.md](docs/quickstart.md) assumes no terminal experience. This file
+assumes you know what a ClientHello is.
+
+## What is under test
+
+<!-- The table below is written by scripts/engine_table.py --readme and replaced
+     whole on every regeneration. Do not edit between the markers; edit the
+     registry or the engine's module docstring, which is where the text lives. -->
+
+<!-- ENGINES:BEGIN -->
+
+11 frameworks, one registry line each. Anything missing from the machine reports itself unavailable and names the install command, and the rest of the matrix still runs - `--dry-run` prints that list.
+
+| `--engines` | what it is | needs |
+|---|---|---|
+| `http` | Plain HTTP client. No browser, no JavaScript. The cheap baseline | nothing beyond `requests` |
+| `chromium` | Stock Playwright Chromium. The unmodified control every other engine is measured against | `playwright install chromium` |
+| `camoufox` | Camoufox: a patched Firefox driven through Playwright | `camoufox fetch` |
+| `patchright` | Patchright: Playwright with the automation tells patched out | `patchright install chromium` |
+| `obscura` | Obscura: a from-scratch browser in Rust, driven over CDP | a built Obscura binary |
+| `cloak` | CloakBrowser: a patched Chromium that hands back a Playwright browser | `cloakbrowser.ensure_binary()` |
+| `curlcffi` | A scriptless client wearing Chrome's handshake. The control for the control | `curl_cffi`, no browser |
+| `seleniumbase` | SeleniumBase UC mode: the WebDriver family, which the matrix did not have | the host's installed Chrome |
+| `zendriver` | Zendriver: Chrome over raw CDP, with no WebDriver and no Playwright | the host's installed Chrome |
+| `rebrowser` | Rebrowser: Playwright with the `Runtime.enable` leak patched out | `rebrowser_playwright install chromium` |
+| `botasaurus` | Botasaurus: the host's Chrome over raw CDP, driven by a scraping framework | the host's installed Chrome |
+
+Any of them takes a `:direct` suffix, which runs that engine around the gateway inside the same matrix, so the proxy and the no-proxy arm are measured in one window rather than an hour apart.
+
+<!-- ENGINES:END -->
+
+Six targets, chosen because they fail differently rather than because they are
+popular: `google_serp`, `bing_serp`, `ddg_serp`, `amazon_search`,
+`walmart_search`, and `ipinfo` - which is not a target but an echo service, used
+to prove the path works before anything is concluded from a refusal.
 
 ## Contents
 
+- [Research findings](#research-findings) - what the runs said, in one line each
+- [Quickstart](#quickstart) - a real measurement in under a minute, no account
+- [What is under test](#what-is-under-test) - the 11 engines and the 6 targets
 - [What it measures](#what-it-measures) - the three layers, and what reads each one
 - [Results at a glance](#results-at-a-glance) - best and worst engine per target,
   generated from `data/runs/`
-- [What the rows say](#what-the-rows-say) - the findings so far
 - [Setup](#setup) - install, and the four browser downloads that surprise people
 - [Running it](#running-it) - first matrix, front-page entry, your own proxy, a
   second provider, the axes
@@ -107,44 +234,6 @@ Amazon and the two smaller search engines are a win. **The Google row is not an 
 **[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
 
 <!-- RESULTS:END -->
-
-## What the rows say
-
-- **DuckDuckGo sorts entirely on the `HeadlessChrome` substring.** 95 of 95 for
-  the engines whose User-Agent omits it, 0 of 50 for the two that carry it,
-  across three browser families and two drivers. A headless Chromium-family
-  engine is not measuring that target, it is measuring the User-Agent.
-- **The handshake explains neither Google nor Amazon.** Chromium, Patchright and
-  Obscura emit a byte-identical ClientHello and their pass rates differ by 44 to
-  nothing. Compare JA4, never JA3 - Chrome shuffles extension order per
-  connection, so a JA3 difference between two Chromium engines is noise.
-- **For Google the address is the whole of it.** P(pass given a served page) was
-  83 of 83 and did not vary by country, while P(served) ran from 13% on `us` to
-  62% on `ru`. Do not pin `us`. The ranking among the other settings must not be
-  quoted: their intervals overlap almost entirely. **Those levels are a reading of
-  2026-08-12**: six days later on the server, `country=any` was served 19 times in
-  2673 attempts, 1%. The decomposition is unaffected - it is the second term that
-  stays flat - but no absolute Google rate here should be read as current.
-- **Amazon stopped separating the engines, and the correction is larger than the
-  finding was.** On the workstation in August, Camoufox was served 90% of the time
-  and every Chromium-family engine met the throttle. Re-measured on the server at
-  7627 attempts, the **unmodified control is the best engine on the target** at
-  96%, Camoufox is at 92% beside three Chromium-family engines, and only
-  Patchright is clearly worse at 63%. The Firefox-against-Chromium reading did not
-  survive; the direction on Patchright did.
-- **The hold is real; one page of warming is not.** 108 of 109 held rows passed
-  after a served probe. Warming the exit first measured 32% against 30%, on the
-  arm where the published claim was 20% to 75%. That arm opened **one** page, so
-  it rules out one page and not warming, which is what the ladder below is for -
-  the bullet said "warming is not" until 2026-08-26 and was reading a treatment
-  as the whole class of treatments.
-- **Geo alignment buys nothing and can cost a lot.** Flat on Patchright,
-  zendriver lost six sevenths of its yield. Do not turn it on.
-
-Each has a denominator and a run id behind it in [NOTEBOOK.md](NOTEBOOK.md), and
-several are corrections of an earlier claim in the same file that did not survive
-replication. That is the intended shape: a number here is a reading of the hours
-it was taken in.
 
 ## Setup
 
