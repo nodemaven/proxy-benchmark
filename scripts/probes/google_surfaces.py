@@ -43,7 +43,7 @@ import statistics
 import sys
 import time
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -118,6 +118,18 @@ TRANSPORT_ERRORS = ("ERR_TUNNEL_CONNECTION_FAILED",
 def lost_the_tunnel(seen: dict) -> bool:
     error = seen.get("error") or ""
     return any(marker in error for marker in TRANSPORT_ERRORS)
+
+
+def terse_error(error: str) -> str:
+    """An error stripped of the parts that are identical on every row.
+
+    `Page.goto:` is on every message this probe can produce, because every
+    message comes from the same call, and the trailing ` at <url>` names the
+    surface the row already names in its first column. Removing both is what
+    lets the note be printed whole - see `report`.
+    """
+    return (error or "").replace("Page.goto: ", "").split(" at http", 1)[0]\
+                        .strip()
 
 
 def parse_args():
@@ -249,8 +261,20 @@ def report(results: dict, surfaces: list) -> None:
         elif sorry:
             note = f"  {sorry} redirected to /sorry/"
         elif len(good) < total:
-            first = next(r["error"] for r in seen if r["error"])
-            note = f"  {first[:44]}"
+            # Printed whole, and every distinct error rather than the first.
+            #
+            # This column used to be `first[:44]`. The note is the last thing
+            # on the line, so nothing was bought by cutting it, and the 44th
+            # character lands inside the part that identifies the failure:
+            # 2026-08-27 it printed `net::ERR_SSL_PROTOCOL_ERRO`, and both
+            # timeouts in the same run came out as the same stub, which reads
+            # as one failure mode when it was two surfaces failing separately.
+            # Showing only the first was the second half of the bug - a
+            # surface that times out twice and drops TLS once is not the
+            # surface `first` describes.
+            kinds = Counter(terse_error(r["error"]) for r in seen if r["error"])
+            note = "  " + "; ".join(f"{msg} x{n}" if n > 1 else msg
+                                    for msg, n in kinds.most_common())
         rows.append((len(good) / total if total else 0, mb, name, url,
                      len(good), total, ms, note))
     # Sorted by arrival first and cost second, which is the order a warm-up
