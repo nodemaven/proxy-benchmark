@@ -24,6 +24,12 @@ downloaded_files/
 run.log
 run.err
 
+# The same, one file per attempt, written by scripts/run_ladder.py so an
+# unattended run can be read back afterwards. Console output and not evidence:
+# it quotes exit addresses as they are assigned, which is the reason
+# data/artifacts/ is excluded as well.
+data/logs/
+
 # Internal write-ups: a slide deck, a report to management, a Russian glossary
 # and the raw analysis dumps they were built from. They are derived from
 # data/runs/ and add nothing a reader cannot recompute, and they are the one

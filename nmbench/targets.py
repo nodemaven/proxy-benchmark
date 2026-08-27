@@ -137,17 +137,87 @@ class GoogleSerp:
     # listed rather than one being assumed, so a variant swap is a slower page
     # and not a run of `error` rows.
     search_box = "textarea[name='q'], input[name='q']"
-    # Pages to open on a fresh exit before asking it anything. The claim under
-    # test is that this alone moves the yield from 20% to 75%, which is a larger
-    # effect than any engine difference in this repository, so it is an axis in
-    # `probe_and_hold.py` rather than something the probe always does.
+    # Pages to open on a fresh exit before asking it anything, in rungs. The
+    # claim under test is that this alone moves the yield from 20% to 75%, which
+    # is a larger effect than any engine difference in this repository, so it is
+    # an axis in `probe_and_hold.py` rather than something the probe always
+    # does. One rung was not enough to say which part of a warm-up does the
+    # work, so the axis carries levels and the probe runs them interleaved.
     #
     # Declared on the target and not in the probe for the usual reason: a probe
     # that knew a domain would be a probe that could warm one target better than
-    # another. The list must not contain the front page - the probe always ends
-    # on `home_url`, so that the box the query is typed into is the one on the
-    # page the protocol names.
-    warm_urls = ("https://www.google.com/imghp?hl=en",)
+    # another. No list may contain the front page - the probe always ends on
+    # `home_url`, so that the box the query is typed into is the one on the page
+    # the protocol names.
+    #
+    # The rungs are cumulative as sets, so `warm_depth` rises monotonically and
+    # a difference between two rungs is a difference in what was added. Each
+    # ends on the same page L1 is, so whatever L1 buys is held while the rungs
+    # above it vary. Third-party pages come first because that is the order a
+    # session would produce: a browser is somewhere else before it is here.
+    #
+    # What each rung is for is written in the README, not here, because the
+    # question belongs to the experiment and the URLs belong to the target.
+    # Pairs rather than a dict so the attribute is immutable at class level; the
+    # reader converts.
+    # `news.google.com` was in L2 and L3 until 2026-08-26 and came out after the
+    # first ladder run measured it. It is the one warm-up page that does not
+    # arrive: 10 delivered of 24 in `probehold_20260826T152748Z`, almost all
+    # `ERR_TIMED_OUT` at the full 30 s, against 24 of 24 for
+    # `translate.google.com` and 12 of 12 for both third-party pages in the same
+    # run and on the same exits.
+    #
+    # The obvious alternative explanation was checked before it was dropped. The
+    # failures are not a bad window in the run - a failed visit did not predict
+    # the next one failing, 0.13 against a 0.21 base rate, and the ten slices of
+    # the run carried 5, 3, 6, 2, 3, 4, 1, 2, 4 and 0 of them - and they are not
+    # the exit going bad, because `translate.google.com` was visited on those
+    # same exits and never failed once. It is the host.
+    #
+    # Removing it cost L2 its third host, and `scholar.google.com` is the
+    # replacement, chosen off `surfaces_20260826T220435Z` rather than guessed.
+    # It arrived 3 of 3 through the pool and cost 0.13 MB median, the cheapest
+    # of the twenty surveyed by a factor of three, and it is a `.google.com`
+    # subdomain, so whatever the warm-up does through cookies it does on the
+    # same registrable domain as the target.
+    #
+    # `about.google` looked cheaper than it is and was rejected on a second
+    # measurement. The survey put it at 0.78 MB median, which would have made
+    # it the second pick; measured again on 2026-08-27 on the direct arm it
+    # cost 17.81, 17.83, 17.81 and 19.99 MB. Position in the list and headless
+    # were both varied across those four and neither moved it, so the 20-fold
+    # gap belongs to the arm and this repository cannot yet say why. A warm-up
+    # page whose cost swings twentyfold with something we do not control is a
+    # tax nobody can price, and it is a separate registrable domain besides.
+    #
+    # Read the survey's cost column knowing what it is: every surface in that
+    # run was visited by a browser that had already visited the ones before it,
+    # so a page late in a fixed list is quoted against a warm cache. That is
+    # the opposite of the ladder, where a warm-up page is the first thing a
+    # fresh profile fetches. The survey now shuffles for this reason among
+    # others, and until a shuffled run exists these figures are a lower bound
+    # on the cold cost.
+    warm_ladder = (
+        # One Google surface that is not the front page.
+        ("L1", ("https://www.google.com/imghp?hl=en",)),
+        # Google surfaces on more than one host. Separates "Google has seen this
+        # exit at all" from "Google has seen it more than once".
+        ("L2", ("https://translate.google.com/?hl=en",
+                "https://scholar.google.com/?hl=en",
+                "https://www.google.com/imghp?hl=en")),
+        # The same, preceded by pages nobody would call a Google property. Each
+        # was checked on 2026-08-26 for a Google-owned tag in its body -
+        # `google-analytics.com`, `doubleclick.net` or `googlesyndication` - so
+        # the exit is reported to Google's infrastructure without a navigation
+        # to a Google host. Four other candidates were dropped: stackoverflow,
+        # medium, allrecipes and tripadvisor all answered 403 to this check, and
+        # espn.com carried no such tag.
+        ("L3", ("https://www.theverge.com/",
+                "https://www.wikihow.com/Main-Page",
+                "https://translate.google.com/?hl=en",
+                "https://scholar.google.com/?hl=en",
+                "https://www.google.com/imghp?hl=en")),
+    )
     # Google covers its own front page with a consent wall, and this is a cost
     # of the entry shape rather than a detail. Measured 2026-08-13 from this
     # line: `www.google.com/?hl=en` and `/imghp` both arrive with a full-screen
@@ -327,11 +397,19 @@ class AmazonSearch:
     # keystroke is a different client from one that appears at `/s?k=` cold.
     home_url = "https://www.amazon.com/?language=en_US"
     search_box = "input#twotabsearchtextbox"
-    # See `GoogleSerp.warm_urls`. The bestsellers page is an ordinary browse
+    # See `GoogleSerp.warm_ladder`. The bestsellers page is an ordinary browse
     # page rather than a search, which is the point: it is what a visitor does
     # before searching, and it is the one thing this exit will have done before
     # the throttle decides about it.
-    warm_urls = ("https://www.amazon.com/gp/bestsellers/?language=en_US",)
+    #
+    # One rung only. The rungs above L1 were designed against Google's refusal
+    # and there is no measurement here saying they transfer, so declaring them
+    # would be inventing an experiment for a target nobody has run it on.
+    # Asking for L2 or L3 on this target is refused rather than silently
+    # answered with L1.
+    warm_ladder = (
+        ("L1", ("https://www.amazon.com/gp/bestsellers/?language=en_US",)),
+    )
 
     def url(self, query: str) -> str:
         # Language is pinned for the same reason Google gets hl=en: the markers

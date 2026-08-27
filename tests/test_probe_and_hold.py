@@ -65,7 +65,7 @@ class TestTheParameterAxis:
     def test_the_label_reaches_the_cell_key(self, parser):
         cell = probe_and_hold.Cell("patchright", "google_serp", "any",
                                    ("params-filter-high", {"filter": "high"}),
-                                   True, "home")
+                                   "L1", "home")
         assert cell.key == ("patchright/google_serp/any/params-filter-high/"
                             "warm-on/entry-home/geo-off")
         assert cell.params == {"filter": "high"}
@@ -106,9 +106,78 @@ class TestWhatIsRefused:
             probe_and_hold.parse_param_sets(" , ", {}, parser)
 
 
-def cell(engine="patchright", geo="off"):
-    return probe_and_hold.Cell(engine, "google_serp", "any",
-                               ("params-none", {}), False, "home", geo)
+def cell(engine="patchright", geo="off", level="L0", target="google_serp"):
+    return probe_and_hold.Cell(engine, target, "any",
+                               ("params-none", {}), level, "home", geo)
+
+
+class Args:
+    """The two attributes `warm_sequence` reads, and nothing else."""
+
+    def __init__(self, warm_urls=None):
+        self.warm_urls = warm_urls
+
+
+class TestTheWarmUpLadder:
+    """Rungs are only comparable if their labels mean what they say.
+
+    Every test here is about a label. The run itself cannot check any of this:
+    a rung that silently ran a shorter sequence produces rows that look exactly
+    like the deeper warm-up not helping, and that is a wrong result rather than
+    an error - the same failure shape as an unknown gateway parameter answered
+    with 200.
+    """
+
+    def test_the_older_spellings_still_mean_the_same_two_arms(self, parser):
+        assert probe_and_hold.WARM_LEVELS["off"] == "L0"
+        assert probe_and_hold.WARM_LEVELS["on"] == "L1"
+        # And they still produce the keys the rows on disk carry, so a ladder
+        # run groups with the two-arm runs of 2026-08-26 rather than beside
+        # them.
+        assert "warm-off/" in cell(level="L0").key
+        assert "warm-on/" in cell(level="L1").key
+        assert "warm-L2/" in cell(level="L2").key
+
+    def test_the_cold_rung_visits_nothing(self):
+        from nmbench.targets import TARGETS
+        assert probe_and_hold.warm_sequence(TARGETS["google_serp"], "L0",
+                                            Args()) == []
+
+    def test_every_rung_ends_on_the_front_page(self):
+        from nmbench.targets import TARGETS
+        for name, target in TARGETS.items():
+            for level in probe_and_hold.warm_ladder(target):
+                pages = probe_and_hold.warm_sequence(target, level, Args())
+                assert pages[-1] == target.home_url, f"{name} {level}"
+                assert pages.count(target.home_url) == 1, f"{name} {level}"
+
+    def test_the_rungs_are_cumulative_and_strictly_deeper(self):
+        """Otherwise a difference between two rungs is not a difference in what
+        was added, and `warm_depth` stops being an ordering."""
+        from nmbench.targets import TARGETS
+        for name, target in TARGETS.items():
+            rungs = probe_and_hold.warm_ladder(target)
+            previous = None
+            for level in probe_and_hold.LADDER:
+                if level not in rungs:
+                    continue
+                pages = list(rungs[level])
+                assert len(pages) == len(set(pages)), f"{name} {level}"
+                if previous is not None:
+                    assert set(previous) < set(pages), f"{name} {level}"
+                previous = pages
+
+    def test_a_rung_the_target_does_not_declare_is_refused(self, parser):
+        args = Args()
+        cells = [cell(level="L2", target="amazon_search")]
+        with pytest.raises(ValueError, match="declares no"):
+            probe_and_hold.check_warm(parser, args, cells)
+
+    def test_one_flat_override_cannot_stand_for_two_rungs(self, parser):
+        args = Args("https://example.com/")
+        cells = [cell(level="L1"), cell(level="L2")]
+        with pytest.raises(ValueError, match="one flat list"):
+            probe_and_hold.check_warm(parser, args, cells)
 
 
 class TestTheGeoAxis:
