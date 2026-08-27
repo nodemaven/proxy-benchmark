@@ -10,6 +10,7 @@ be published.
 """
 import ast
 import compileall
+import json
 import re
 import subprocess
 import sys
@@ -111,6 +112,59 @@ def test_source_and_docs_are_english_only(path):
     text = path.read_text(encoding="utf-8")
     found = re.findall(r"[Ѐ-ӿ]+", text)
     assert not found, f"{path.relative_to(ROOT)} carries Cyrillic: {found[:5]}"
+
+
+MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+MD_HEADING = re.compile(r"^(?:#{1,6})\s+(.*?)\s*$", re.M)
+
+
+def _anchors(text):
+    """GitHub's slug rule, the subset of it these files use: lowercase, drop
+    punctuation, spaces to hyphens. Backticks and full stops in a heading are
+    dropped rather than kept, which is why `## Step 9. Optional: send it through
+    a proxy` is reached as `#step-9-optional-send-it-through-a-proxy`."""
+    out = set()
+    for title in MD_HEADING.findall(text):
+        slug = re.sub(r"[^\w\s-]", "", title.strip().lower())
+        out.add(re.sub(r"\s+", "-", slug))
+    return out
+
+
+@pytest.mark.parametrize("path", DOCS, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_link_inside_the_repository_resolves(path):
+    """A link that goes nowhere gets removed or fixed, not left with a note.
+
+    Added 2026-08-27 after the table of contents in README.md spent a day
+    pointing at `#disclosure`, a section that had been deleted the day before.
+    Nothing caught it: the file it lives in is the file, the anchor is valid
+    markdown, and on GitHub a dead anchor scrolls nowhere rather than erroring,
+    so it is invisible to everyone except the reader who clicked it.
+
+    Only in-repository targets are checked - relative paths and same-file
+    anchors. An external URL needs the network and would make the suite fail on
+    somebody else's outage, which is a worse failure than the one being
+    prevented. Those are checked by hand when they are written.
+    """
+    text = path.read_text(encoding="utf-8")
+    own = _anchors(text)
+    broken = []
+    for label, target in MD_LINK.findall(text):
+        if target.startswith(("http://", "https://", "mailto:")):
+            continue
+        if target.startswith("#"):
+            if target[1:] not in own:
+                broken.append(f"[{label}]({target}) - no such heading in this file")
+            continue
+        rel, _, fragment = target.partition("#")
+        if not rel:
+            continue
+        dest = (path.parent / rel).resolve()
+        if not dest.exists():
+            broken.append(f"[{label}]({target}) - no such path")
+        elif fragment and dest.suffix == ".md" and fragment not in _anchors(
+                dest.read_text(encoding="utf-8")):
+            broken.append(f"[{label}]({target}) - no such heading in {rel}")
+    assert not broken, f"{path.relative_to(ROOT)}: " + "; ".join(broken)
 
 
 def test_the_package_imports_without_credentials():
@@ -265,18 +319,72 @@ def test_every_runner_that_offers_geo_alignment_hands_over_the_zone():
     labelling their rows as aligned. That is the `--humanize` failure a third
     time and the first two were caught by a rule like this one.
 
+    Both directions, since 2026-08-26. The rule guarded only the first one and
+    the second was live in `probe_and_hold.py` the whole time: it passed the
+    zone and pinned the boolean to `False`, so `--geo align` was accepted for
+    camoufox and cloak - both declare the capability - and both would have run
+    unaligned under a row saying otherwise. It never fired, because the only 86
+    `geo=align` rows on disk are patchright and zendriver, checked row by row
+    rather than assumed, but a one-sided rule against a symmetric failure is
+    half a rule.
+
     Read off the source rather than by running a matrix, for the reason
     `TestTheControlIsNotHardened` is: the failure is silent by construction, so
     nothing else in an offline suite can see it.
     """
     for name in ("benchmark.py", "probes/probe_and_hold.py"):
         text = (SCRIPTS / name).read_text(encoding="utf-8")
-        if "geoip" not in text:
+        if "geoip" not in text and "timezone_id" not in text:
             continue
         assert "timezone_id" in text, (
             f"{name} offers geo alignment and passes only the Camoufox "
             f"boolean, so every other engine runs unaligned and says it did "
             f"not")
+        assert "geoip" in text, (
+            f"{name} offers geo alignment and passes only the zone, so "
+            f"camoufox and cloak run unaligned and say they did not")
+        assert 'geoip": False' not in text and "geoip': False" not in text, (
+            f"{name} hands the geo axis a hardcoded `geoip=False`, which is an "
+            f"aligned arm that is not aligned on the two engines that take the "
+            f"boolean. Wire it to the same condition as `timezone_id`")
+
+
+def test_the_run_level_geo_flag_is_never_reassigned_inside_the_loop():
+    """The flag that decides where an identity is sourced from is set once.
+
+    `probe_and_hold.py` decides per run whether any cell is aligned, because an
+    aligned run has to source every identity from the echo service - the
+    unaligned arm included, since that call is a request through the exit
+    before the browser opens, which is warming, and paying it in one arm only
+    would put the warm-up inside the geo comparison.
+
+    On 2026-08-26 a per-cell flag was written under the same name inside the
+    loop, so each iteration overwrote the run-level one. A cell that followed an
+    unaligned cell then asked `gateway.identify`, which prefers the CONNECT
+    reply header, which carries no zone - and the aligned identity was dropped
+    for want of a timezone the run had stopped asking for. It read as a patchy
+    geoip database, because `identify` falls back to the echo service whenever
+    the header is absent, so the loss was intermittent in the way a patchy
+    database would be.
+
+    Checked structurally rather than by running a matrix: the failure needs a
+    live gateway and two cells in a specific order, and it is silent - the run
+    completes and the rows it does write are correct. Only the missing ones say
+    anything, and they say it in the shape of a different bug.
+    """
+    tree = ast.parse((SCRIPTS / "probes/probe_and_hold.py").read_text(
+        encoding="utf-8"))
+    stores = [node.id for node in ast.walk(tree)
+              if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)]
+    assert stores.count("run_has_aligned_cell") == 1, (
+        "the run-level geo flag is assigned more than once in "
+        "probe_and_hold.py. It is read inside the identity loop to choose "
+        "between gateway.echo and gateway.identify, so a second assignment "
+        "changes which service later identities are sourced from")
+    assert "aligning" not in stores, (
+        "`aligning` is the name that caused this: it read as both the "
+        "run-level flag and the per-cell one. Per-cell names in that loop are "
+        "`cell_*`")
 
 
 @pytest.mark.parametrize("runner", ["benchmark.py", "probes/probe_and_hold.py"])
@@ -345,6 +453,64 @@ def test_no_script_branches_on_a_provider_name(path):
                 assert "==" not in stripped and " in [" not in stripped, (
                     f"{path.name} compares against the provider name {name!r}: "
                     f"{stripped}")
+
+
+def test_every_published_row_came_through_a_published_gateway():
+    """No committed row names a gateway whose definition is not committed too.
+
+    README says "only `nodemaven.toml` ships, and it is the only gateway any
+    number here was measured through", and until 2026-08-27 nothing enforced it.
+    The gap is not theoretical: a provider is chosen with `--providers` and the
+    run file is named `benchmark_<stamp>.jsonl` either way, so the gateway a row
+    went through appears **inside** the rows and never in the filename. Nothing
+    about `git add data/runs/` looks different for a row taken through somebody
+    else's account, which makes it exactly the kind of thing that gets published
+    by accident rather than by decision.
+
+    Deliberately checked against the definitions on disk rather than against the
+    literal string `nodemaven`. A run through a gateway whose `.toml` is
+    committed is a comparison this repository is offering to be checked on; a run
+    through one that is not is a number a reader cannot reproduce and cannot
+    audit, which is the property that matters and the only one worth a test. So
+    publishing a competitor column stays possible - it costs committing the
+    definition in the same change, which is the friction this is for.
+
+    Rows written before the `provider` field existed carry no claim about a
+    gateway and are skipped rather than assumed: 4290 of them on 2026-08-27,
+    against 9074 that name one.
+    """
+    from nmbench import providers
+
+    shipped = set(providers.names())
+    assert shipped, "no provider definitions on disk, so this test checks nothing"
+
+    offenders = {}
+    named = 0
+    for path in sorted((ROOT / "data" / "runs").glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            name = row.get("provider")
+            if name is None:
+                continue
+            named += 1
+            if name not in shipped:
+                offenders.setdefault(path.name, set()).add(name)
+
+    assert named, ("no committed row names a provider, so this test would pass "
+                   "on an empty data directory")
+    assert not offenders, (
+        "these run files were taken through a gateway whose definition is not "
+        f"in data/providers/, so a reader cannot reproduce them: {offenders}. "
+        "Either commit the definition in this change, or keep the run file out "
+        "of the repository - see .git/info/exclude, which is per-clone and does "
+        "not travel.")
 
 
 # Everything that could send a gateway parameter, which is a wider net than
