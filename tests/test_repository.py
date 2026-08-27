@@ -171,12 +171,19 @@ def test_the_engine_list_in_the_readme_is_the_registry():
     """The list of frameworks at the top of README.md is generated, so check it.
 
     Adding an engine is one import and one registry line, and nothing about that
-    change looks like it should have touched a prose section of the README. The
-    results block below it has the same shape and no such guard, which is
-    survivable there because a stale results table is contradicted by the run
-    files next to it. A stale engine list is contradicted by nothing: it reads as
-    a complete answer to "what does this drive" and a reader has no way to tell
-    it is a year old.
+    change looks like it should have touched a prose section of the README. A
+    stale engine list is contradicted by nothing: it reads as a complete answer
+    to "what does this drive" and a reader has no way to tell it is a year old.
+
+    This docstring used to add that the results block below needed no such guard,
+    because "a stale results table is contradicted by the run files next to it".
+    That was wrong, and it was wrong in the way that is hard to see from the
+    inside: it is true that the contradiction exists in the repository, and false
+    that anybody performs it. Both `RESULTS.md` and the rows badge were found
+    stale on 2026-08-27 - the badge by 1,191 rows - and the run files sitting
+    beside them had contradicted them for two days without effect. A guard that
+    depends on a reader re-deriving a number is not a guard. Hence the two tests
+    below.
 
     Runs the generator rather than re-implementing it, so this fails when the
     README drifts and not when the wording changes.
@@ -194,6 +201,51 @@ def test_the_engine_list_in_the_readme_is_the_registry():
     assert published.strip() == generated.strip(), (
         "README.md engine block no longer matches the registry - regenerate it "
         "with `python scripts/engine_table.py --readme`")
+
+
+def _results_tables(*args):
+    """Run the results generator and hand back its stdout, newlines normalised."""
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "analysis" / "results_tables.py"), *args],
+        capture_output=True, text=True, timeout=300, cwd=ROOT)
+    assert result.returncode == 0, result.stderr[-1500:]
+    return result.stdout.replace("\r\n", "\n")
+
+
+def test_results_md_is_the_runs_it_claims_to_be():
+    """`RESULTS.md` says every number in it is generated, so hold it to that.
+
+    The file opens by promising nothing in it is typed in. That promise is what
+    makes the tables quotable, and it is also what makes a hand-edit invisible:
+    an inserted paragraph looks like generator output to every reader. One had
+    been inserted, and regenerating would have deleted it - the caveats now live
+    in `ENGINE_CAVEATS` in the generator for exactly that reason.
+    """
+    published = (ROOT / "RESULTS.md").read_text(encoding="utf-8")
+    assert published.replace("\r\n", "\n").strip() == _results_tables().strip(), (
+        "RESULTS.md no longer matches data/runs/ - regenerate it with "
+        "`make docs`. If the difference is prose you meant to keep, it belongs "
+        "in ENGINE_CAVEATS in scripts/analysis/results_tables.py, not in the "
+        "generated file")
+
+
+def test_the_rows_badge_is_the_number_of_rows():
+    """The badge is the first number on the page and the last one anyone checks.
+
+    Re-derived here rather than by asking the generator, so that this fails if
+    the definition of a published row quietly changes as well as when the count
+    does.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"badge/rows-([\d%A-Fa-f]+)%20published", readme)
+    assert match, "README.md has lost its rows badge, so nothing counts the runs"
+    claimed = int(match.group(1).replace("%2C", ""))
+    actual = sum(1 for path in sorted((ROOT / "data" / "runs").glob("*.jsonl"))
+                 for line in path.read_text(encoding="utf-8").splitlines()
+                 if line.strip())
+    assert claimed == actual, (
+        f"the rows badge says {claimed:,} and data/runs/ holds {actual:,} - "
+        f"regenerate it with `make docs`")
 
 
 def test_the_package_imports_without_credentials():

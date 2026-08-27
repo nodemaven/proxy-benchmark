@@ -167,6 +167,7 @@ The single most misleading thing that can be done with these files is to average
 | 2026-08-22 | VPS | 1% (4/616) | 719 | 103 |
 | 2026-08-23 | VPS | 0% (1/527) | 620 | 93 |
 | 2026-08-24 | VPS | 0% (0/235) | 303 | 68 |
+| 2026-08-26 | VPS | - (0/6 judged) | 6 | 6 |
 
 **The 18%-against-0.4% gap between the two hosts is one day.** Cut to `patchright`, the only engine with rows either side of the move: 0/26 on the 11th, 107/291 on the 12th, 0/19 on the 13th, 1/442 across the whole 130-hour run. Within the 12th itself the seven runs range from 0% to 45%.
 
@@ -244,7 +245,7 @@ These are the small runs that accumulated between 2026-08-11 and 2026-08-18 whil
 | `bing_serp` | workstation | gateway | 94% (135/143) | 262 | 119 | block 6, captcha 2 |
 | `ddg_serp` | workstation | direct | 58% (76/131) | 131 | 0 | captcha 55 |
 | `ddg_serp` | workstation | gateway | 61% (96/158) | 208 | 50 | captcha 62 |
-| `google_serp` | vps | gateway | 1% (2/198) | 301 | 103 | captcha 195, block 1 |
+| `google_serp` | vps | gateway | 1% (2/198) | 307 | 109 | captcha 195, block 1 |
 | `google_serp` | workstation | direct | 9% (11/122) | 122 | 0 | captcha 89, empty 22 |
 | `google_serp` | workstation | gateway | 18% (118/665) | 819 | 154 | captcha 527, empty 16, block 4 |
 | `walmart_search` | workstation | direct | 5% (1/20) ? | 20 | 0 | captcha 19 |
@@ -310,7 +311,7 @@ What was actually run, with the version the rows recorded. An engine is listed o
 
 | engine | versions seen in the rows |
 |---|---|
-| `botasaurus` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / botasaurus-driver 4.0.101` |
+| `botasaurus` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / botasaurus-driver 4.0.101`; `Mozilla/5.0 (Windows NT 10.0; Win64; x64 / botasaurus-driver 4.0.101` |
 | `camoufox` | `0.5.5`; `0.5.4` |
 | `chromium` | `148.0.7778.96 / playwright 1.60.0` |
 | `cloak` | `146.0.7680.177 / cloakbrowser 0.5.8 / chromium 146.0.7680.177.5 / free`; `146.0.7680.177 / cloakbrowser 0.5.7 / chromium 146.0.7680.177.5 / free` |

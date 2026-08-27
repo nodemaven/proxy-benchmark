@@ -22,10 +22,11 @@
      simply cannot say that to a client that cannot see the repository.
      Restore it the day the repository goes public, not before:
      [![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
-     The row count below is re-derived, not carried forward:
-     `cat data/runs/*.jsonl | wc -l` gave 12,173 across 156 files on 2026-08-25,
-     where the badge had said 3,701 since the first commit. Re-run that command
-     before changing the number. -->
+     The row count below is generated, not carried forward. `make docs` derives it
+     from `data/runs/*.jsonl` and a test fails when the badge and the files
+     disagree, so it cannot go stale unnoticed again. It had twice: 3,701 from the
+     first commit until 2026-08-25, then 12,173 until 2026-08-27, by which point
+     the files held 13,364. Do not edit the number by hand. -->
 
 [![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 <!-- Links to the workflow, not to pyproject.toml, because pyproject.toml declares no
@@ -34,7 +35,7 @@
      link does not contain its own evidence is the kind of thing this repository
      exists to not do. -->
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
-[![rows](https://img.shields.io/badge/rows-12%2C173%20published-blue?style=flat-square)](data/runs)
+[![rows](https://img.shields.io/badge/rows-13%2C364%20published-blue?style=flat-square)](data/runs)
 
 [Findings](#research-findings) · [Quickstart](#quickstart) · [What it drives](#what-is-under-test) · [Commands](#command-reference) · [Reproduce](#reproduce-these-numbers) · [Notebook](NOTEBOOK.md)
 
@@ -217,7 +218,7 @@ you, which is the whole reason the axes are separate.
 
 <!-- RESULTS:BEGIN -->
 
-Best and worst engine per target, from the 10426 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+Best and worst engine per target, from the 10432 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
 
 | target | best | worst | rows |
 |---|---|---|---|

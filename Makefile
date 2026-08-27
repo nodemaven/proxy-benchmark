@@ -19,7 +19,7 @@ else
 PYTHON ?= $(VENV_PYTHON)
 endif
 
-.PHONY: help install install-dev test lint fmt check plan queries clean
+.PHONY: help install install-dev test lint fmt check docs plan queries clean
 
 help:
 	@echo "install      runtime dependencies"
@@ -28,6 +28,7 @@ help:
 	@echo "lint         ruff, no changes written"
 	@echo "fmt          ruff with fixes applied"
 	@echo "check        lint and test: run this before spending traffic"
+	@echo "docs         regenerate every table and badge derived from data/runs/"
 	@echo "plan         print the default benchmark plan and its cost, send nothing"
 	@echo "queries      regenerate and verify the committed query list"
 	@echo "clean        remove caches, never data/"
@@ -48,6 +49,15 @@ fmt:
 	$(PYTHON) -m ruff check --fix .
 
 check: lint test
+
+# Everything in the documentation that is derived from data/runs/ rather than
+# written: RESULTS.md whole, the results block and the rows badge in README.md,
+# and the engine table. Run it after every benchmark run - a run that is not
+# followed by this leaves the published numbers describing the previous one.
+docs:
+	$(PYTHON) scripts/analysis/results_tables.py > RESULTS.md
+	$(PYTHON) scripts/analysis/results_tables.py --readme
+	$(PYTHON) scripts/engine_table.py --readme
 
 # An engine and the unmodified control, on the two targets that carry the
 # findings. Deliberately a matrix somebody would actually run: `chromium` is

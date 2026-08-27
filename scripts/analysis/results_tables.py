@@ -52,6 +52,7 @@ import io
 import json
 import math
 import os
+import re
 import sys
 from contextlib import redirect_stdout
 
@@ -98,6 +99,47 @@ CONFOUNDED = {
                    "browser on one host that this target refuses**",
 }
 
+# Caveats that belong to an engine rather than to a target, printed under the
+# matrix whose rows they qualify. Keyed by engine for the same reason CONFOUNDED
+# is keyed by target: an engine that stops being run takes its caveat with it,
+# and a note that outlives the row it qualifies is worse than no note.
+#
+# These live here rather than in RESULTS.md because that file is generated whole
+# on every run. A paragraph typed into it survives exactly until the next
+# regeneration, which is how the obscura block below was silently lost once.
+ENGINE_CAVEATS = {
+    "obscura": [
+        "**Two confounds under the `obscura` row, both found 2026-08-26 by "
+        "reading upstream rather than by running anything.**",
+
+        "- **Timezone.** Upstream ships `OBSCURA_TIMEZONE` and "
+        "`OBSCURA_GEOLOCATION`; this harness sets neither, so the browser "
+        "reports the host's own zone against an exit drawn from `country=any`. "
+        "Measured on the Windows workstation: "
+        "`Intl.DateTimeFormat().resolvedOptions().timeZone` reads "
+        "`Europe/Moscow`, `getTimezoneOffset()` reads -180. Every `obscura` "
+        "number above was taken with that mismatch present, which is a "
+        "fingerprinting signal the other engines' rows do not carry in the "
+        "same form. It is not a reason to discount the `bing_serp` and "
+        "`ddg_serp` 100%s - those targets pass everything - but it does sit "
+        "directly under the `google_serp` 0%, and it means that cell is not "
+        "yet a measurement of the engine.\n"
+        "- **Its navigation ceiling is half what the harness asks for.** "
+        "`nmbench/engines/base.py` sets `ENTRY_TIMEOUT_MS = 60000` and every "
+        "engine's `goto` is called with it, but `OBSCURA_NAV_TIMEOUT_MS` and "
+        "`OBSCURA_SCRIPT_DEADLINE_MS` default to 30000 upstream and this "
+        "adapter sets neither. So obscura gives up at 30 s while the harness "
+        "is still waiting to 60 s, and an `obscura` row reading `error` on a "
+        "slow target is at a ceiling this document never stated and never "
+        "moved. Any error-rate comparison that includes `obscura` is comparing "
+        "two different ceilings.",
+
+        "Both are adapter gaps, not engine defects, and both are fixed by "
+        "wiring the three variables into `nmbench/engines/obscura.py`. Until "
+        "that is run, read the `obscura` column as coverage only.",
+    ],
+}
+
 # The 2026-08-26 host decomposition. One target, one engine, one entry shape,
 # one set of gateway parameters, five runs, two machines.
 #
@@ -136,6 +178,11 @@ README = os.path.join(ROOT, "README.md")
 # outside them is never touched, and the block between them is replaced whole.
 MARK_BEGIN = "<!-- RESULTS:BEGIN -->"
 MARK_END = "<!-- RESULTS:END -->"
+
+# The `rows` badge. It was typed by hand and had drifted by 1,191 rows before
+# this was wired up, which is the failure mode a badge is worst at: it is the
+# first number a reader sees and the last one anyone thinks to re-derive.
+BADGE_RE = re.compile(r"(badge/rows-)(\d+(?:%2C\d+)*)(%20published)")
 
 
 def load(path):
@@ -792,6 +839,26 @@ def readme_block(flagship, rest, span):
     print(MARK_END)
 
 
+def published_rows():
+    """Every row under `data/runs/`, which is what the badge claims.
+
+    Counts all of them and not just `benchmark_*`, because the badge links to
+    the directory rather than to the matrix runs.
+    """
+    total = 0
+    for path in glob.glob(os.path.join(RUNS_DIR, "*.jsonl")):
+        with open(path, encoding="utf-8") as fh:
+            total += sum(1 for line in fh if line.strip())
+    return total
+
+
+def badged(text):
+    """Set the `rows` badge to the count the run files actually carry."""
+    return BADGE_RE.sub(
+        lambda m: m.group(1) + f"{published_rows():,}".replace(",", "%2C")
+        + m.group(3), text)
+
+
 def write_readme(flagship, rest, span):
     """Replace the marked block in README.md, leaving every other byte alone."""
     with open(README, encoding="utf-8") as fh:
@@ -806,7 +873,7 @@ def write_readme(flagship, rest, span):
         readme_block(flagship, rest, span)
     head = text.split(MARK_BEGIN)[0]
     tail = text.split(MARK_END, 1)[1]
-    new = head + buf.getvalue().rstrip("\n") + tail
+    new = badged(head + buf.getvalue().rstrip("\n") + tail)
     if new == text:
         print("README.md already matches the data, nothing written",
               file=sys.stderr)
@@ -815,6 +882,14 @@ def write_readme(flagship, rest, span):
         fh.write(new)
     print("README.md block rewritten", file=sys.stderr)
     return 0
+
+
+def engine_caveats(rows):
+    """Print the caveats for whichever engines actually have a row in `rows`."""
+    present = {base_name(r) for r in rows} & set(ENGINE_CAVEATS)
+    for name in sorted(present):
+        for block in ENGINE_CAVEATS[name]:
+            print(block + "\n")
 
 
 def main():
@@ -932,6 +1007,8 @@ def main():
           f"like for like. `bing_serp`, `ddg_serp` and `walmart_search` have "
           f"never been run on the VPS at all, which is why no column of the "
           f"second matrix can be set against the first.\n")
+
+    engine_caveats(rest)
 
     print("## The top of the table, and how far down it can be trusted\n")
     print("A sorted column always produces a first place, and a first place is "
