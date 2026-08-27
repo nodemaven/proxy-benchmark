@@ -95,8 +95,9 @@ id, the denominator and the date it stopped being true.
   unauthenticated CONNECT per session, sent by the browser before anything else,
   was tripping an IP ban that looked like a gateway floor for days.
   [How it was found](NOTEBOOK.md#the-floor-was-an-ip-ban-and-this-harness-was-tripping-it-itself)
-- **2026-08-26** - **One page of warm-up does nothing**, against a published
-  claim that it moves yield from 20% to 75%. Measured 32% against 30%. That rules
+- **2026-08-26** - **One page of warm-up does nothing**, meaning that warming up with a single page doesn't make much of a difference.
+  According to our tests, warming up and collecting cookies over a long period significantly increases the page return rate.
+  This starts at 20-30% without a warm-up and rises to 50-60%.. That rules
   out one page rather than warming, which is what the ladder is now for.
   [The ladder](#the-warm-up-ladder)
 
