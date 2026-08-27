@@ -52,8 +52,9 @@ anything, and then send a small real one and read what came back.
 - Roughly 2 GB of free disk if you want the browsers. The first measurement
   below does not need them.
 
-You do **not** need a proxy account to get through this page. That comes at
-step 8, and it is optional.
+You do **not** need a proxy account to get through this page. A proxy is step 9,
+it is optional, and it does not have to be ours - any proxy you already have
+works, and so does one running on a box you own.
 
 ## Step 1. Get Python
 

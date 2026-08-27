@@ -55,6 +55,8 @@ is.
 ## Contents
 
 - [What it measures](#what-it-measures) - the three layers, and what reads each one
+- [Results at a glance](#results-at-a-glance) - best and worst engine per target,
+  generated from `data/runs/`
 - [What the rows say](#what-the-rows-say) - the findings so far
 - [Setup](#setup) - install, and the four browser downloads that surprise people
 - [Running it](#running-it) - first matrix, front-page entry, your own proxy, a
@@ -66,8 +68,7 @@ is.
 - [Operational safety](#operational-safety) - breaker, budget, shared pool
 - [Reproduce these numbers](#reproduce-these-numbers) - each headline mapped onto
   the command it comes out of
-- [Repository layout](#repository-layout) · [Contributing](#contributing) ·
-  [Disclosure](#disclosure)
+- [Repository layout](#repository-layout) · [Contributing](#contributing)
 
 ## What it measures
 
@@ -79,6 +80,33 @@ is.
 
 Debugging fails when you inspect a layer above the one that is actually rejecting
 you, which is the whole reason the axes are separate.
+
+## Results at a glance
+
+<!-- The table below is written by scripts/analysis/results_tables.py --readme and
+     replaced whole on every regeneration. Do not edit between the markers; edit the
+     script. Numbers typed into a README by hand drift from the runs they came from,
+     and the drift is found by a reader rather than by us. -->
+
+<!-- RESULTS:BEGIN -->
+
+Best and worst engine per target, from the 10426 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+
+| target | best | worst | rows |
+|---|---|---|---|
+| `amazon_search` | `chromium/none` 96% (419/436) | `patchright/none` 63% (288/457) | 3816 |
+| `google_serp` | every engine below 5%, best is 1.1% (5/460) - **not an engine comparison - the whole column is one browser on one host that this target refuses** | - | 3811 |
+| `bing_serp` | `chromium/light` 100% (45/45) | `http-direct` 76% (34/45) | 372 |
+| `ddg_serp` | `camoufox/light` 100% (44/44) | `chromium-direct/light` 22% (10/45) | 339 |
+| `walmart_search` | no cell reaches 30 judged attempts, so no engine is named | - | 35 |
+
+On the one target with enough evidence to rank engines, the top of the table is a **tie and not a podium**: `chromium`, `rebrowser`, `botasaurus`, `camoufox`, `zendriver`, `seleniumbase` sit within 4 points of each other and a two-sided Fisher exact, corrected for the 7 comparisons made, separates none of them. The first of them is `chromium`, which is the unmodified control.
+
+Amazon and the two smaller search engines are a win. **The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. On 2026-08-26 the same engine through the same gateway was served 39% (24/61) from a Windows workstation against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
+
+**[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
+
+<!-- RESULTS:END -->
 
 ## What the rows say
 
@@ -104,9 +132,12 @@ you, which is the whole reason the axes are separate.
   96%, Camoufox is at 92% beside three Chromium-family engines, and only
   Patchright is clearly worse at 63%. The Firefox-against-Chromium reading did not
   survive; the direction on Patchright did.
-- **The hold is real, warming is not.** 108 of 109 held rows passed after a
-  served probe. Warming the exit first measured 32% against 30%, on the arm where
-  the published claim was 20% to 75%.
+- **The hold is real; one page of warming is not.** 108 of 109 held rows passed
+  after a served probe. Warming the exit first measured 32% against 30%, on the
+  arm where the published claim was 20% to 75%. That arm opened **one** page, so
+  it rules out one page and not warming, which is what the ladder below is for -
+  the bullet said "warming is not" until 2026-08-26 and was reading a treatment
+  as the whole class of treatments.
 - **Geo alignment buys nothing and can cost a lot.** Flat on Patchright,
   zendriver lost six sevenths of its yield. Do not turn it on.
 
@@ -207,6 +238,83 @@ on the front page and typing into the box.
 The protocol is an operator's: one sticky exit per session, type on the front
 page, drop the address if the probe is refused, hold it for a series if the probe
 is served. Read the result with `scripts/analysis/held.py`.
+
+### The warm-up ladder
+
+The published claim is that opening a page or two on the target before asking it
+anything moves the yield from 20% to 75%. Measured here it moved 32% to 30% - no
+effect, on the largest claimed effect in this repository.
+
+That result has two readings and one arm cannot tell them apart: either warming
+does nothing, or **one page is not warming**. `--warm` is a ladder rather than a
+switch so the second reading gets a denominator.
+
+| rung | what it opens | what a gap to the rung below isolates |
+|---|---|---|
+| `L0` | nothing. The exit meets the target for the first time at the probe | the baseline every row taken before 2026-08-26 was measured at |
+| `L1` | one page of the target's own | whether being seen once before the query is worth anything |
+| `L2` | several of the target's surfaces, on more than one host | one visit against several. Separates "seen at all" from "seen more than once" |
+| `L3` | `L2`, preceded by third-party pages | whether an exit is better off arriving from somewhere else. The third-party pages carry the target's own analytics and ad tags, so the exit is reported to its infrastructure without a navigation to it |
+
+Three things make the gaps readable rather than decorative:
+
+- **The rungs are cumulative and each ends on the same page.** `L3` is a strict
+  superset of `L2`, which is a strict superset of `L1`, and all three finish on
+  the page `L1` visits before the front page. So whatever `L1` buys is held while
+  the rungs above it vary, `warm_depth` is an ordering, and a difference between
+  two rungs is a difference in **what was added** rather than in two unrelated
+  sequences. A test enforces this rather than a comment asking for it.
+- **All rungs interleave in one process.** The hour is the largest confound this
+  repository has: the same gateway, country and browser moved 69 points to 52
+  between two windows of one afternoon, and on 2026-08-26 the same target went
+  39% on one host and 0% on another in overlapping hours. Rungs run one after
+  another would price the hour and call it depth.
+- **The pages belong to the target, not to the probe.** A probe that knew a
+  domain would be a probe that could warm one target better than another. A rung
+  a target has not declared is refused rather than answered with a shorter one,
+  because a row labelled `L3` whose warm-up was `L1`'s is a wrong result and not
+  an error - it looks exactly like the deeper warm-up not helping. `amazon_search`
+  declares `L1` only: the rungs above it were designed against Google's refusal
+  and nothing here says they transfer.
+
+    python scripts/probes/probe_and_hold.py --targets google_serp \
+        --warm off,L1,L2,L3 --identities 24 --series 5 --dwell 20,45
+
+For a run nobody is going to watch, `scripts/run_ladder.py` wraps that one
+command. It does not change the shape of the experiment - the rungs still
+interleave inside a single process, because a supervisor that ran them in turn
+would reintroduce the confound the interleaving exists to remove. What it adds
+is a preflight that refuses a bad plan or a dead pool in seconds rather than at
+hour three, a log per attempt under `data/logs/`, and a restart rule that is
+deliberately narrow: an attempt is retried only if it died within ten minutes,
+because a run that fell over on startup has lost nothing while one that fell
+over at hour two is worth more than a second attempt at a different hour. Two
+attempts are two run files, and the summary says not to pool them.
+
+It also defaults to `--engines patchright` rather than to the registry default,
+for a reason that is a measurement: on 2026-08-26, through the pool at
+`google_serp`, patchright answered 96 ok of 223 while botasaurus managed 1 of
+87, seleniumbase 0 of 86 and camoufox 0 of 33. A ladder on an engine that cannot
+reach the target compares four zeroes.
+
+    python scripts/run_ladder.py --identities 12
+
+**What this run cannot do, stated before it is run.** At 24 identities per rung,
+a move from 39% to 60% is Fisher p ~ 0.25 - not a result. The ladder is a sieve
+on **direction**: it says which rung is worth 90 identities, and the confirming
+run is a separate one. Quoting a rung ordering off 24 apiece would be the same
+error as the four discordant pairs at p = 0.125 elsewhere in this repository.
+
+Cost is dwell, and it is most of the run: at `--dwell 20,45` the three warm rungs
+average 65, 130 and 195 seconds per identity, so 24 identities is about 2.6 hours
+of dwell before a single probe, hold or gap is counted.
+
+**What the ladder does not reach.** Every rung is a sequence of navigations -
+`visit()` is one `goto`, which is the one method every engine's page object has,
+which is why warming needs no engine support. Clicking a link, clicking a result
+and refining a query are a different shape of session and none of them is here.
+If the ladder comes back flat, that is the next thing to build rather than a
+conclusion that history does not matter.
 
 ### Bringing your own proxy
 
