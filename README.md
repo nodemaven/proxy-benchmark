@@ -115,8 +115,7 @@ labelled rather than quietly edited.
 
 ## Quickstart
 
-A real measurement, no proxy account, no browser download. Measured 2026-08-27 on
-a fresh clone: 22 s to install, 31 s to run.
+A real measurement, no proxy account, no browser download.
 
     git clone https://github.com/nodemaven/proxy-benchmark && cd proxy-benchmark
     python -m venv .venv
