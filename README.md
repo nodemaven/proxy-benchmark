@@ -38,9 +38,13 @@ the target itself.**
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
 [![rows](https://img.shields.io/badge/rows-16%2C283%20published-blue?style=flat-square)](data/runs)
 
-[Quickstart](#quickstart) · [Docs](#documentation) · [What it drives](#what-is-under-test) · [Results](#results-at-a-glance) · [Findings](#research-findings) · [Commands](#command-reference) · [Reproduce](#reproduce-these-numbers)
-
 </div>
+
+<!-- The seven-link nav that used to sit here was removed on 2026-09-01 when
+     `## Contents` was added below. It named 7 of the 22 sections, and a partial
+     index above a complete one is two navigations disagreeing about what the
+     page contains. GitHub's own outline button covers the reader who wants to
+     jump before reading anything. -->
 
 ## What this is
 
@@ -91,6 +95,23 @@ This asks the question with a control instead:
 The output that matters is not "this request passed". It is: this variable
 changed, these did not, and the outcome moved with it.
 
+## Contents
+
+| | Sections |
+|---|---|
+| **Start here** | [What this is](#what-this-is) · [Why this exists](#why-this-exists) · [Quickstart](#quickstart) · [Documentation](#documentation) |
+| **What is measured** | [What it measures](#what-it-measures) · [How the experiment is structured](#how-the-experiment-is-structured) · [What is under test](#what-is-under-test) · [What the rows carry](#what-the-rows-carry) |
+| **What came out** | [Results at a glance](#results-at-a-glance) · [Research findings](#research-findings) |
+| **Running it** | [Setup](#setup) · [Running it](#running-it) · [Command reference](#command-reference) · [Operational safety](#operational-safety) |
+| **The experiments** | [Front-page entry](#entering-through-the-front-page) · [The warm-up ladder](#the-warm-up-ladder) · [Bringing your own proxy](#bringing-your-own-proxy) · [Adding a provider](#adding-a-provider) · [The axes](#the-axes) |
+| **Checking the work** | [Reproduce these numbers](#reproduce-these-numbers) · [Repository layout](#repository-layout) · [Contributing](#contributing) |
+
+All 22 sections are here rather than the popular ones, because the sections a
+reader most needs are usually the ones a hand-picked list leaves out. Every
+anchor above is checked by `test_every_link_inside_the_repository_resolves`,
+which exists because an earlier index in this file spent a day pointing at a
+heading that had been deleted.
+
 ## Quickstart
 
 A real measurement, no proxy account, no browser download. Measured 2026-08-27 on
@@ -116,13 +137,9 @@ works before a second variable is introduced.
 Every attempt is also a JSONL row under `data/runs/`, which is the only thing
 this repository treats as evidence.
 
-Three directions from here, in the order most people want them:
-
-| you want | do this |
-|---|---|
-| the same thing through a proxy | [Bringing your own proxy](#bringing-your-own-proxy) - any proxy, no account here needed |
-| real browsers instead of a bare client | [Setup](#setup) - four Chromium builds, and why no two share a download |
-| to check a number here rather than take it | [Reproduce these numbers](#reproduce-these-numbers) - each headline mapped onto its command |
+From here: the same run [through a proxy](#bringing-your-own-proxy), which needs
+no account with anybody; [real browsers](#setup) instead of a bare client; or
+[check a number here](#reproduce-these-numbers) rather than take it.
 
 ## Documentation
 
@@ -883,44 +900,50 @@ If a number cannot be traced back to a run, it does not belong here.
 
 ## Repository layout
 
-    nmbench/            the reusable package - this is what gets published
-      config.py         credentials from .env, per provider, on first use
-      providers.py      loads data/providers/*.toml: one gateway's dialect each
-      proxy.py          username DSL builder + client-side validation
-      gateway.py        CONNECT probe, exit address lookup, /24 masking
-      relay.py          local authenticating CONNECT forwarder + byte counter
-      breaker.py        circuit breaker, one per matrix cell
-      console.py        keeps progress output from killing the run
-      matrix.py         cells, round-robin scheduling, resume, cost estimate
-      queries.py        loading the committed query lists
-      blocking.py       resource blocking presets, byte counters
-      targets.py        url building + content-based verdicts
-      stats.py          the Wilson interval every rate here is quoted with
-      sink.py           JSONL output, one file per run
-      artifacts.py      gzipped response bodies, so a verdict can be re-read
-      __main__.py       `python -m nmbench <command>`, one entry point
-      engines/          one module per framework, one shared contract
-        base.py         the row schema and the contract every engine implements
-        http.py         plain requests client, the no-browser control
-        chromium.py     unmodified Chromium (the control) and Patchright
-        camoufox.py     patched Firefox over Playwright
-        cloak.py        patched Chromium handing back a Playwright browser
-        rebrowser.py    a Playwright fork patching the Runtime.enable leak
-        obscura.py      Rust browser with its own renderer, over CDP
-        seleniumbase.py Chrome over ChromeDriver, the WebDriver family
-        zendriver.py    Chrome over raw CDP, no WebDriver and no Playwright
-        botasaurus.py   Chrome over raw CDP, a second one, for the 2x2
-        curlcffi.py     scriptless client wearing Chrome's ClientHello
-    scripts/            README: which of these can spend money
-      benchmark.py      the matrix runner: engines x targets, one time window
-      probes/           one file per question, each cheap and single-purpose
-      analysis/         aggregation over data/runs/, sends nothing
-      tools/            generators for committed inputs
-    data/providers/     README: one .toml per gateway, and why it is not code
-    data/queries/       README: committed inputs, one seed, two lists
-    data/runs/          README: masking, filename prefixes, how to read a row
-    docs/               README: quickstart and the two findings write-ups
-    tests/              offline suite: verdicts, scheduler, DSL, hygiene
+```text
+nmbench/                     the reusable package - this is what gets published
+├── config.py                credentials from .env, per provider, on first use
+├── providers.py             loads data/providers/*.toml: one gateway's dialect each
+├── proxy.py                 username DSL builder + client-side validation
+├── gateway.py               CONNECT probe, exit address lookup, /24 masking
+├── relay.py                 local authenticating CONNECT forwarder + byte counter
+├── breaker.py               circuit breaker, one per matrix cell
+├── console.py               keeps progress output from killing the run
+├── matrix.py                cells, round-robin scheduling, resume, cost estimate
+├── queries.py               loading the committed query lists
+├── blocking.py              resource blocking presets, byte counters
+├── targets.py               url building + content-based verdicts
+├── stats.py                 the Wilson interval every rate here is quoted with
+├── sink.py                  JSONL output, one file per run
+├── artifacts.py             gzipped response bodies, so a verdict can be re-read
+├── __main__.py              python -m nmbench <command>, one entry point
+└── engines/                 one module per framework, one shared contract
+    ├── base.py              the row schema and the contract every engine implements
+    ├── http.py              plain requests client, the no-browser control
+    ├── chromium.py          unmodified Chromium (the control) and Patchright
+    ├── camoufox.py          patched Firefox over Playwright
+    ├── cloak.py             patched Chromium handing back a Playwright browser
+    ├── rebrowser.py         a Playwright fork patching the Runtime.enable leak
+    ├── obscura.py           Rust browser with its own renderer, over CDP
+    ├── seleniumbase.py      Chrome over ChromeDriver, the WebDriver family
+    ├── zendriver.py         Chrome over raw CDP, no WebDriver and no Playwright
+    ├── botasaurus.py        Chrome over raw CDP, a second one, for the 2x2
+    └── curlcffi.py          scriptless client wearing Chrome's ClientHello
+
+scripts/                     README: which of these can spend money
+├── benchmark.py             the matrix runner: engines x targets, one time window
+├── probes/                  one file per question, each cheap and single-purpose
+├── analysis/                aggregation over data/runs/, sends nothing
+└── tools/                   generators for committed inputs
+
+data/
+├── providers/               README: one .toml per gateway, and why it is not code
+├── queries/                 README: committed inputs, one seed, two lists
+└── runs/                    README: masking, filename prefixes, how to read a row
+
+docs/                        README: quickstart and the two findings write-ups
+tests/                       offline suite: verdicts, scheduler, DSL, hygiene
+```
 
 Every folder a reader lands in from the file list has its own README, because a
 directory listing on GitHub is where navigation actually starts.
