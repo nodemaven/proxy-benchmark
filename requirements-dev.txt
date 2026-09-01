@@ -28,10 +28,25 @@ playwright==1.60.0
 # taken on what 1.61.2 fetches". That stopped being true on 2026-08-31 and
 # nothing here noticed. Measured 2026-09-01 by reading `engine_version` out of
 # all 46 probehold_*.jsonl files: every run up to and including 2026-08-28 is
-# `149.0.7827.55 / patchright 1.61.2`, and both ladder runs of 2026-08-31 plus
-# the paired run of 2026-09-01 are `151.0.7922.34 / patchright 1.62.2`. The
-# workstation venv had been upgraded off the pin; the pin file was not the thing
-# installing the package.
+# `149.0.7827.55 / patchright 1.61.2`, and both ladder runs of 2026-08-31 are
+# `151.0.7922.34 / patchright 1.62.2`. The workstation venv had been upgraded off
+# the pin; the pin file was not the thing installing the package.
+#
+# Corrected an hour later, same day: the first version of this note also put the
+# paired run of 2026-09-01 on 151, and only its workstation arm was. The VPS arm
+# is 149.0.7827.55 / 1.61.2, because the VPS was upgraded after that run and not
+# before it - engine_fingerprint_20260901T111855Z is the VPS still on 149 at
+# 11:18, the ladder having finished at 11:18 too. So **the paired run is itself
+# split by build**: 0/19 against 8/19 at p = 0.0031 confounds host with build and
+# does not isolate either. The comparison that does hold build fixed is the
+# pooled one at 149 - VPS 0/49, workstation 157/568, p = 4.5e-07 - and today's
+# VPS arm belongs to it. That one holds nothing else fixed, so the two are worth
+# having together and neither is worth quoting alone.
+#
+# The mistake from the inside: the upgrade and the run happened in the same
+# session an hour apart, and "both hosts are on 1.62.2" - true when written -
+# was carried backwards over a run taken before it was true. The field was in
+# the rows the whole time and answering it took one read.
 #
 # What that cost: the three-run ladder series is split by build in the same place
 # it is split by network - run 1 is 149, runs 2 and 3 are 151 - so cross-run
