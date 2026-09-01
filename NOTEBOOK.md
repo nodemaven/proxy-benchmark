@@ -1188,15 +1188,28 @@ against 10 ciphers, 11 extensions, no GREASE and no h2 offered at all. Re-run
 this after any Obscura upgrade: a build swap is invisible in the rows, and every
 row would go on claiming a stealth run.
 
-**That instruction cannot currently be followed, and the reason is the echo
-rather than anything here.** Measured 2026-08-18: `tls.peet.ws` serves OpenSSL's
-default self-signed placeholder - subject and issuer both `Internet Widgits Pty
-Ltd`, no SAN, `notAfter` 2023-08-29 and so two years expired. Every client on
-this machine refuses it, `requests` included, while `www.google.com`,
-`example.com`, `api.ipify.org` and `ipinfo.io` all verify on the same run. The
-build check and the whole JA4 table are therefore unavailable until the service
-is fixed or `--echo` is pointed at another one. The handshakes already recorded
-stand; what is gone is the ability to re-take them.
+**That instruction could not be followed between 2026-08-18 and 2026-08-31, and
+the reason was the echo rather than anything here.** Measured 2026-08-18:
+`tls.peet.ws` served OpenSSL's default self-signed placeholder - subject and
+issuer both `Internet Widgits Pty Ltd`, no SAN, `notAfter` 2023-08-29 and so two
+years expired. Every client on this machine refused it, `requests` included,
+while `www.google.com`, `example.com`, `api.ipify.org` and `ipinfo.io` all
+verified on the same run. The build check and the whole JA4 table were therefore
+unavailable while that held.
+
+**The block is unblocked as of 2026-09-01.** `tls_echo.py` ran end to end on the
+VPS and on the workstation the same hour and both returned handshakes, so the
+service is answering again. Two things to carry rather than assume:
+
+- The runs went out with `ssl_verify=0`, so the paragraph below about skipping
+  verification applies to them: what they measure is the handshake as seen by
+  whoever terminated it, and on the workstation that is behind the Happ gateway.
+  The VPS arm is the one with no interceptor in the path.
+- The VPS patchright JA4 is `t13d1516h2_8daaf6152771_d8a2da3f94cd`, which is the
+  value in the table above **character for character**. The workstation reports
+  `t13d1516h2_8daaf6152771_806a8c22fdea` - same ciphers, same extensions, third
+  segment different. Which of the gateway or the build produced that difference
+  is not established and must not be written down as either.
 
 It is written down because the failure impersonates a finding. Obscura refuses
 the certificate with a `CERTIFICATE_VERIFY_FAILED` out of its bundled BoringSSL,

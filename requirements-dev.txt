@@ -21,10 +21,35 @@ playwright==1.60.0
 # The patched Playwright driver, and the engine every Google finding here rests
 # on. Pinned for the same reason as playwright above and not out of symmetry: it
 # downloads its own Chromium rather than sharing Playwright's, so the version is
-# the build. Every patchright row in data/runs/ was taken on what 1.61.2 fetches,
-# and `python -m patchright install chromium` is a separate download from
-# Playwright's even when the two resolve to the same Chromium number.
-patchright==1.61.2
+# the build, and `python -m patchright install chromium` is a separate download
+# from Playwright's even when the two resolve to the same Chromium number.
+#
+# This block said until 2026-09-01 that "every patchright row in data/runs/ was
+# taken on what 1.61.2 fetches". That stopped being true on 2026-08-31 and
+# nothing here noticed. Measured 2026-09-01 by reading `engine_version` out of
+# all 46 probehold_*.jsonl files: every run up to and including 2026-08-28 is
+# `149.0.7827.55 / patchright 1.61.2`, and both ladder runs of 2026-08-31 plus
+# the paired run of 2026-09-01 are `151.0.7922.34 / patchright 1.62.2`. The
+# workstation venv had been upgraded off the pin; the pin file was not the thing
+# installing the package.
+#
+# What that cost: the three-run ladder series is split by build in the same place
+# it is split by network - run 1 is 149, runs 2 and 3 are 151 - so cross-run
+# yield comparisons across that boundary confound the two. The SSL/network
+# finding survives, because runs 2 and 3 are both 151 and both on the same day.
+#
+# What the mistake looked like from the inside: the pin was treated as a
+# statement about what is installed. It is only a statement about what a fresh
+# `pip install -r` would install, and nothing re-reads it afterwards. The check
+# that cannot go stale is the one the runs already carry - `engine_version` is
+# written into every row, so the build is recoverable per run without trusting
+# this file.
+#
+# Moved to 1.62.2 on 2026-09-01 on the user's instruction, and the VPS was moved
+# with it: both hosts now report `151.0.7922.34 / patchright 1.62.2`, verified by
+# engine_fingerprint.py on each. This is a re-baseline, not a bump - nothing
+# taken from here on can be pooled with the 43 files on 149.
+patchright==1.62.2
 
 # A patched Chromium that hands back a Playwright browser, so it reuses the
 # session class rather than adding a second request path. It is the only
