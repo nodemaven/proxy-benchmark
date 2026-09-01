@@ -626,6 +626,42 @@ def visit(page, url: str, timeout_ms: int = 60000) -> None:
     page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
 
 
+# The three fields the page counter carries, named once so a warm visit and a
+# probe cannot drift apart in what they report.
+COUNTER_FIELDS = ("bytes", "blocked", "allowed")
+
+
+def counter_delta(counter: dict, base: dict) -> dict:
+    """What one navigation cost, on the byte counter the engine installed.
+
+    Differenced rather than read, and for the same reason as in
+    `nmbench.engines.base.run_search`: the counter belongs to the page and the
+    page outlives the navigation, so reading it whole would charge the sixth
+    warm page for the five before it. Mirroring that function is the point -
+    priced by the same instrument, a warm visit and a probe are addable and a
+    rung's warm-up has a price in the same units as what it buys.
+
+    **`None` rather than `0` when no counter was installed.** `new_page` takes
+    the dict on every engine and only the Playwright-driven ones write to it;
+    zendriver, botasaurus-driver and SeleniumBase accept it and never touch it.
+    A zero there would read as a page that cost nothing, which is the one wrong
+    answer this column can give, and it would read that way in exactly the arms
+    where warm-up traffic is most worth knowing.
+
+    This is the page-level counter and not the CONNECT relay. It sees what the
+    page reported receiving, so it is under what the socket carried - no
+    headers, no TLS, nothing outside the page's own network events. Where a
+    relay is running, `on_row` overwrites `bytes` with its socket-level delta,
+    and it does that for probe rows already, so the precedence is the same in
+    both phases. It is not the same on the ladder: `patchright.needs_relay` is
+    False, so no relay runs and every byte below is the page counter's.
+    """
+    if "bytes" not in counter:
+        return dict.fromkeys(COUNTER_FIELDS)
+    return {field: counter.get(field, 0) - base.get(field, 0)
+            for field in COUNTER_FIELDS}
+
+
 def run_identity(active, page, counter, cell, target, queries, *, rng, args,
                  on_row) -> tuple:
     """One exit: warm it, probe it, and hold it if the probe was served.
@@ -660,6 +696,11 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
             # no session produces - so the shortfall is recorded instead.
             for attempt in (1, 2):
                 started = time.perf_counter()
+                # Per attempt and not per URL. A first attempt that failed
+                # partway still pulled bytes down, and they belong on its own
+                # row: added to the retry instead, they would price a page that
+                # loaded once as if it were the expensive one.
+                spent_from = dict(counter)
                 error = None
                 try:
                     visit(page, url)
@@ -671,11 +712,25 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
                 # warming silently failed would read as the warm-up not
                 # working, and because warming costs traffic that belongs in
                 # the price of the protocol.
+                #
+                # That last clause was true of the comment and false of the
+                # row until 2026-09-01. The row carried `elapsed_ms` and no
+                # byte column at all - 549 warm rows in
+                # `probehold_20260831T222129Z` and not one of them priced - so
+                # the price of a rung was the one thing the ladder could not
+                # report. What the mistake looked like from the inside: `on_row`
+                # attaches `bytes` from the relay to every row it is handed, and
+                # that reads like the columns are uniform across phases. It only
+                # runs when a relay is running, the ladder's engine does not
+                # need one, and the probe rows that did carry bytes got them
+                # somewhere else entirely - from `run_search`, which no warm
+                # visit goes through.
                 on_row({"phase": "warm", "url": url, "verdict": "warm_visit",
                         "error": error, "position": None, "query": None,
                         "warm_attempt": attempt,
                         "elapsed_ms": round(
-                            (time.perf_counter() - started) * 1000)})
+                            (time.perf_counter() - started) * 1000),
+                        **counter_delta(counter, spent_from)})
                 time.sleep(rng.uniform(low_dwell, high_dwell))
                 if error is None:
                     delivered += 1

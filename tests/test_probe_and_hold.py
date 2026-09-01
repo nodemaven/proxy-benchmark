@@ -13,6 +13,7 @@ its own argparse.
 """
 import argparse
 import importlib.util
+import inspect
 from pathlib import Path
 
 import pytest
@@ -255,6 +256,104 @@ class TestTheWarmUpLadder:
         cells = [cell(level="L1"), cell(level="L2")]
         with pytest.raises(ValueError, match="one flat list"):
             probe_and_hold.check_warm(parser, args, cells)
+
+
+class TestWhatAWarmVisitCosts:
+    """A rung's warm-up has a price, and until 2026-09-01 no row carried it.
+
+    The ladder exists to say what depth buys. Without the price, the answer is
+    half an answer - a rung that lifts yield by paying six pages of traffic is a
+    different proposition from one that lifts it for free, and both look
+    identical in a table of pass rates. Every test here is about a way the
+    column could be present and wrong, which is worse than absent.
+    """
+
+    def test_one_visit_is_charged_what_it_spent_and_not_the_session(self):
+        counter = {"bytes": 1000, "blocked": 2, "allowed": 30}
+        base = {"bytes": 400, "blocked": 1, "allowed": 10}
+        assert probe_and_hold.counter_delta(counter, base) == {
+            "bytes": 600, "blocked": 1, "allowed": 20}
+
+    def test_the_first_page_of_a_session_is_charged_from_zero(self):
+        """The base is an empty dict on the first visit of a fresh page, and
+        that has to read as "nothing spent yet" rather than as "no counter"."""
+        assert probe_and_hold.counter_delta({"bytes": 250}, {})["bytes"] == 250
+
+    def test_an_uninstrumented_engine_reports_nothing_rather_than_zero(self):
+        """zendriver, botasaurus-driver and SeleniumBase take the counter dict
+        and never write to it. A zero here would be indistinguishable from a
+        page that genuinely cost nothing, and it would say so in exactly the
+        arms where the warm-up's traffic is most worth knowing."""
+        spent = probe_and_hold.counter_delta({}, {})
+        assert spent == {"bytes": None, "blocked": None, "allowed": None}
+        # Not absent either: a row written before this column existed is on
+        # disk, and it must stay distinguishable from one written after.
+        assert set(spent) == set(probe_and_hold.COUNTER_FIELDS)
+
+    def test_a_retried_visit_is_charged_once_across_its_two_rows(self):
+        """The retry is where this goes wrong quietly, and no unit test of
+        `counter_delta` alone can see it - the bug is where the base is read,
+        not what the subtraction does. Read once per URL instead of once per
+        attempt and the retry row is charged for the failed attempt as well, so
+        the pages that needed retrying - the slow ones, the ones worth
+        knowing about - are exactly the ones reported at double. Nothing errors
+        and the column stays plausible; it only stops adding up to the counter.
+
+        No network: the page is a fake whose `goto` moves the counter the way
+        `blocking.install_counter` does, and one URL fails on first sight.
+        """
+        import random
+        import types
+
+        from nmbench.targets import TARGETS
+
+        target = TARGETS["google_serp"]
+        pages = probe_and_hold.warm_sequence(target, "N3", Args())
+        stumbles = pages[2]
+
+        counter, seen = {}, []
+
+        class FakePage:
+            failed = False
+
+            def goto(self, url, **kw):
+                seen.append(url)
+                counter["bytes"] = counter.get("bytes", 0) + 1_000_000
+                if url == stumbles and not FakePage.failed:
+                    FakePage.failed = True
+                    raise TimeoutError("navigation timed out")
+
+        class FakeActive:
+            def search(self, page, target, query, *, rng, counter):
+                counter["bytes"] = counter.get("bytes", 0) + 7
+                return {"verdict": "ok", "error": None}
+
+        rows = []
+        probe_and_hold.run_identity(
+            FakeActive(), FakePage(), counter, cell(level="N3"), target, ["q"],
+            rng=random.Random(0),
+            args=types.SimpleNamespace(dwell_range=(0, 0), gap_range=(0, 0),
+                                       warm_urls=None),
+            on_row=rows.append)
+
+        warm = [row for row in rows if row["phase"] == "warm"]
+        assert len(warm) == len(seen), "a navigation went unrecorded"
+        assert [row["warm_attempt"] for row in warm].count(2) == 1
+        assert sum(row["bytes"] for row in warm) == counter["bytes"] - 7, (
+            "the warm rows do not add up to what the session spent, so a "
+            "visit is being charged twice or not at all")
+
+    def test_the_warm_row_is_priced_by_the_same_instrument_as_the_probe(self):
+        """`run_search` writes these three names off the same page counter. If
+        the two lists drift, a warm visit and the probe after it stop being
+        addable and the price of a rung cannot be computed at all."""
+        from nmbench.engines import base as engines_base
+
+        source = inspect.getsource(engines_base.run_search)
+        for field in probe_and_hold.COUNTER_FIELDS:
+            assert f'"{field}"' in source, (
+                f"`run_search` no longer prices {field}, so warm rows and "
+                f"probe rows are being counted differently")
 
 
 class TestTheGeoAxis:
