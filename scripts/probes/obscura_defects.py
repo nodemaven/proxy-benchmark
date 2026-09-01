@@ -12,8 +12,9 @@ argued away is one nobody re-measures.
     STATUS  can this engine's rows be split into served and refused
     TYPING  can the target's own search box be entered
     AGENT   does the browser tell the network what it tells the page
+    KEYS    do the keystrokes a query is typed with mean what they mean
 
-All three are asked of a server on this machine, so the file costs no traffic and
+All four are asked of a server on this machine, so the file costs no traffic and
 can be pointed at cases a real target will not produce on demand. That needs
 `--allow-private-network`, which the engine keeps off everywhere else - see
 `ObscuraEngine.open`.
@@ -85,6 +86,42 @@ says about itself. One string, two sources, and they have to agree.
 
 `obscura serve --user-agent` exists, so if they disagree this is a defect with a
 switch beside it rather than a property of the engine.
+
+KEYS
+----
+
+TYPING asks whether the box can be seen. This asks whether the keystrokes sent
+into it do what the same keystrokes do in a browser that implements them
+natively, which is a different question and the one that decides whether a typed
+row records the query it claims.
+
+It exists because this repository has already been bitten by exactly this class
+once, on a different engine: measured 2026-08-13, a held series on Google put
+query two on `q=kimchi+mistakesmortgage+rates` and query three on
+`q=kimchi+mistakesmortgagswimming`. Every row came back `ok`, every column was
+internally consistent, and no analysis here could have caught it. `verify_box`
+in `engines/base.py` exists because of that morning. This check is the same
+question asked before a run rather than after one.
+
+The keystrokes are sent through `page.keyboard` and not through a locator, on
+purpose. A locator press waits for actionability, and this engine lays out a
+`<textarea>` at height 0 - so on the one control that matters the check would
+spend its timeout and report nothing, which is the TYPING defect eating the KEYS
+result. `page.keyboard` puts the CDP `Input` call on the wire without an
+actionability gate, which is also the layer the question is actually about.
+Focus is therefore set through `element.focus()` and then **asserted** by reading
+`document.activeElement` back, because a focus that silently failed would make
+every case below measure an unfocused page and pass it off as agreement.
+
+`Input.dispatchKeyEvent` on this engine is a JS synthesis rather than native
+input: each case is a `KeyboardEvent` constructed in the page and a value
+assignment beside it. That is a legitimate design and it is why the cases below
+are worth asking - a synthesis is only correct where somebody wrote the branch,
+and the branches are enumerable.
+
+Run it against `--engine chromium` too. Every expectation in `check_keys` is what
+a browser doing this natively does, and a control that is only asserted is a
+control that is only believed.
 """
 import argparse
 import http.server
@@ -121,6 +158,44 @@ PAGE = (b"<html><head><title>local</title></head>"
 # textarea and on Amazon to an input, so both are load-bearing here.
 LAID_OUT = ("#an-input", "#a-textarea")
 
+# The same two controls, inside a real form, with every key event recorded and
+# the submit intercepted.
+#
+# The form is what makes the Enter cases readable: Enter in an input submits the
+# containing form and Enter in a textarea does not, and an engine that gets that
+# backwards is not visible on a page with no form on it. `preventDefault` keeps
+# the submission from navigating, because the page has to survive the keystroke
+# to be read afterwards - and it counts rather than flags, so a double submit is
+# distinguishable from a single one.
+#
+# `isTrusted` is recorded beside the modifiers because this engine marks its
+# synthesised events trusted on purpose. That is the property a target checks
+# first, and a probe that only reported the modifiers would leave the impression
+# the events are obviously fake when the interesting part is that they are not.
+KEYS_PAGE = (
+    b"<html><head><title>keys</title></head>"
+    b"<body><p id='marker'>keys</p>"
+    b"<form id='a-form' action='/ok' method='get'>"
+    b"<input type='text' id='an-input' name='i'>"
+    b"<textarea id='a-textarea' name='t'></textarea>"
+    b"</form>"
+    b"<script>\n"
+    b"window.__events = [];\n"
+    b"window.__submitted = 0;\n"
+    b"function __rec(e){window.__events.push({type:e.type,key:e.key,"
+    b"code:e.code,ctrlKey:e.ctrlKey,shiftKey:e.shiftKey,altKey:e.altKey,"
+    b"metaKey:e.metaKey,keyCode:e.keyCode,which:e.which,"
+    b"isTrusted:e.isTrusted});}\n"
+    b"['an-input','a-textarea'].forEach(function(id){\n"
+    b"  var el = document.getElementById(id);\n"
+    b"  ['keydown','keypress','keyup'].forEach(function(t){\n"
+    b"    el.addEventListener(t, __rec);});\n"
+    b"});\n"
+    b"document.getElementById('a-form').addEventListener('submit',\n"
+    b"  function(e){ e.preventDefault(); window.__submitted += 1; });\n"
+    b"</script></body></html>"
+)
+
 # path, what the server answers, what the row must end up recording
 CASES = (
     ("/ok", 200, 200, "a plain success"),
@@ -156,11 +231,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Location", "/fail")
             self.end_headers()
             return
+        # Startswith, not equality: the form's action is `/ok` and a submission
+        # that escaped `preventDefault` would arrive as `/ok?i=&t=`. Matching
+        # exactly would answer that 200 as well, through the else below, and the
+        # probe would never see that the interception had failed.
+        body = KEYS_PAGE if self.path.startswith("/keys") else PAGE
         self.send_response(503 if self.path == "/fail" else 200)
         self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", str(len(PAGE)))
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(PAGE)
+        self.wfile.write(body)
 
 
 class _LocalTarget:
@@ -318,6 +398,142 @@ def check_user_agent(session, base: str) -> bool:
     return agree
 
 
+def _keys_setup(page, element_id: str, value: str, caret):
+    """Put one control into a known state and report what ended up focused.
+
+    The return value is the point. Focus is set with `element.focus()` rather
+    than by clicking, because a click needs a laid-out box and this engine does
+    not give the textarea one - and a `focus()` that quietly failed would leave
+    every case below measuring an unfocused page and reporting agreement. So the
+    caller is handed `document.activeElement` and refuses to continue if it is
+    not the element it asked for.
+    """
+    return page.evaluate(
+        """([id, value, caret]) => {
+            const el = document.getElementById(id);
+            el.value = value;
+            el.focus();
+            if (caret !== null) el.setSelectionRange(caret, caret);
+            window.__events = [];
+            window.__submitted = 0;
+            return document.activeElement ? document.activeElement.id : null;
+        }""",
+        [element_id, value, caret],
+    )
+
+
+def _keys_read(page, element_id: str) -> dict:
+    """Everything one keystroke can have changed, read in a single round trip."""
+    return page.evaluate(
+        """(id) => {
+            const el = document.getElementById(id);
+            return {value: el.value, start: el.selectionStart,
+                    end: el.selectionEnd, submitted: window.__submitted,
+                    events: window.__events};
+        }""",
+        element_id,
+    )
+
+
+def check_keys(session, base: str) -> bool:
+    """Do the keystrokes a query is typed with mean what they mean.
+
+    Every expectation here is what a browser implementing the CDP `Input` domain
+    natively does. They are asserted rather than inferred: run the probe with
+    `--engine chromium` and the same table has to come back all OK, because a
+    control that is only believed is not a control.
+    """
+    page = session.new_page()
+    results = []
+
+    def case(name: str, expected, got, why: str) -> None:
+        ok = got == expected
+        results.append(ok)
+        print(f"  {name:<26} want {expected!r:<10} got {got!r:<12} "
+              f"{'OK' if ok else 'DIFFERS'}")
+        print(f"  {'':<26} {why}")
+
+    try:
+        page.goto(f"{base}/keys", wait_until="domcontentloaded", timeout=30000)
+
+        focused = _keys_setup(page, "a-textarea", "", None)
+        if focused != "a-textarea":
+            print(f"  focus did not take: document.activeElement is "
+                  f"{focused!r} rather than 'a-textarea'. Every case below "
+                  f"would be measuring an unfocused page, so none of them are "
+                  f"run.")
+            return False
+
+        # 1. Input.insertText - the one-call paste. obscura issue #577.
+        try:
+            page.keyboard.insert_text("Z")
+            got = _keys_read(page, "a-textarea")["value"]
+        except Exception as exc:
+            got = type(exc).__name__
+        case("insertText", "Z", got,
+             "one CDP call that puts a whole query in the box, which is what "
+             "issue #577 asks for")
+
+        # 2. Enter with the caret in the middle of a textarea.
+        _keys_setup(page, "a-textarea", "ab", 1)
+        page.keyboard.press("Enter")
+        after = _keys_read(page, "a-textarea")
+        case("enter at caret, value", "a\nb", after["value"],
+             "a newline goes in at the caret, not at the end of the box")
+        case("enter at caret, offset", 2, after["start"],
+             "and the caret follows it, so the next keystroke lands after it")
+
+        # 3. Enter inside an input submits the form it is in.
+        _keys_setup(page, "an-input", "", None)
+        page.keyboard.press("Enter")
+        case("enter submits an input", 1,
+             _keys_read(page, "an-input")["submitted"],
+             "implicit submission, which is how every search box on a form "
+             "is entered")
+
+        # 4. Enter inside a textarea does not.
+        _keys_setup(page, "a-textarea", "", None)
+        page.keyboard.press("Enter")
+        case("enter holds a textarea", 0,
+             _keys_read(page, "a-textarea")["submitted"],
+             "a textarea takes the newline instead - Google submits its own "
+             "textarea from script, which is a different mechanism")
+
+        # 5. Modifiers, and the trust flag beside them.
+        _keys_setup(page, "a-textarea", "", None)
+        page.keyboard.press("Shift+Enter")
+        events = _keys_read(page, "a-textarea")["events"]
+        downs = [e for e in events
+                 if e.get("type") == "keydown" and e.get("key") == "Enter"]
+        first = downs[0] if downs else {}
+        case("shift+enter sets shiftKey", True,
+             first.get("shiftKey", "no keydown arrived"),
+             "a page that treats Shift+Enter differently from Enter reads "
+             "this flag and nothing else")
+        case("enter carries keyCode 13", 13,
+             first.get("keyCode", "no keydown arrived"),
+             "legacy but still the most widely read property on a key event")
+        case("the event is trusted", True,
+             first.get("isTrusted", "no keydown arrived"),
+             "what a target checks first, and the one this engine sets on "
+             "purpose")
+
+        # 6. Select-all and type over it. This is `base.clear_box`.
+        _keys_setup(page, "a-textarea", "old", 3)
+        page.keyboard.press("Control+a")
+        page.keyboard.type("new")
+        case("ctrl+a then type replaces", "new",
+             _keys_read(page, "a-textarea")["value"],
+             "exactly what `engines/base.clear_box` does between two queries "
+             "of a held series")
+    except Exception as exc:
+        print(f"  the page did not load: {type(exc).__name__}: {exc}")
+        return False
+    finally:
+        page.close()
+    return all(results)
+
+
 def check(engine_name: str) -> bool:
     engine = engines.REGISTRY[engine_name]
     unavailable = engine.check()
@@ -342,6 +558,9 @@ def check(engine_name: str) -> bool:
             print("\nAGENT - the User-Agent off the socket against the one the "
                   "page reports")
             agent_ok = check_user_agent(session, base)
+            print("\nKEYS - the keystrokes a query is typed with, on a form "
+                  "that records what it was sent")
+            keys_ok = check_keys(session, base)
     except Exception as exc:
         print(f"  the session did not run: {type(exc).__name__}: {exc}")
         return False
@@ -382,7 +601,19 @@ def check(engine_name: str) -> bool:
               "itself away for free, so its refusals cannot be read as the "
               "engine's anti-detection failing. Pass --user-agent and re-run "
               "before quoting a number from it.")
-    return status_ok and typing_ok and agent_ok
+    if keys_ok:
+        print("KEYS OK. A typed query means on this engine what it means on a "
+              "browser that implements the Input domain natively, so a held "
+              "series entered through the box records the queries it claims.")
+    else:
+        print("KEYS BROKEN. At least one keystroke does something other than "
+              "what it does natively, and the failure mode is a row that looks "
+              "correct: a box holding the wrong text still returns a real page "
+              "and a plausible verdict. `verify_box` in `engines/base.py` "
+              "catches it as an `error` rather than a wrong `ok`, so a run is "
+              "not silently corrupted - but every affected attempt is spent "
+              "and lost, and `supports_typing` must stay False.")
+    return status_ok and typing_ok and agent_ok and keys_ok
 
 
 def main() -> int:
@@ -396,7 +627,7 @@ def main() -> int:
         parser.error(f"unknown engine {args.engine!r}, "
                      f"known: {engines.names()}")
 
-    print(f"asking {args.engine} the three questions that keep it out of an "
+    print(f"asking {args.engine} the four questions that keep it out of an "
           f"engine comparison\n")
     return 0 if check(args.engine) else 1
 
