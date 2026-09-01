@@ -49,9 +49,43 @@ def supported_encodings() -> str:
 # It is a known confound rather than a settled choice. This repository's own
 # DuckDuckGo finding is that a User-Agent substring alone sorted a table 95/95
 # against 0/50, so a target that sorts on staleness would refuse this control and
-# the refusal would read as the scriptless client failing. Nothing here has
-# measured whether any target does. If it is ever bumped, bump it in a commit
-# that runs both values in one window, the way the geo axis was added.
+# the refusal would read as the scriptless client failing.
+#
+# **That paragraph used to end "nothing here has measured whether any target
+# does". It has now been measured, on 2026-08-28, and two do.** These exact
+# headers, direct from the Windows workstation, one GET per cell, nothing
+# varying but the major version inside this one string:
+#
+#   www.producthunt.com/search        Chrome/100..130: 403, 16 of 16
+#                                     Chrome/131..149: 200, 16 of 16
+#                                     The edge is sharp - 130 is 0 of 3 served,
+#                                     131 is 3 of 3 - and the served body is
+#                                     205 KB against the refusal's 5.9 KB.
+#   www.sec.gov/cgi-bin/browse-edgar  Chrome/145: 403, 5 of 5
+#                                     Chrome/146..149: 200, 14 of 14
+#
+# Different vendors and different floors - Cloudflare in front of ProductHunt,
+# Akamai Bot Manager in front of sec.gov - so it is a floor each site sets and
+# not one product's rule. Three negative controls in the same window did not
+# move: opencorporates.com, capterra.com and clutch.co answered 403 at 149, at
+# 160 and at an impossible 999. So whatever refuses those is not the version,
+# and the effect above is not "any change to the string helps".
+#
+# What this costs is a reading rather than a number. On a target whose floor is
+# above 127 this arm is refused for a reason that has nothing to do with being
+# scriptless, and the sentence at the top of this module - "when this engine is
+# refused and a browser is not, the address is the tell" - names the wrong
+# layer. The Python TLS handshake passes both those sites; one token in one
+# header is the whole of it.
+#
+# The pin still is not bumped, and now for a better reason than inertia: the
+# finding is that the version is a treatment, so the answer is an axis and not a
+# new constant. Bumping swaps one arbitrary value for another, loses the 289
+# rows' comparability and buys nothing. If it is ever bumped, bump it in a
+# commit that runs both values in one window, the way the geo axis was added.
+# Note also that no row records this string - `engine_version` on this arm is
+# `requests.__version__` - so the parameter that decided those 61 attempts is
+# nowhere in `data/runs/`.
 BROWSER_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"),
