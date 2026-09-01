@@ -643,7 +643,7 @@ class TestBotasaurusDisableFeatures:
 
     def _vendor_names(self):
         from botasaurus_driver.core.config import Config
-        return set(Config(headless=True).default_arguments) 
+        return set(Config(headless=True).default_arguments)
 
     def test_the_merged_value_keeps_every_name_the_vendor_asked_for(self):
         from nmbench.engines.botasaurus import merged_disable_features
