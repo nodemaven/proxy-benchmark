@@ -35,7 +35,7 @@
      link does not contain its own evidence is the kind of thing this repository
      exists to not do. -->
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
-[![rows](https://img.shields.io/badge/rows-13%2C364%20published-blue?style=flat-square)](data/runs)
+[![rows](https://img.shields.io/badge/rows-15%2C913%20published-blue?style=flat-square)](data/runs)
 
 [Findings](#research-findings) · [Quickstart](#quickstart) · [What it drives](#what-is-under-test) · [Commands](#command-reference) · [Reproduce](#reproduce-these-numbers) · [Notebook](NOTEBOOK.md)
 
