@@ -6,10 +6,16 @@ every retry after a refusal confirms automation to the target and degrades the
 exit ranges for every other customer on the account.
 """
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
-from nmbench.breaker import CircuitBreaker, TransportWatch
+from nmbench.breaker import (
+    TRANSPORT_MARKERS,
+    CircuitBreaker,
+    TransportWatch,
+    is_transport_failure,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -218,3 +224,81 @@ class TestTheTwoDefaultsAreDeliberatelyDifferent:
         `CircuitBreaker(c.key)` here would take 5 and nothing would say so."""
         source = self.RUNNER.read_text(encoding="utf-8")
         assert "CircuitBreaker(c.key, limit=args.breaker" in source
+
+
+class TestTellingATransportFailureFromARefusal:
+    """The distinction the two breakers above cannot make, at one attempt.
+
+    Every string below was taken off a row in `data/runs/` on 2026-08-28 and is
+    quoted here whole rather than read from disk at test time. Quoting is the
+    point: what is being pinned is that the classifier survives the prose each
+    producer wraps its marker in, and a test that regenerated the strings from
+    the same constant it is testing would pass on a classifier that matched
+    nothing real.
+    """
+
+    ARRIVED_NOWHERE: ClassVar = [
+        "Error: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at "
+        "https://www.google.com/search?q=x&hl=en",
+        "Error: Page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at "
+        "https://www.amazon.com/s?k=y",
+        "Error: net::ERR_TUNNEL_CONNECTION_FAILED",
+        "WebDriverException: Message: unknown error: "
+        "net::ERR_TUNNEL_CONNECTION_FAILED",
+        "Error: Page.goto: net::ERR_PROXY_CONNECTION_FAILED at "
+        "https://www.bing.com/search?q=z",
+        "Error: Page.goto: NS_ERROR_PROXY_CONNECTION_REFUSED Call log: - "
+        "navigating to \"https://www.google.com/\", waiting until "
+        "\"domcontentloaded\"",
+        "Error: Page.goto: NS_ERROR_PROXY_GATEWAY_TIMEOUT Call log: - "
+        "navigating to \"https://www.google.com/\"",
+        "ProxyError: Failed to perform, curl: (56) Proxy CONNECT aborted. "
+        "See https://curl.se/libcurl/c/libcurl-errors.html",
+    ]
+
+    # The exclusions, and they are the load-bearing half. Each of these is a
+    # failure, and none of them says which end of the tunnel failed.
+    AMBIGUOUS: ClassVar = [
+        # 509 rows, the largest single error class on disk. A connection closed
+        # after the handshake with nothing sent. Both ends can do that.
+        "Error: Page.goto: net::ERR_EMPTY_RESPONSE at https://www.google.com/",
+        # 669 rows. A target that stalls a client on purpose produces exactly
+        # this, and that is a finding about the target.
+        "TimeoutError: Page.goto: Timeout 60000ms exceeded. Call log:",
+        "Error: Page.goto: NS_ERROR_NET_TIMEOUT Call log: - navigating to",
+        "TimeoutError: Document did not become ready within 60 seconds",
+        # This machine's own network. Not a measurement either, but redrawing
+        # an exit cannot help it and counting it as one would inflate the
+        # redraw budget on a fault that is ours.
+        "Error: Page.goto: net::ERR_NETWORK_CHANGED at https://www.google.com/",
+        # A refusal by the target, which is the thing the harness exists to
+        # measure. It must never leave the denominator.
+        "Error: Page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE",
+    ]
+
+    @pytest.mark.parametrize("error", ARRIVED_NOWHERE)
+    def test_an_attempt_that_never_arrived_is_named_as_one(self, error):
+        assert is_transport_failure(error)
+
+    @pytest.mark.parametrize("error", AMBIGUOUS)
+    def test_a_failure_that_could_be_the_target_is_left_alone(self, error):
+        """A false positive here silently deletes evidence: the attempt leaves
+        the denominator and its identity is drawn again, so a target refusing
+        us would read as a pool with a transport problem."""
+        assert not is_transport_failure(error)
+
+    def test_a_row_that_succeeded_carries_no_error_and_is_not_a_failure(self):
+        assert not is_transport_failure(None)
+        assert not is_transport_failure("")
+
+    def test_every_marker_was_seen_before_it_was_listed(self):
+        """The constant is a list of things this gateway has actually done, and
+        the comment beside it says so. A marker added because it plausibly
+        could happen cannot be checked against anything and still decides what
+        leaves the denominator - so the guard is that each one appears in a
+        string quoted above, which is a string off a row."""
+        seen = " ".join(self.ARRIVED_NOWHERE)
+        for marker in TRANSPORT_MARKERS:
+            assert marker in seen, (
+                f"{marker} is in TRANSPORT_MARKERS with no observed row above "
+                f"it. Add the row it came from, or take the marker out")
