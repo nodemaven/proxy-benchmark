@@ -349,21 +349,48 @@ class ObscuraEngine:
     # been recorded since 2026-08-12 and `probes/obscura_defects.py` now checks
     # it, including through the redirect that carries every Google refusal.
     #
-    # The reason it is still False was measured 2026-08-14, and it is a defect
-    # in this browser's layout rather than in the harness: **it lays out a
-    # `<textarea>` with height 0**. On one local page every other element
-    # reports a correct box and the textarea reports 1264x0, against 168x36 on
-    # Chromium for the identical markup, so Playwright resolves it to `hidden`
-    # and `wait_for_selector(state="visible")` waits the full 60 s and records
-    # an `error`. Every typed attempt, on every target.
+    # The second reason is spent too, as of 2026-08-28, and it is worth leaving
+    # here because it is the second time this flag has outlived its stated
+    # cause. It was that this browser **laid out a `<textarea>` with height 0**
+    # - 1264x0 against Chromium's 168x36 on identical markup, measured
+    # 2026-08-14 - so Playwright resolved it to `hidden` and every typed attempt
+    # spent the full 60 s and recorded an `error`. Upstream PR #690 fixed it on
+    # 2026-08-23 and it shipped in v0.2.1. Re-measured 2026-08-28 by
+    # `probes/obscura_defects.py` on the v0.2.1 release binary, Windows and the
+    # Linux VPS both: `#a-textarea` is 168x36 and visible, identical to
+    # Chromium. TYPING passes.
+    #
+    # The reason it is *still* False was measured the same day, by the KEYS
+    # check in that probe, against Chromium as the control - the control passes
+    # 9 of 9, so these are differences from native behaviour and not a broken
+    # instrument. On v0.2.1, obscura against Chromium:
+    #
+    #   Ctrl+A then type   'oldnew' against 'new'   <- this one is decisive
+    #   Enter at a caret   'ab\n'   against 'a\nb'
+    #   Enter caret offset  1       against 2
+    #   Shift+Enter shiftKey False  against True
+    #   Enter keyCode       absent  against 13
+    #   Input.insertText    Error   against inserted
+    #
+    # The first line is what closes the question. `base.clear_box` empties a box
+    # between two queries of a held series with `press("Control+a")` and types
+    # over the selection. On this engine `dispatchKeyEvent` never reads the CDP
+    # `modifiers` field, so the synthesised KeyboardEvent carries `ctrlKey`
+    # false and no selection is made: the next query is appended to the last
+    # one. That is exactly the failure that put `q=kimchi+mistakesmortgage+rates`
+    # on the wire on 2026-08-13 and returned three `ok` rows for queries nobody
+    # asked.
+    #
+    # This harness is not silently corrupted by it - `base.verify_box` compares
+    # the box against the query before pressing Enter and raises, so the attempt
+    # is filed as our `error` rather than as a verdict about the target. But
+    # every held attempt after the first would be spent and lost, so the flag
+    # stays False until the modifiers are read upstream.
     #
     # It lands exactly where it costs the most: Google's search box is a
     # textarea, which this repository already knew from the zendriver clearing
-    # bug. Waiting on `attached` instead would type into an element this
-    # renderer has not laid out, which is a different client from the one every
-    # other engine presents - and the entry axis is only readable if the entry
-    # is the one thing that changed. So this is refused rather than worked
-    # around, on the same grounds `--humanize` was.
+    # bug. So this is refused rather than worked around, on the same grounds
+    # `--humanize` was.
     #
     # `supports_headful` stays False and is a different kind of limit. It does
     # not disqualify this engine the way it disqualifies a Chromium one: the
