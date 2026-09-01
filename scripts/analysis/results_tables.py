@@ -848,11 +848,10 @@ def readme_block(flagship, rest, span):
     p, p_c = host_split_p(), host_split_p((ws_c, vps_c))
     print(f"Amazon and the two smaller search engines are a win. **The Google "
           f"row is not an engine comparison and must not be quoted as one.** "
-          f"Every cell of it was taken on one Linux VPS. On 2026-08-26 the "
-          f"same engine through the same gateway was served "
-          f"{ws_gw.rate:.0f}% ({ws_gw.ok}/{ws_gw.judged}) from a Windows "
-          f"workstation against {vps_gw.rate:.0f}% "
-          f"({vps_gw.ok}/{vps_gw.judged}) from the VPS"
+          f"Every cell of it was taken on one Linux VPS. Run again with the "
+          f"same engine through the same gateway, a Windows workstation was "
+          f"served {ws_gw.rate:.0f}% ({ws_gw.ok}/{ws_gw.judged}) against "
+          f"{vps_gw.rate:.0f}% ({vps_gw.ok}/{vps_gw.judged}) from the VPS"
           + (f", two-sided Fisher p = {p:.2g}" if p else "") +
           f"; cut to the one window where both machines were running at once "
           f"it is {ws_c.rate:.0f}% ({ws_c.ok}/{ws_c.judged}) against "

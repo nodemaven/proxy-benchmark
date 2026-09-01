@@ -237,7 +237,7 @@ schema. Those files are the source of truth, and the tables in this README and i
 is a number that cannot drift.
 
 **Verdicts come from page content, not HTTP status.** The same Google reCAPTCHA
-page arrived once as 429 and once as 200 (2026-08-11), so a run judged by status
+page arrived once as 429 and once as 200, so a run judged by status
 scores the second as a success. There is no boolean `success` column:
 
 | verdict | what it means |
@@ -314,7 +314,7 @@ Best and worst engine per target, from the 10432 attempt rows in `data/runs/benc
 
 On the one target with enough evidence to rank engines, the top of the table is a **tie and not a podium**: `chromium`, `rebrowser`, `botasaurus`, `camoufox`, `zendriver`, `seleniumbase` sit within 4 points of each other and a two-sided Fisher exact, corrected for the 7 comparisons made, separates none of them. The first of them is `chromium`, which is the unmodified control.
 
-Amazon and the two smaller search engines are a win. **The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. On 2026-08-26 the same engine through the same gateway was served 39% (24/61) from a Windows workstation against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
+Amazon and the two smaller search engines are a win. **The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. Run again with the same engine through the same gateway, a Windows workstation was served 39% (24/61) against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
 
 **[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
 
@@ -329,75 +329,77 @@ generated from the files and a test fails when the badge and the files disagree.
 
 ## Research findings
 
-Measured with this harness. Each line links to the section that carries the run
-id, the denominator and the date it stopped being true.
+Everything below was measured with this harness between 10 August and 1 September
+2026, and none of it is a standing fact about the internet: a target's defences
+move, so a rate measured in that window is evidence about that window. The dates
+sit here once rather than on each line, because a reader deciding whether to
+trust one of these needs the run id and the denominator, and those live in the
+section each line links to along with the date it stopped being true.
 
-- **2026-08-19** - **Chrome spends 43 MB per fresh profile talking to Google
-  before you ask it for anything.** 43.2 MB of a 43.4 MB idle window on
+- **Chrome spends 43 MB per fresh profile talking to Google before you ask it
+  for anything.** 43.2 MB of a 43.4 MB idle window on
   `optimizationguide-pa.googleapis.com`, on a browser parked on `about:blank`.
-  At one profile per attempt that is about 43 GB per thousand attempts, billed as
-  residential traffic, for a file no target ever sees.
+  At one profile per attempt that is about 43 GB per thousand attempts, billed
+  as residential traffic, for a file no target ever sees.
   [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
-- **2026-08-24** - **On Amazon the unmodified browser finished in the leading
-  group.** Stock Chromium 96% (419/436) against 63% (288/457) for the lowest
-  anti-detect engine, over 3530 judged Amazon attempts in one 7630-row run. Six
-  engines sit within four points at the top and no test separates them, so the
-  top of that table is a tie rather than a ranking - and the control is inside it.
+- **On Amazon the unmodified browser finished in the leading group.** Stock
+  Chromium 96% (419/436) against 63% (288/457) for the lowest anti-detect
+  engine, over 3530 judged Amazon attempts in one 7630-row run. Six engines sit
+  within four points at the top and no test separates them, so the top of that
+  table is a tie rather than a ranking - and the control is inside it.
   [Full table](RESULTS.md#amazon_search-in-the-130-hour-run)
-- **2026-08-26** - **The same code, gateway and target scored 39% on one machine
-  and 0% on another.** 24/61 from a Windows workstation against 0/84 from a Linux
-  VPS in overlapping hours, Fisher p = 3.7e-11. The client machine is a variable
-  a proxy comparison usually holds fixed without saying so.
+- **The same code, gateway and target scored 39% on one machine and 0% on
+  another.** 24/61 from a Windows workstation against 0/84 from a Linux VPS in
+  overlapping hours, Fisher p = 3.7e-11. The client machine is a variable a
+  proxy comparison usually holds fixed without saying so.
   [The split](RESULTS.md#the-host-separated-from-the-date)
-- **2026-08-12** - **On DuckDuckGo one substring in the User-Agent accounted for
-  the whole split.** 95 of 95 pass for engines whose UA omits `HeadlessChrome`, 0
-  of 50 for the two that carry it, across three browser families and two drivers.
+- **On DuckDuckGo one substring in the User-Agent accounted for the whole
+  split.** 95 of 95 pass for engines whose UA omits `HeadlessChrome`, 0 of 50
+  for the two that carry it, across three browser families and two drivers.
   Nothing else varied moved it, so a headless Chromium measured there is
   reporting its own UA rather than its exit.
   [The split](NOTEBOOK.md#duckduckgo-is-reading-the-user-agent-and-the-split-is-total)
-- **2026-08-12** - **On Google the exit address dominated everything else we
-  varied.** Given a served page, pass was 83 of 83 and did not vary by country,
-  while the chance of being served ran from 13% to 62% depending on the exit. The
-  browser did not separate the cells, and no absolute rate here should be read as
-  current.
+- **On Google the exit address dominated everything else we varied.** Given a
+  served page, pass was 83 of 83 and did not vary by country, while the chance
+  of being served ran from 13% to 62% depending on the exit. The browser did not
+  separate the cells, and no absolute rate here should be read as current.
   [The decomposition](NOTEBOOK.md#exit-yield-is-a-country-axis-and-us-is-the-worst-of-them)
-- **2026-08-12** - **The TLS handshake explains neither Google nor Amazon.**
-  Chromium, Patchright and Obscura emit a byte-identical ClientHello and their
-  pass rates differ by 44 points. If you do compare, compare JA4 - Chrome
-  shuffles extension order per connection, so a JA3 difference between two
-  Chromium engines is noise.
+- **The TLS handshake explains neither Google nor Amazon.** Chromium, Patchright
+  and Obscura emit a byte-identical ClientHello and their pass rates differ by
+  44 points. If you do compare, compare JA4 - Chrome shuffles extension order
+  per connection, so a JA3 difference between two Chromium engines is noise.
   [What was read](NOTEBOOK.md#the-handshake-was-read-and-it-is-not-the-discriminator)
-- **2026-08-19** - **Timezone and locale alignment did not pay off in either arm
-  we ran.** Flat on Patchright (34% against 35%), and zendriver lost six sevenths
-  of its yield, 57% down to 9%, p = 0.0008. Two engines is a thin basis for a
-  rule, but nothing measured here argues for switching it on.
+- **Timezone and locale alignment did not pay off in either arm we ran.** Flat
+  on Patchright (34% against 35%), and zendriver lost six sevenths of its yield,
+  57% down to 9%, p = 0.0008. Two engines is a thin basis for a rule, but
+  nothing measured here argues for switching it on.
   [Both arms](NOTEBOOK.md#the-axes-and-the-capabilities-that-are-refused-rather-than-dropped)
-- **2026-08-20** - **Our own harness was getting the pool banned.** One
-  unauthenticated CONNECT per session, sent by the browser before anything else,
-  was tripping an IP ban that looked like a gateway floor for days.
+- **Our own harness was getting the pool banned.** One unauthenticated CONNECT
+  per session, sent by the browser before anything else, was tripping an IP ban
+  that looked like a gateway floor for days.
   [How it was found](NOTEBOOK.md#the-floor-was-an-ip-ban-and-this-harness-was-tripping-it-itself)
-- **2026-08-26** - **One page of warm-up moved nothing in our window.** 32%
-  against 30%, intervals almost coincident. This refutes nobody: the protocol
-  came to us from an operator, and the 75% that travels with it was mentioned in
-  conversation as a figure once reached - not as a before-and-after pair, and
-  with no denominator behind it. What our arm rules out is one page, which is
-  what the ladder now goes past.
+- **One page of warm-up moved nothing in our window.** 32% against 30%,
+  intervals almost coincident. This refutes nobody: the protocol came to us from
+  an operator, and the 75% that travels with it was mentioned in conversation as
+  a figure once reached - not as a before-and-after pair, and with no
+  denominator behind it. What our arm rules out is one page, which is what the
+  ladder now goes past.
   [The ladder](#the-warm-up-ladder)
-- **2026-08-31** - **Six pages of warm-up moved a great deal.** Four rungs
-  interleaved in one run, because the hour is the largest confound here: **11%,
-  19%, 33% and 82%** at warm depths 0, 2, 4 and 7, over 35, 48, 33 and 33 judged
-  attempts. Cold against deepest is z = 5.82. It is one run on one host, Chrome
-  151.0.7922.34 headful through Patchright, and it does not yet say what the
-  depth is doing - four of the six pages are Google's own, so "Google's
-  infrastructure was told about this exit" and "the browser lived through six
-  navigations" both fit every row of it. A neutral rung at the same depth is
-  what separates them, and it is the next run rather than a conclusion here.
+- **Six pages of warm-up moved a great deal.** Four rungs interleaved in one
+  run, because the hour is the largest confound here: **11%, 19%, 33% and 82%**
+  at warm depths 0, 2, 4 and 7, over 35, 48, 33 and 33 judged attempts. Cold
+  against deepest is z = 5.82. It is one run on one host, Chrome 151.0.7922.34
+  headful through Patchright, and it does not yet say what the depth is doing -
+  four of the six pages are Google's own, so "Google's infrastructure was told
+  about this exit" and "the browser lived through six navigations" both fit
+  every row of it. A neutral rung at the same depth is what separates them, and
+  it is the next run rather than a conclusion here.
   `data/runs/probehold_20260831T222129Z.jsonl`
 
 Nothing here is a NodeMaven sales number. Where the pool loses, the run file
 saying so is in `data/runs/` with everything else.
 
-**Five of these nine replaced an earlier claim of ours, and both versions are
+**Five of these ten replaced an earlier claim of ours, and both versions are
 still in the notebook** - Amazon, the warm-up, the Google levels, the idle
 traffic and the ban. The Amazon one reversed outright: on a workstation in early
 August, Camoufox was served 90% while every Chromium engine met the throttle,
@@ -545,7 +547,7 @@ Three things make the gaps readable rather than decorative:
   sequences. A test enforces this rather than a comment asking for it.
 - **All rungs interleave in one process.** The hour is the largest confound this
   repository has: the same gateway, country and browser moved 69 points to 52
-  between two windows of one afternoon, and on 2026-08-26 the same target went
+  between two windows of one afternoon, and the same target went
   39% on one host and 0% on another in overlapping hours. Rungs run one after
   another would price the hour and call it depth.
 - **The pages belong to the target, not to the probe.** A probe that knew a
@@ -571,7 +573,7 @@ over at hour two is worth more than a second attempt at a different hour. Two
 attempts are two run files, and the summary says not to pool them.
 
 It also defaults to `--engines patchright` rather than to the registry default,
-for a reason that is a measurement: on 2026-08-26, through the pool at
+for a reason that is a measurement: through the pool at
 `google_serp`, patchright answered 96 ok of 223 while botasaurus managed 1 of
 87, seleniumbase 0 of 86 and camoufox 0 of 33. A ladder on an engine that cannot
 reach the target compares four zeroes.
@@ -684,7 +686,7 @@ before it starts, rather than leaving a reader to check a list that has rotted.
 
 **A mixed matrix needs `--preset none`.** The default is `light`, and blocking for
 some columns and not others measured 4 KB against 9.9 MB on the same Google
-refusal page (2026-08-13) - a 2000x engine difference produced entirely by the
+refusal page - a 2000x engine difference produced entirely by the
 flag. It moves verdicts too: a page that never loads its script is judged on
 markup that was never finished.
 
@@ -748,7 +750,7 @@ and two of them are worth knowing before a first run.
 | `--countries` | comma separated, `any` allowed | `us` | an axis. See the warning below |
 | `--providers` | ids of files in `data/providers/` | `nodemaven` | an axis, interleaved at batch granularity |
 | `--preset` | `none`, `light`, `aggressive` | `light` | resource blocking. **A mixed matrix needs `none`** and the runner refuses it otherwise |
-| `--geo` | `off`, `align` | `off` | hands the browser the exit's own timezone. Measured 2026-08-14: buys nothing and costs zendriver most of its yield |
+| `--geo` | `off`, `align` | `off` | hands the browser the exit's own timezone. Measured: buys nothing and costs zendriver most of its yield |
 | `--headful` | flag | off | a real window. Changes `HeadlessChrome` to `Chrome` in the User-Agent, which is the whole of one target's answer |
 | `--humanize` | flag | off | humanized cursor, where the engine has it. Refused for a matrix holding one that does not |
 | `--direct` | flag | off | no proxy at all. A control, not a normal mode |

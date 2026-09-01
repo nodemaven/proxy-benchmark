@@ -268,6 +268,84 @@ def test_the_rows_badge_is_the_number_of_rows():
         f"a reader receives, not what is in your working tree")
 
 
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                 "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                 "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14}
+
+
+def _research_findings():
+    """The `## Research findings` section of the README, as its own lines."""
+    lines = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if line.startswith("## Research findings"))
+    end = next(i for i, line in enumerate(lines)
+               if i > start and line.startswith("## "))
+    return lines[start:end]
+
+
+def test_the_findings_list_is_as_long_as_the_paragraph_below_says():
+    """A count of a list, written next to the list, in prose nothing generates.
+
+    This is the shape of stale number this repository is least able to see: the
+    badge and the tables are derived from the run files and a test fails when
+    they drift, but a number typed into a sentence drifts silently and reads as
+    confidently as a measured one.
+
+    It had already happened. `43c3341` wrote "five of these nine" when the list
+    held nine, `c0dfa2d` appended the six-page warm-up finding, and the sentence
+    went on claiming nine while the list held ten until 2026-09-01. Nobody
+    edited it wrongly; a number was correct when written and nothing re-read it,
+    which is the same failure as the badge two entries above and is why that one
+    is also a test rather than a habit.
+
+    Only the denominator is checked. Whether five of them really replaced an
+    earlier claim is a fact about the notebook and not about this file.
+    """
+    section = "\n".join(_research_findings())
+    bullets = [line for line in section.splitlines() if line.startswith("- **")]
+    assert bullets, "the findings list is empty, so the sentence counts nothing"
+
+    match = re.search(r"of these (\w+) replaced an earlier claim", section)
+    assert match, (
+        "the sentence counting the findings has been reworded, so this test no "
+        "longer guards anything - point it at the new wording or delete it")
+    word = match.group(1).lower()
+    claimed = _NUMBER_WORDS.get(word, word.isdigit() and int(word))
+    assert claimed, f"cannot read {word!r} as a number of findings"
+    assert claimed == len(bullets), (
+        f"the paragraph under the findings says there are {claimed} of them and "
+        f"the list holds {len(bullets)}. Whoever added or removed a finding did "
+        f"not re-read the sentence below it")
+
+
+def test_no_finding_is_keyed_by_a_date():
+    """The dates were hoisted out of the list on 2026-09-01, and this keeps them
+    out.
+
+    Every bullet used to open with a bolded date, which put a value nobody can
+    act on in the most prominent position on the line. They were not even in
+    order - 19, 24, 26, 12, 12, 12, 19, 20, 26, 31 - so they ordered nothing,
+    and the section each bullet links to already carries the date authoritatively
+    alongside the run id and the denominator. The window they all fall in is
+    stated once in the section's own first paragraph, which is what a reader
+    arriving years later actually needs: how old the whole page is, once, rather
+    than the same arithmetic ten times.
+
+    The claim leads instead. This fails the moment somebody appends an
+    eleventh finding in the old shape, which is exactly how the count above went
+    stale.
+    """
+    dated = [line for line in _research_findings()
+             if re.match(r"- \*\*\s*(20\d\d-\d\d-\d\d|\d\d?\s+\w+\s+20\d\d)",
+                         line)]
+    assert not dated, (
+        "a finding opens with a date again:\n  "
+        + "\n  ".join(dated)
+        + "\nLead with the claim. The window belongs in the paragraph above the "
+          "list, and the per-finding date belongs in the section it links to, "
+          "next to the run id and the denominator")
+
+
 def test_the_package_imports_without_credentials():
     """Verdicts, the scheduler and the query list must be testable on a machine
     that has no .env at all."""
