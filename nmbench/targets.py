@@ -131,6 +131,27 @@ class GoogleSerp:
     #
     # `hl=en` is on the homepage for the same reason it is on the search URL:
     # the markers a verdict rests on are English strings.
+    #
+    # **That reason is overstated, measured 2026-08-28 against every run on
+    # disk.** `judge` below has eight rules and seven are structural - the
+    # `/sorry/` and `consent.` path tests, `id="rso"`, `id="search"`, `<h3`,
+    # `consent.google.com` and `enablejs`. The single English literal,
+    # `unusual traffic`, is the second disjunct of a line whose first disjunct
+    # is `/sorry/` in the URL, and **4550 of 4550 captcha rows carried
+    # `/sorry/`**, so it has never been the rule that decided anything. What
+    # the mistake looked like from the inside: the sentence was written when
+    # the classifier was younger and reads as though it were still describing
+    # it, and nobody re-read the classifier when the structural rules were
+    # added underneath it.
+    #
+    # This is not a licence to delete the parameter. It changes which page
+    # Google serves, so every number in `data/runs/` was taken under `hl=en`
+    # and a run without it is not comparable with any of them. If it is to be
+    # tested it is an arm - the same reason `entry` is an arm and not a
+    # replacement. The real question it raises is not the parameter but the
+    # combination: `hl=en` and English queries on an exit whose geoip is
+    # Brazil is an incoherent identity, and `exit_country` is the column that
+    # makes that measurable rather than arguable.
     home_url = "https://www.google.com/?hl=en"
     # Google has served the box as a textarea since 2023 and as an input before
     # that, and still serves the input on some lightweight variants. Both are
@@ -217,7 +238,31 @@ class GoogleSerp:
                 "https://www.wikihow.com/Main-Page",
                 "https://translate.google.com/?hl=en",
                 "https://scholar.google.com/?hl=en",
-                "https://www.google.com/imghp?hl=en")),
+                "https://www.google.com/imghp?hl=en",
+                "https://trends.google.com/trends/?hl=en")),
+        # The control the ladder was missing, added 2026-08-28. L1 through L3
+        # all vary depth and composition together, so a difference between any
+        # two of them cannot say which moved: L3 adds two non-Google pages *and*
+        # is four pages deeper than L1. This rung holds the depth at L1's and
+        # changes only whose page it was.
+        #
+        # One page and not two, and that is the whole design of it. `N1` is
+        # `[theverge, front page]` against L1's `[imghp, front page]`: the same
+        # navigation count, the same profile state, the same terminal page, and
+        # the single difference is whether the extra visit was Google's own.
+        # Adding wikihow here would make it three deep and it would stop being a
+        # control of anything - it would be a fourth point on a line that
+        # already confounds the two variables.
+        #
+        # What it cannot answer, and the rung name should not be read as
+        # claiming otherwise: this is not a Google-free arm. `entry=home`
+        # navigates to `home_url` before it can type, so every arm including
+        # this one contacts Google immediately before the probe. N1 asks
+        # whether *the page before that* has to be Google's, not whether Google
+        # has to be visited at all. A genuinely Google-free warm-up is only
+        # measurable through `entry=url`, and that arm discards the typed
+        # entry shape as well, so it is a different experiment.
+        ("N1", ("https://www.theverge.com/",)),
     )
     # Google covers its own front page with a consent wall, and this is a cost
     # of the entry shape rather than a detail. Measured 2026-08-13 from this
