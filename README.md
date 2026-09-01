@@ -366,6 +366,16 @@ id, the denominator and the date it stopped being true.
   with no denominator behind it. What our arm rules out is one page, which is
   what the ladder now goes past.
   [The ladder](#the-warm-up-ladder)
+- **2026-08-31** - **Six pages of warm-up moved a great deal.** Four rungs
+  interleaved in one run, because the hour is the largest confound here: **11%,
+  19%, 33% and 82%** at warm depths 0, 2, 4 and 7, over 35, 48, 33 and 33 judged
+  attempts. Cold against deepest is z = 5.82. It is one run on one host, Chrome
+  151.0.7922.34 headful through Patchright, and it does not yet say what the
+  depth is doing - four of the six pages are Google's own, so "Google's
+  infrastructure was told about this exit" and "the browser lived through six
+  navigations" both fit every row of it. A neutral rung at the same depth is
+  what separates them, and it is the next run rather than a conclusion here.
+  `data/runs/probehold_20260831T222129Z.jsonl`
 
 Nothing here is a NodeMaven sales number. Where the pool loses, the run file
 saying so is in `data/runs/` with everything else.
@@ -497,6 +507,16 @@ switch so the second reading gets a denominator.
 | `L1` | one page of the target's own | whether being seen once before the query is worth anything |
 | `L2` | several of the target's surfaces, on more than one host | one visit against several. Separates "seen at all" from "seen more than once" |
 | `L3` | `L2`, preceded by third-party pages | whether an exit is better off arriving from somewhere else. The third-party pages carry the target's own analytics and ad tags, so the exit is reported to its infrastructure without a navigation to it |
+| `N1` | one third-party page, not the target's | against `L1`: whether one visit has to be the target's own to be worth anything |
+| `N3` | six third-party pages | against `L3`: whether the 82% is the depth or the four Google surfaces inside it |
+
+`N1` and `N3` are controls on **composition**, not steps in depth. Each matches
+the delivered page count of the chain rung it answers and shares none of that
+rung's target-owned pages, which is why they are excluded from the cumulativeness
+rule below - being a superset of the rung they control is the one thing they must
+not be. Neither is a Google-free arm and the output should not be read as one:
+`entry=home` navigates to the front page before it can type, so every arm
+contacts the target immediately before the probe.
 
 Three things make the gaps readable rather than decorative:
 
