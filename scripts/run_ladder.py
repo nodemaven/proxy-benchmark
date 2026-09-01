@@ -112,6 +112,64 @@ EARLY_DEATH_S = 600
 MIN_IDENTITIES = 40
 
 
+# Where the runtime figures in `--identities` help come from, so the next person
+# to change the ladder can redo them instead of guessing.
+#
+# Measured off `probehold_20260827T201123Z` on 2026-08-28: mean wall span per
+# identity was 15.3s at `off`, 102.2s at L1, 172.8s at L2 and 242.6s at L3, and
+# the run's total wall clock was 22% above the sum of those spans - browser
+# launch, the inter-identity gap and session setup, which the spans do not
+# cover. N1 is priced at L1's number because it is L1's depth.
+#
+# The method is checkable rather than asserted: applied to the four rungs that
+# run had, it gives 10.8h against the 11h this file already documented for 60
+# identities. Note that run stopped after 3h25m because three of its four rungs
+# tripped the breaker, so the per-identity spans are real and the totals are
+# extrapolations from them.
+
+
+# Why `--entry` defaults to `home` here and why it used to say `url`.
+#
+# This file carried `default="url"` while `probe_and_hold.py` carried
+# `default="home"`, so the supervisor silently overrode the probe on the one
+# axis the ladder is about. `probehold_20260827T201123Z` ran that way: all 117
+# probes are `entry=url`, meaning every arm warmed its profile by browsing two
+# to six pages like a person and then issued the search as a bare navigation to
+# `/search?q=...&hl=en` in a fresh tab - no keystroke, no form submission, no
+# referrer. `targets.py` calls that "a shape no human produces" in as many
+# words, and the ladder spent eleven hours building a human-looking history in
+# front of it.
+#
+# That run came back with warming making the yield *worse*, four-fold. The
+# reading that fits is that warming and a robotic search contradict each other -
+# a cold exit doing a bare search is anonymous, a six-page-deep exit doing one
+# is inconsistent with its own history. **That reading is not measured.** It is
+# a hypothesis that fits, and the run that separates it is this same ladder with
+# the entry shape corrected, which is what the default change buys.
+#
+# The cost of the change is comparability: every row already on disk was taken
+# with `url`, so a `home` ladder is not directly poolable with them. That is
+# accepted rather than hidden - the alternative is continuing to measure a
+# warm-up in front of a search that discards it. Pass `--entry url` to
+# reproduce the old shape, or `--entry home,url` to make it an axis, at the cost
+# of doubling the cells.
+#
+# The second thing that run got wrong, and it is not about the entry shape.
+# **Three of its four rungs stopped on the breaker, and none of them stopped
+# because Google refused anything.** `CircuitBreaker.record` counts every
+# verdict that is not `ok`, so a probe that never reached the target - a refused
+# tunnel, a handshake that did not complete - was a tick toward "this cell is
+# being walled". Those were 18-33% of the warm arms' probes in that run, against
+# 4% of the cold arm's, because a warm identity has made five more requests
+# through the same exit before it probes and its bad exits announce themselves
+# earlier. So the arms with the deepest warm-up hit `--breaker 12` first, and
+# the ladder read as if warming made Google stop answering.
+#
+# `--redraws` is the fix and it is in `probe_and_hold.py`, not here: an attempt
+# that never arrived is not fed to the breaker and its identity is drawn again
+# on a fresh exit. It applies to the probe only, never to a warm visit - see the
+# note at the redraw itself for why pre-screening exits during warming would
+# hand the warm arms a cleaner pool than the control.
 def build_command(args) -> list:
     """The one interleaved `probe_and_hold.py` invocation this script watches."""
     command = [
@@ -127,6 +185,7 @@ def build_command(args) -> list:
         "--gap", args.gap,
         "--dwell", args.dwell,
         "--breaker", str(args.breaker),
+        "--redraws", str(args.redraws),
         "--preset", args.preset,
     ]
     if args.headless:
@@ -215,14 +274,26 @@ def main() -> int:
                              "non-trivial Google pass rate on 2026-08-26")
     parser.add_argument("--targets", default="google_serp")
     parser.add_argument("--countries", default="any")
-    parser.add_argument("--entry", default="url")
-    parser.add_argument("--warm", default="off,L1,L2,L3",
-                        help="the whole ladder, interleaved in one process")
+    parser.add_argument("--entry", default="home",
+                        help="`home` lands on the front page and types the "
+                             "query; `url` navigates straight to the search "
+                             "URL. Default is `home` and the ladder is the "
+                             "reason - see the note above `run_once`")
+    parser.add_argument("--warm", default="off,L1,N1,L2,L3",
+                        help="the whole ladder, interleaved in one process. "
+                             "N1 is the control and not a rung: L1's depth "
+                             "with a third-party page instead of Google's, so "
+                             "L1 against N1 says whether the warm-up has to be "
+                             "the target's own pages or only has to exist. "
+                             "Without it every pair on the ladder differs in "
+                             "depth and in composition at once")
     parser.add_argument("--geo", default="off")
     parser.add_argument("--identities", type=int, default=60,
-                        help="per rung. 12 is roughly 2h, 24 roughly 4.5h, "
-                             "60 roughly 11h. See MIN_IDENTITIES for why the "
-                             "default moved off 12 on 2026-08-26")
+                        help="per rung. On the five-rung default ladder, 40 is "
+                             "roughly 9h and 60 roughly 13h. The old figures - "
+                             "12/2h, 24/4.5h, 60/11h - were for four rungs and "
+                             "N1 adds about a fifth. See MIN_IDENTITIES for why "
+                             "the default moved off 12 on 2026-08-26")
     parser.add_argument("--series", type=int, default=3)
     parser.add_argument("--gap", default="8,20")
     parser.add_argument("--dwell", default="20,45",
@@ -233,6 +304,11 @@ def main() -> int:
                              "behind it. At patchright's measured 43%% pass "
                              "rate a spurious trip needs 12 refusals in a row, "
                              "which is about one run in a thousand")
+    parser.add_argument("--redraws", type=int, default=2,
+                        help="redraws allowed per identity whose probe failed "
+                             "below the application layer. See the note above "
+                             "`build_command`: this is what stopped three of "
+                             "the four rungs of the 2026-08-27 run")
     parser.add_argument("--preset", default="none")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--seed", type=int, default=None)

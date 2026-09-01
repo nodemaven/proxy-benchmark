@@ -55,7 +55,7 @@ import random
 import sys
 import time
 import uuid
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import urlparse
@@ -71,9 +71,10 @@ tolerate_unencodable_output()
 from nmbench import config, engines, gateway, providers, proxy
 from nmbench import queries as querylist
 from nmbench.artifacts import ArtifactStore
-from nmbench.breaker import CircuitBreaker, TransportWatch
+from nmbench.breaker import CircuitBreaker, TransportWatch, is_transport_failure
 from nmbench.relay import Relay
 from nmbench.sink import JsonlSink
+from nmbench.stats import band
 from nmbench.targets import TARGETS
 
 SENDS_REQUESTS = True
@@ -90,7 +91,21 @@ LADDER = {
     "L2": "several of the target's own surfaces, on more than one host",
     "L3": "L2, preceded by third-party pages that report the exit to the "
           "target's infrastructure without a navigation to the target itself",
+    "N1": "L1's depth with none of L1's pages: one third-party page instead of "
+          "one of the target's own, so the two differ in whose page it was and "
+          "in nothing else",
 }
+
+# Rungs that are a control on composition rather than a step in depth. They sit
+# outside the L-chain's cumulativeness - a control that were a superset of the
+# rung it controls would be that rung plus something, which is the confound it
+# exists to remove - so anything reasoning about the chain has to skip them.
+#
+# Named here and not inferred from the leading letter. A convention carried in
+# a string is exactly the kind of thing that survives until someone adds `N2`
+# meaning something else, and the cost of getting it wrong is an invariant that
+# quietly stops being checked.
+NEUTRAL_RUNGS = {"N1"}
 
 # Spellings accepted by --warm, mapped to the level they mean. `off` and `on`
 # are kept because they are what the rows already on disk were run with, and
@@ -215,6 +230,15 @@ def parse_args():
                              "failed probe has already burned a fresh exit, so "
                              "the cost of waiting to be sure is paid in "
                              "addresses rather than in retries")
+    parser.add_argument("--redraws", type=int, default=2,
+                        help="how many times one identity may be drawn again "
+                             "after its probe failed below the application "
+                             "layer - a refused tunnel, a handshake that did "
+                             "not complete. Those attempts carry no answer "
+                             "from the target, so without this they enter the "
+                             "denominator as refusals and feed the breaker. "
+                             "0 restores the behaviour every run before "
+                             "2026-08-28 had")
     parser.add_argument("--preset", default="none",
                         choices=["none", "light", "aggressive"],
                         help="none by default. This run is about what the "
@@ -592,7 +616,7 @@ def visit(page, url: str, timeout_ms: int = 60000) -> None:
 
 
 def run_identity(active, page, counter, cell, target, queries, *, rng, args,
-                 on_row) -> str:
+                 on_row) -> tuple:
     """One exit: warm it, probe it, and hold it if the probe was served.
 
     Reports every row through `on_row` including the warm-up visits, because
@@ -600,7 +624,11 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
     printing - is the same for all of them and duplicating it per phase is how
     one phase ends up counted differently from another.
 
-    Returns the probe's verdict, which is the only one the breaker is fed.
+    Returns the probe's verdict and the probe's error string. The verdict is
+    the only one the breaker is fed; the error is what the caller needs to tell
+    a refusal from an attempt that never arrived, and it is returned rather
+    than re-derived from `rows` because the caller would have to guess which
+    row was the probe.
     """
     low_dwell, high_dwell = args.dwell_range
     planned = warm_sequence(target, cell.level, args) if cell.warm else []
@@ -644,6 +672,10 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
 
     low_gap, high_gap = args.gap_range
     probe_verdict = "error"
+    # Not None: an identity whose first query never produced a row at all - the
+    # session died between the warm-up and the probe - has failed for a reason
+    # the caller cannot see, and a redraw on an unknown cause would loop.
+    probe_error = "the probe produced no row"
     for position, query in enumerate(queries):
         if cell.entry == "home":
             row = active.search(page, target, query, rng=rng, counter=counter)
@@ -672,13 +704,14 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
         on_row(row)
         if position == 0:
             probe_verdict = row["verdict"]
+            probe_error = row.get("error")
         # Step 4, and the reason this is not the matrix runner: a refused exit
         # ends the identity instead of being asked again. It is spent either
         # way, and asking it again is what heats a shared production pool.
         if row["verdict"] != "ok":
             break
         time.sleep(rng.uniform(low_gap, high_gap))
-    return probe_verdict
+    return probe_verdict, probe_error
 
 
 def one_line(text: str, width: int) -> str:
@@ -831,6 +864,60 @@ def warm_delivery(rows: list, attempts: list) -> None:
         print(f"  {host:<46}{seen - failed:>6}/{seen:<4}{flag}")
 
 
+def by_country(rows: list, attempts: list) -> None:
+    """Where the exits were, and how each country was answered.
+
+    Asked for on 2026-08-28: `country=any` draws from the whole pool, so a run
+    is a sample of countries nobody chose, and the yield is an average over a
+    mix that changes between runs. If it turns out that two countries are
+    answered very differently, then a `country=any` figure is not a property of
+    the provider at all - it is a property of that afternoon's draw - and every
+    comparison in this repository taken at `any` inherits that.
+
+    Two things it deliberately does not do.
+
+    It does not rank. With 6 identities a cell the per-country counts are single
+    digits, and a table sorted by rate would put a 1/1 country at the top of a
+    list that included a 12/40 one. The rows print in draw order, most-drawn
+    first, and every rate carries the interval that says how little it pins
+    down.
+
+    It does not pool across rungs. A country drawn mostly by one arm would
+    otherwise carry that arm's warm-up into its rate, and with `--warm` the arms
+    are the experiment. The column that says how many arms saw it is what makes
+    that visible: a country seen by one arm is not evidence about the country.
+    """
+    known = [r for r in attempts
+             if r["phase"] == "probe" and r.get("exit_country")
+             and r["verdict"] in ("ok", "captcha", "block", "empty")]
+    if not known:
+        return
+    print("\nWHERE THE EXITS WERE")
+    coverage = sum(1 for r in attempts if r["phase"] == "probe")
+    resolved = sum(1 for r in attempts
+                   if r["phase"] == "probe" and r.get("exit_country"))
+    print(f"  {resolved} of {coverage} probes resolved to a country, looked up "
+          f"from this machine rather than through the exit")
+    print(f"  {'country':<10}{'judged':>7}{'served':>7}{'rate':>9}{'':>13}"
+          f"  {'arms':>5}  {'top network':<38}")
+    buckets = defaultdict(list)
+    for row in known:
+        buckets[row["exit_country"]].append(row)
+    for country in sorted(buckets, key=lambda c: -len(buckets[c])):
+        bucket = buckets[country]
+        good = sum(1 for r in bucket if r["verdict"] == "ok")
+        arms = len({r.get("warm_level") for r in bucket})
+        nets = Counter(r.get("exit_asn") or "-" for r in bucket)
+        top, seen = nets.most_common(1)[0]
+        print(f"  {country:<10}{len(bucket):>7}{good:>7}"
+              f"{band(good, len(bucket))}  {arms:>5}  "
+              f"{f'{top[:30]} {seen}/{len(bucket)}':<38}")
+    if len(buckets) > 1:
+        print("  Read the intervals, not the order. These are the countries "
+              "the pool happened to hand out, not a chosen sample, and a "
+              "country here is one afternoon's exits in it.")
+
+
 def summarise(rows: list) -> None:
     """The three claims, each against the denominator that belongs to it."""
     attempts = [r for r in rows if r.get("query")]
@@ -897,12 +984,33 @@ def summarise(rows: list) -> None:
               "refusal, so a later row is drawn from the identities still "
               "alive and reads better than the protocol as a whole")
 
+    by_country(rows, attempts)
+
     print("\nwhy the non-ok verdicts happened")
     print("-" * 100)
     reasons = Counter((r["verdict"], r.get("verdict_reason"))
                       for r in attempts if r["verdict"] != "ok")
     for (verdict, reason), count in reasons.most_common():
         print(f"  {count:>4}  {verdict:<9}{(reason or '')[:70]}")
+
+    # Separated from the verdict table above on purpose. A transport failure is
+    # not a verdict about the target, and printing the two together is what let
+    # a broken tunnel read as Google walling a rung.
+    lost = [r for r in rows if r.get("transport_failure")]
+    if lost:
+        print(f"\n{len(lost)} of {len(rows)} rows failed below the "
+              f"application layer, so the target judged nothing on them")
+        for (marker, _), count in Counter(
+                (one_line(r.get("error") or "", 62), None)
+                for r in lost).most_common(8):
+            print(f"  {count:>4}  {marker}")
+        by_exit = Counter(r.get("exit_label") for r in lost if r.get("exit_label"))
+        if by_exit:
+            worst = by_exit.most_common(5)
+            print("  by exit: " + ", ".join(f"{label} x{n}"
+                                            for label, n in worst))
+            print("  Concentrated on a few exits means it is the exit and not "
+                  "the request; spread one-per-exit means it is not.")
 
     counted = sum(r.get("bytes") or 0 for r in attempts)
     print(f"\nattempts: {len(attempts)}   locally counted: "
@@ -1012,213 +1120,333 @@ def main() -> int:
         # whole window. A cell run start to finish would be measuring its own
         # hour: Google's yield moved 17 points between two afternoons of the
         # same experiment.
-        for round_index in range(args.identities):
-            for cell in cells:
-                breaker = breakers[cell.key]
-                if breaker.tripped:
-                    continue
+        #
+        # A queue and not two nested loops, because an identity whose probe
+        # never reached the target has to be asked again with a fresh exit, and
+        # a `for` cannot put one back. The redraw itself is at the bottom of
+        # the body; `nmbench.breaker.is_transport_failure` decides what
+        # qualifies. The queue is built in the same round-major, cell-minor
+        # order the two loops produced, so a run with no redraws in it visits
+        # identities in exactly the order every run on disk did.
+        work = deque((index, cell, 0) for index in range(args.identities)
+                     for cell in cells)
+        # A redraw costs a fresh address and produces no measurement, so the
+        # run is allowed to spend at most as many on transport as it planned to
+        # spend on the experiment. Past that the gateway is the finding and
+        # continuing only burns the pool - which is `TransportWatch`'s job, but
+        # that watchdog needs 17 of 20 attempts to error and redrawing is
+        # precisely what stops errors from accumulating in its window.
+        redraw_budget = args.identities * len(cells)
+        redraws_spent = 0
+        while work:
+            round_index, cell, redraw = work.popleft()
+            breaker = breakers[cell.key]
+            if breaker.tripped:
+                continue
 
-                target = TARGETS[cell.target]
-                first = round_index * per_identity
-                queries = query_sets[cell.target][first:first + per_identity]
+            target = TARGETS[cell.target]
+            first = round_index * per_identity
+            queries = query_sets[cell.target][first:first + per_identity]
 
-                sid = f"ph{uuid.uuid4().hex[:8]}"
-                params = ({} if args.direct
-                          else proxy.session_params(sid, country=cell.country,
-                                                    **extra, **cell.params))
-                if args.direct:
-                    identity = gateway.identify_direct()
-                elif run_has_aligned_cell:
-                    # `identify` prefers the CONNECT reply header, which carries
-                    # the address and no timezone, so an aligned cell has to ask
-                    # the echo service. Every cell in the run asks it, including
-                    # the unaligned arm that has no use for the answer, because
-                    # the call is a request through the exit before the browser
-                    # opens - which is warming, and warming is a whole axis
-                    # here. Paying it in one arm only would put the warm-up
-                    # inside the geo comparison.
-                    identity = gateway.echo(**params)
-                else:
-                    identity = gateway.identify(**params)
-                identity.update(registry.record(identity.get("exit_ip")))
+            sid = f"ph{uuid.uuid4().hex[:8]}"
+            params = ({} if args.direct
+                      else proxy.session_params(sid, country=cell.country,
+                                                **extra, **cell.params))
+            if args.direct:
+                identity = gateway.identify_direct()
+            elif run_has_aligned_cell:
+                # `identify` prefers the CONNECT reply header, which carries
+                # the address and no timezone, so an aligned cell has to ask
+                # the echo service. Every cell in the run asks it, including
+                # the unaligned arm that has no use for the answer, because
+                # the call is a request through the exit before the browser
+                # opens - which is warming, and warming is a whole axis
+                # here. Paying it in one arm only would put the warm-up
+                # inside the geo comparison.
+                identity = gateway.echo(**params)
+            else:
+                identity = gateway.identify(**params)
+            identity.update(registry.record(identity.get("exit_ip")))
+            located = gateway.locate(identity.get("exit_ip"))
 
-                cell_aligns = cell.geo == "align"
-                # Whether this engine needs to be handed the zone at all. The
-                # boolean engines resolve the exit against their own bundled
-                # database, so our lookup failing says nothing about whether
-                # they can align - see the skip below.
-                needs_zone = not engines.REGISTRY[cell.engine].supports_geoip
+            cell_aligns = cell.geo == "align"
+            # Whether this engine needs to be handed the zone at all. The
+            # boolean engines resolve the exit against their own bundled
+            # database, so our lookup failing says nothing about whether
+            # they can align - see the skip below.
+            needs_zone = not engines.REGISTRY[cell.engine].supports_geoip
 
-                timezone_id = identity.get("timezone")
-                if cell_aligns and needs_zone and not timezone_id:
-                    # The exit is live enough to have been asked and the answer
-                    # did not name a zone. Running anyway would write rows
-                    # claiming an alignment that never happened, which is worse
-                    # than the unaligned arm and unfixable afterwards. The
-                    # identity is dropped and said so; the breaker is not fed,
-                    # because this is our lookup falling short rather than the
-                    # target refusing anything.
+            timezone_id = identity.get("timezone")
+            if cell_aligns and needs_zone and not timezone_id:
+                # The exit is live enough to have been asked and the answer
+                # did not name a zone. Running anyway would write rows
+                # claiming an alignment that never happened, which is worse
+                # than the unaligned arm and unfixable afterwards. The
+                # identity is dropped and said so; the breaker is not fed,
+                # because this is our lookup falling short rather than the
+                # target refusing anything.
+                #
+                # `needs_zone` was not in this condition until 2026-08-26,
+                # so camoufox and cloak identities were dropped whenever our
+                # echo did not name a zone - for engines that never receive
+                # the zone and would have aligned from their own database.
+                # Measured on the run that found it: 3 of 12 camoufox
+                # identities discarded on `google_serp`, 1 of 2 on
+                # `amazon_search`.
+                print(f"  {cell.key}  #{round_index}  skipped: the exit "
+                      f"lookup named no timezone, so this identity cannot "
+                      f"be aligned and will not be labelled as if it were")
+                sink.write({"cell": cell.key, "target": cell.target,
+                            "verdict": "identity_skipped",
+                            "verdict_reason": "no timezone for the exit",
+                            "geo": cell.geo,
+                            "exit_prefix": identity.get("exit_prefix"),
+                            "exit_label": identity.get("exit_label")})
+                continue
+
+            # Two names for one axis, because the engines source the data
+            # two ways: Camoufox and cloak look the exit up in a bundled
+            # database and take a boolean, the Chromium-family engines have
+            # to be handed the zone. `benchmark.py` has passed both since
+            # 2026-08-14; this runner passed only the zone and pinned the
+            # boolean to False until 2026-08-26, which is the same failure
+            # mirrored - `--geo align` was accepted for camoufox and cloak,
+            # since both declare the capability, and both then ran unaligned
+            # while their rows would have said `geo=align`.
+            #
+            # No row on disk is wrong. Every `geo=align` row in `data/runs/`
+            # is patchright or zendriver, 86 of them, all on 2026-08-14, and
+            # those two take the zone - checked row by row rather than
+            # assumed. The bug was latent and would have fired on the first
+            # camoufox align arm anyone ran, which is exactly what was about
+            # to happen.
+            #
+            # **The first fix of it, the same day, introduced a worse bug
+            # and this is the note on what that looked like from the
+            # inside.** The per-cell flag was written as `aligning`, which
+            # is the name the run-level flag on line 805 already had, so
+            # every iteration overwrote it. That flag decides at the top of
+            # this loop whether the identity is sourced from `gateway.echo`
+            # or from `gateway.identify`, and the comment there says in as
+            # many words that every cell must ask the echo service so the
+            # extra request through the exit does not land in one arm only.
+            # After the clobber it landed in one arm only: a cell following
+            # an unaligned one asked `identify`, which prefers the CONNECT
+            # header, which carries an address and no zone - so aligned
+            # identities were then dropped by the skip above for want of a
+            # timezone the run had stopped asking for.
+            #
+            # It surfaced as roughly a quarter of aligned camoufox
+            # identities being skipped, and the first reading of that - a
+            # geoip database that does not know some exits - fitted the
+            # symptom and was wrong. It fitted because `identify` falls
+            # back to the echo service whenever the CONNECT header is
+            # absent, which is about half the time, so the failure was
+            # intermittent in exactly the way a patchy database would be.
+            # A cause that fits is not a cause that was checked, and the
+            # thing that separated them was reading the variable's other
+            # assignment rather than reasoning about the symptom.
+            options = {"direct": args.direct, "params": params,
+                       "preset": args.preset,
+                       "headless": args.headless, "humanize": False,
+                       "store": store, "geoip": cell_aligns,
+                       "timezone_id": timezone_id if cell_aligns else None}
+
+            wants_relay = (not args.direct
+                           and engines.REGISTRY[cell.engine].needs_relay)
+            extra_columns = {
+                # The redraw suffix is part of the name and not a separate
+                # column to be joined on, because every analysis in this
+                # repository groups by `identity` alone. Two draws of the same
+                # round and cell are two different exits with two different
+                # warm-ups, and sharing a name would silently merge them into
+                # one identity that visited twice as many pages.
+                "identity": (f"{cell.key}#{round_index}"
+                             + (f"r{redraw}" if redraw else "")),
+                # Which draw this is, 0 for the planned one. Lets a run be
+                # re-read with the redrawn identities excluded, which is the
+                # conservative reading: a redraw replaces an exit that failed
+                # below the application layer, and if that classification is
+                # ever shown to be wrong the run can still be analysed as
+                # though no redraw had happened.
+                "redraw": redraw,
+                # Kept beside `warm_level` rather than replaced by it, so
+                # that every analysis written against the rows already on
+                # disk keeps working and a three-rung run still answers the
+                # two-arm question the earlier ones asked.
+                "warm": bool(cell.warm),
+                # Which rung, by name. `warm: true` was never one treatment
+                # and now openly is not: without this, two rungs are
+                # distinguishable only by a depth, and two rungs of equal
+                # depth would not be distinguishable at all.
+                "warm_level": cell.level,
+                # Pages the warm arm visited, on every row of every arm - 0
+                # in the cold arm because that is a depth and not a missing
+                # value.
+                "warm_depth": len(warm_sequence(target, cell.level, args)),
+                "batch_index": round_index,
+                "geo": cell.geo,
+                "relayed": wants_relay,
+                "exit_prefix": identity.get("exit_prefix"),
+                "exit_label": identity.get("exit_label"),
+                "exit_org": identity.get("org"),
+                # What the exit's own timezone is, on every row and in both
+                # arms. In the aligned arm it is what the browser was set
+                # to; in the unaligned one it is what the browser was
+                # contradicting, which is the quantity the axis is about and
+                # is otherwise unrecoverable once the exit is gone.
+                "exit_timezone": timezone_id,
+                # Where the exit is, and on whose network, resolved from this
+                # machine rather than through the session - see
+                # `gateway.locate`. New columns rather than a backfill of
+                # `exit_org` and `exit_timezone` beside them, which is
+                # deliberate and is the point of the exercise.
+                #
+                # Those two are written from `identify`, which returns them
+                # only when it fell back to the echo service, so they are on
+                # roughly half the identities and *which* half is not random.
+                # Pooling a complete source into the same column would make one
+                # column mean "echo said so" on the rows already on disk and
+                # "we looked it up" on the new ones, and every table drawn
+                # across a run spanning 2026-08-28 would quietly mix them. The
+                # existing columns keep their meaning and their gaps; these two
+                # are the ones a per-country or per-network table can be built
+                # on, because they were asked for unconditionally.
+                #
+                # It costs no request through the exit, so it is not warming
+                # and it is identical in every arm. It costs this machine one
+                # HTTPS request per distinct address, about 270 ms measured
+                # 2026-08-28, before the browser starts.
+                "exit_country": located.get("country"),
+                "exit_asn": located.get("asn"),
+            }
+
+            print(f"  {cell.key}  #{round_index}"
+                  f"{f' redraw {redraw}' if redraw else ''}  exit "
+                  f"{identity.get('exit_ip') or '-'} "
+                  f"{located.get('country') or '--'} "
+                  f"{(located.get('asn') or identity.get('org') or '')[:36]}")
+
+            try:
+                with ExitStack() as stack:
+                    hop = None
+                    if wants_relay:
+                        hop = stack.enter_context(Relay(params=params))
+                        options["relay_address"] = hop.address
+                    active = stack.enter_context(
+                        engines.session(cell.engine, **options))
+                    if not args.direct and hasattr(active, "exit_ip"):
+                        seen = active.exit_ip()
+                        if seen and local_ip and seen == local_ip:
+                            reason = ("proxy not applied, browser went "
+                                      "direct")
+                            breaker.trip(reason)
+                            print(f"    {cell.key}: the browser left from "
+                                  f"this machine's own address. Cell "
+                                  f"stopped rather than recorded as a pool "
+                                  f"measurement.")
+                            sink.write({"cell": cell.key,
+                                        "target": cell.target,
+                                        "verdict": "cell_stopped",
+                                        "verdict_reason": reason})
+                            continue
+
+                    counter = {}
+                    page = active.new_page(counter)
+                    # Differenced across each row rather than reset, because
+                    # a browser holds tunnels open on keep-alive and a reset
+                    # would post one page's bytes to the next row.
+                    meter = {"at": hop.snapshot() if hop else None}
+
+                    def on_row(row, hop=hop, meter=meter, cell=cell,
+                               extra_columns=extra_columns):
+                        row.update(extra_columns)
+                        row["cell"] = cell.key
+                        row["target"] = cell.target
+                        if hop is not None:
+                            spent = hop.since(meter["at"])
+                            row["bytes"] = spent["bytes"]
+                            for seen_exit in spent["exits"]:
+                                row["session_exit_prefix"] = (
+                                    registry.record(seen_exit)
+                                    .get("exit_prefix"))
+                            meter["at"] = hop.snapshot()
+                        # On every row, warm visits included, so the column can
+                        # be read the same way in both phases. False and not
+                        # absent on a row that succeeded: absent would be
+                        # indistinguishable from a row written before this
+                        # column existed, and those are on disk.
+                        row["transport_failure"] = is_transport_failure(
+                            row.get("error"))
+                        sink.write(row)
+                        rows.append(row)
+                        report(row)
+                        watch.record(cell.key, row["verdict"])
+                        if watch.tripped:
+                            sink.write({"cell": cell.key,
+                                        "target": cell.target,
+                                        "verdict": "run_stopped",
+                                        "verdict_reason": watch.reason})
+                            raise TransportLost(watch.reason)
+
+                    verdict, probe_error = run_identity(
+                        active, page, counter, cell, target, queries,
+                        rng=rng, args=args, on_row=on_row)
+
+                    # A probe that never reached the target is not a refusal
+                    # and must not be treated as one. Two things follow, and
+                    # they are separate.
                     #
-                    # `needs_zone` was not in this condition until 2026-08-26,
-                    # so camoufox and cloak identities were dropped whenever our
-                    # echo did not name a zone - for engines that never receive
-                    # the zone and would have aligned from their own database.
-                    # Measured on the run that found it: 3 of 12 camoufox
-                    # identities discarded on `google_serp`, 1 of 2 on
-                    # `amazon_search`.
-                    print(f"  {cell.key}  #{round_index}  skipped: the exit "
-                          f"lookup named no timezone, so this identity cannot "
-                          f"be aligned and will not be labelled as if it were")
-                    sink.write({"cell": cell.key, "target": cell.target,
-                                "verdict": "identity_skipped",
-                                "verdict_reason": "no timezone for the exit",
-                                "geo": cell.geo,
-                                "exit_prefix": identity.get("exit_prefix"),
-                                "exit_label": identity.get("exit_label")})
-                    continue
-
-                # Two names for one axis, because the engines source the data
-                # two ways: Camoufox and cloak look the exit up in a bundled
-                # database and take a boolean, the Chromium-family engines have
-                # to be handed the zone. `benchmark.py` has passed both since
-                # 2026-08-14; this runner passed only the zone and pinned the
-                # boolean to False until 2026-08-26, which is the same failure
-                # mirrored - `--geo align` was accepted for camoufox and cloak,
-                # since both declare the capability, and both then ran unaligned
-                # while their rows would have said `geo=align`.
-                #
-                # No row on disk is wrong. Every `geo=align` row in `data/runs/`
-                # is patchright or zendriver, 86 of them, all on 2026-08-14, and
-                # those two take the zone - checked row by row rather than
-                # assumed. The bug was latent and would have fired on the first
-                # camoufox align arm anyone ran, which is exactly what was about
-                # to happen.
-                #
-                # **The first fix of it, the same day, introduced a worse bug
-                # and this is the note on what that looked like from the
-                # inside.** The per-cell flag was written as `aligning`, which
-                # is the name the run-level flag on line 805 already had, so
-                # every iteration overwrote it. That flag decides at the top of
-                # this loop whether the identity is sourced from `gateway.echo`
-                # or from `gateway.identify`, and the comment there says in as
-                # many words that every cell must ask the echo service so the
-                # extra request through the exit does not land in one arm only.
-                # After the clobber it landed in one arm only: a cell following
-                # an unaligned one asked `identify`, which prefers the CONNECT
-                # header, which carries an address and no zone - so aligned
-                # identities were then dropped by the skip above for want of a
-                # timezone the run had stopped asking for.
-                #
-                # It surfaced as roughly a quarter of aligned camoufox
-                # identities being skipped, and the first reading of that - a
-                # geoip database that does not know some exits - fitted the
-                # symptom and was wrong. It fitted because `identify` falls
-                # back to the echo service whenever the CONNECT header is
-                # absent, which is about half the time, so the failure was
-                # intermittent in exactly the way a patchy database would be.
-                # A cause that fits is not a cause that was checked, and the
-                # thing that separated them was reading the variable's other
-                # assignment rather than reasoning about the symptom.
-                options = {"direct": args.direct, "params": params,
-                           "preset": args.preset,
-                           "headless": args.headless, "humanize": False,
-                           "store": store, "geoip": cell_aligns,
-                           "timezone_id": timezone_id if cell_aligns else None}
-
-                wants_relay = (not args.direct
-                               and engines.REGISTRY[cell.engine].needs_relay)
-                extra_columns = {
-                    "identity": f"{cell.key}#{round_index}",
-                    # Kept beside `warm_level` rather than replaced by it, so
-                    # that every analysis written against the rows already on
-                    # disk keeps working and a three-rung run still answers the
-                    # two-arm question the earlier ones asked.
-                    "warm": bool(cell.warm),
-                    # Which rung, by name. `warm: true` was never one treatment
-                    # and now openly is not: without this, two rungs are
-                    # distinguishable only by a depth, and two rungs of equal
-                    # depth would not be distinguishable at all.
-                    "warm_level": cell.level,
-                    # Pages the warm arm visited, on every row of every arm - 0
-                    # in the cold arm because that is a depth and not a missing
-                    # value.
-                    "warm_depth": len(warm_sequence(target, cell.level, args)),
-                    "batch_index": round_index,
-                    "geo": cell.geo,
-                    "relayed": wants_relay,
-                    "exit_prefix": identity.get("exit_prefix"),
-                    "exit_label": identity.get("exit_label"),
-                    "exit_org": identity.get("org"),
-                    # What the exit's own timezone is, on every row and in both
-                    # arms. In the aligned arm it is what the browser was set
-                    # to; in the unaligned one it is what the browser was
-                    # contradicting, which is the quantity the axis is about and
-                    # is otherwise unrecoverable once the exit is gone.
-                    "exit_timezone": timezone_id,
-                }
-
-                print(f"  {cell.key}  #{round_index}  exit "
-                      f"{identity.get('exit_ip') or '-'} "
-                      f"{(identity.get('org') or '')[:32]}")
-
-                try:
-                    with ExitStack() as stack:
-                        hop = None
-                        if wants_relay:
-                            hop = stack.enter_context(Relay(params=params))
-                            options["relay_address"] = hop.address
-                        active = stack.enter_context(
-                            engines.session(cell.engine, **options))
-                        if not args.direct and hasattr(active, "exit_ip"):
-                            seen = active.exit_ip()
-                            if seen and local_ip and seen == local_ip:
-                                reason = ("proxy not applied, browser went "
-                                          "direct")
-                                breaker.trip(reason)
-                                print(f"    {cell.key}: the browser left from "
-                                      f"this machine's own address. Cell "
-                                      f"stopped rather than recorded as a pool "
-                                      f"measurement.")
-                                sink.write({"cell": cell.key,
-                                            "target": cell.target,
-                                            "verdict": "cell_stopped",
-                                            "verdict_reason": reason})
-                                continue
-
-                        counter = {}
-                        page = active.new_page(counter)
-                        # Differenced across each row rather than reset, because
-                        # a browser holds tunnels open on keep-alive and a reset
-                        # would post one page's bytes to the next row.
-                        meter = {"at": hop.snapshot() if hop else None}
-
-                        def on_row(row, hop=hop, meter=meter, cell=cell,
-                                   extra_columns=extra_columns):
-                            row.update(extra_columns)
-                            row["cell"] = cell.key
-                            row["target"] = cell.target
-                            if hop is not None:
-                                spent = hop.since(meter["at"])
-                                row["bytes"] = spent["bytes"]
-                                for seen_exit in spent["exits"]:
-                                    row["session_exit_prefix"] = (
-                                        registry.record(seen_exit)
-                                        .get("exit_prefix"))
-                                meter["at"] = hop.snapshot()
-                            sink.write(row)
-                            rows.append(row)
-                            report(row)
-                            watch.record(cell.key, row["verdict"])
-                            if watch.tripped:
-                                sink.write({"cell": cell.key,
-                                            "target": cell.target,
-                                            "verdict": "run_stopped",
-                                            "verdict_reason": watch.reason})
-                                raise TransportLost(watch.reason)
-
-                        verdict = run_identity(active, page, counter, cell,
-                                               target, queries, rng=rng,
-                                               args=args, on_row=on_row)
+                    # It does not feed the breaker. `CircuitBreaker.record`
+                    # counts anything that is not `ok`, so before this every
+                    # broken tunnel was a tick toward "the target is walling
+                    # this cell". In `probehold_20260827T201123Z` that ended
+                    # three of the four rungs: transport errors were 18-33% of
+                    # the warm arms' probes and `--breaker 12` stopped the
+                    # cells that carried them, so the rungs did not stop
+                    # because Google refused them.
+                    #
+                    # And the identity is asked again on a fresh exit. The
+                    # attempt is otherwise in the denominator as a failure of a
+                    # rung, which is the same error one level up.
+                    #
+                    # **Only the probe redraws, never a warm visit.** A warm
+                    # failure is retried in place and the shortfall recorded,
+                    # and it must stay that way: redrawing on a warm failure
+                    # would pre-screen exits in the warm arms only - a bad exit
+                    # would be found during warming and replaced, while the
+                    # cold arm meets its first bad exit at the probe and keeps
+                    # it. That hands the warm arms a cleaner pool than the
+                    # control and the ladder would be measuring the screening.
+                    if is_transport_failure(probe_error):
+                        if (redraw < args.redraws
+                                and redraws_spent < redraw_budget):
+                            redraws_spent += 1
+                            # To the front, so the replacement runs in the same
+                            # minutes as the draw it replaces. At the back it
+                            # would land after every planned identity, in a
+                            # different hour, and hour is the confound this
+                            # loop is interleaved to defeat in the first place.
+                            work.appendleft((round_index, cell, redraw + 1))
+                            note = ("the probe never reached the target, so a "
+                                    "fresh exit is drawn for this identity "
+                                    "rather than counting it against the cell")
+                        else:
+                            note = ("the probe never reached the target and "
+                                    "the redraw budget is spent, so this "
+                                    "identity is abandoned unmeasured")
+                        print(f"    {cell.key}: {note}")
+                        sink.write({"cell": cell.key, "target": cell.target,
+                                    "verdict": "identity_redrawn",
+                                    "verdict_reason": note,
+                                    "identity": extra_columns["identity"],
+                                    "error": probe_error,
+                                    "exit_prefix": identity.get("exit_prefix"),
+                                    "exit_label": identity.get("exit_label"),
+                                    "exit_org": identity.get("org"),
+                                    "exit_country": located.get("country"),
+                                    "exit_asn": located.get("asn")})
+                    else:
                         # The breaker is fed the probe only. A held query that
                         # fails is the exit burning out, which is the thing
                         # being measured and not a reason to stop asking; a
@@ -1226,50 +1454,50 @@ def main() -> int:
                         # nothing, and that is the cost worth limiting.
                         breaker.record(verdict)
                         if breaker.tripped:
-                            print(f"    {cell.key}: stopped, {breaker.reason}, "
-                                  f"each of them a fresh exit spent on a probe "
-                                  f"that was refused")
+                            print(f"    {cell.key}: stopped, "
+                                  f"{breaker.reason}, each of them a fresh "
+                                  f"exit spent on a probe that was refused")
                             sink.write({"cell": cell.key,
                                         "target": cell.target,
                                         "verdict": "cell_stopped",
                                         "verdict_reason": breaker.reason})
-                except TransportLost:
-                    # The transport, not this identity. It ends the run, and it
-                    # must reach the handler below rather than the catch-all.
-                    raise
-                except engines.EngineUnavailable as exc:
-                    breaker.trip(f"engine could not start: {exc}")
-                    print(f"    {cell.key}: {exc}")
-                    sink.write({"cell": cell.key, "target": cell.target,
-                                "verdict": "cell_stopped",
-                                "verdict_reason": breaker.reason})
-                except Exception as exc:
-                    # A browser that would not launch, a relay that would not
-                    # bind, a session that died between two queries. All of
-                    # these are this machine rather than the target, and one of
-                    # them costs one identity - measured 2026-08-13, zendriver
-                    # answered `Failed to connect to browser` on one launch and
-                    # started normally on the next attempt a minute later, and
-                    # the unhandled version of it ended a run that had eleven
-                    # other cells still to answer.
-                    #
-                    # Written as its own verdict rather than as `error`, because
-                    # `error` is an attempt that reached the network and this
-                    # never did. It is fed to the breaker all the same: an engine
-                    # that cannot start at all should stop its own cell rather
-                    # than take a fresh exit every round for nothing.
-                    reason = f"{type(exc).__name__}: {exc}".strip()
-                    # zendriver's launch failure is a multi-line banner, so the
-                    # console gets the first line and the row keeps all of it.
-                    headline = (reason.splitlines() or [""])[0][:160]
-                    breaker.record("error")
-                    print(f"    {cell.key}: the session did not start or did "
-                          f"not survive. This identity is lost, the cell "
-                          f"continues. {headline}")
-                    sink.write({"cell": cell.key, "target": cell.target,
-                                "verdict": "session_failed",
-                                "verdict_reason": reason})
-                time.sleep(args.pause)
+            except TransportLost:
+                # The transport, not this identity. It ends the run, and it
+                # must reach the handler below rather than the catch-all.
+                raise
+            except engines.EngineUnavailable as exc:
+                breaker.trip(f"engine could not start: {exc}")
+                print(f"    {cell.key}: {exc}")
+                sink.write({"cell": cell.key, "target": cell.target,
+                            "verdict": "cell_stopped",
+                            "verdict_reason": breaker.reason})
+            except Exception as exc:
+                # A browser that would not launch, a relay that would not
+                # bind, a session that died between two queries. All of
+                # these are this machine rather than the target, and one of
+                # them costs one identity - measured 2026-08-13, zendriver
+                # answered `Failed to connect to browser` on one launch and
+                # started normally on the next attempt a minute later, and
+                # the unhandled version of it ended a run that had eleven
+                # other cells still to answer.
+                #
+                # Written as its own verdict rather than as `error`, because
+                # `error` is an attempt that reached the network and this
+                # never did. It is fed to the breaker all the same: an engine
+                # that cannot start at all should stop its own cell rather
+                # than take a fresh exit every round for nothing.
+                reason = f"{type(exc).__name__}: {exc}".strip()
+                # zendriver's launch failure is a multi-line banner, so the
+                # console gets the first line and the row keeps all of it.
+                headline = (reason.splitlines() or [""])[0][:160]
+                breaker.record("error")
+                print(f"    {cell.key}: the session did not start or did "
+                      f"not survive. This identity is lost, the cell "
+                      f"continues. {headline}")
+                sink.write({"cell": cell.key, "target": cell.target,
+                            "verdict": "session_failed",
+                            "verdict_reason": reason})
+            time.sleep(args.pause)
     except TransportLost as exc:
         print(f"\nrun stopped: {exc}")
         print("Check the transport before restarting: "
