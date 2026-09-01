@@ -206,6 +206,65 @@ def identify_direct(timeout: int = 30) -> dict:
     return result
 
 
+# Same latching as `_header_misses` above and for the same reason: a lookup
+# service that is unreachable is unreachable for the whole process, and paying
+# its timeout once per identity would slow a run down without adding a column.
+_locate_misses = 0
+_LOCATE_GIVE_UP = 3
+_locate_cache = {}
+
+
+def locate(ip: str, timeout: int = 5) -> dict:
+    """Country, ASN and zone for an address, asked from *this* machine.
+
+    The point of the whole function is the direction of the request. `echo`
+    answers the same questions by sending a request *through* the session,
+    which is a page fetch the exit performs before the browser opens - and this
+    harness is measuring what a warmed exit does, so a request through the exit
+    is warming. Paying it per identity would put a navigation into the treatment
+    of every arm; paying it in some arms only, which is what the aligned-cell
+    branch in `probe_and_hold` has to do, puts it into the comparison.
+
+    Asking about the address instead of from it costs the exit nothing, so it
+    can be done for every identity in every arm unconditionally. That is what
+    makes the answer usable: `exit_timezone`, sourced from `identify`, is
+    present on 56 of the 117 probes of `probehold_20260827T201123Z`, and its
+    presence is not random - those identities were served 14% of the time
+    against 28% for the ones without it, because the fallback that produces the
+    column also happens on the sessions that behave differently. A per-country
+    table drawn from that column is drawn from a biased half of the run. This
+    one has no such half.
+
+    Anonymous ipinfo is rate limited - 1000 lookups a day, measured against the
+    published limit and not against a run - so the answers are cached by
+    address. Exits repeat inside a run.
+
+    Never raises. A missing country is a missing column; it is not a reason to
+    lose an identity that is otherwise fine.
+    """
+    global _locate_misses
+    if not ip:
+        return {"country": None, "asn": None, "timezone": None}
+    if ip in _locate_cache:
+        return dict(_locate_cache[ip])
+    if _locate_misses >= _LOCATE_GIVE_UP:
+        return {"country": None, "asn": None, "timezone": None}
+    try:
+        body = requests.get(f"https://ipinfo.io/{ip}/json", timeout=timeout).json()
+        # `org` arrives as "AS7922 Comcast Cable Communications, LLC" - the
+        # number and the name in one string. Kept whole: splitting it here would
+        # make the column depend on a format this repository does not control,
+        # and every analysis that has wanted it so far has wanted the name.
+        found = {"country": body.get("country"), "asn": body.get("org"),
+                 "timezone": body.get("timezone")}
+        _locate_misses = 0
+        _locate_cache[ip] = found
+        return dict(found)
+    except Exception:
+        _locate_misses += 1
+        return {"country": None, "asn": None, "timezone": None}
+
+
 def identify(provider=None, **params) -> dict:
     """Exit address for a session, cheapest source first.
 
