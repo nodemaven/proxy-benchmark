@@ -9,7 +9,8 @@
 
 # proxy-benchmark
 
-**Measures at which layer a target blocks you, and what getting through costs.**
+**Find out what is blocking your requests - the proxy, the browser, the host, or
+the target itself.**
 
 <!-- No CI badge here, deliberately. shields.io reads the workflow anonymously and
      this repository is internal, so the badge rendered a red
@@ -37,17 +38,277 @@
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
 [![rows](https://img.shields.io/badge/rows-16%2C283%20published-blue?style=flat-square)](data/runs)
 
-[Findings](#research-findings) · [Quickstart](#quickstart) · [What it drives](#what-is-under-test) · [Commands](#command-reference) · [Reproduce](#reproduce-these-numbers) · [Notebook](NOTEBOOK.md)
+[Quickstart](#quickstart) · [Docs](#documentation) · [What it drives](#what-is-under-test) · [Results](#results-at-a-glance) · [Findings](#research-findings) · [Commands](#command-reference) · [Reproduce](#reproduce-these-numbers)
 
 </div>
 
-Three layers can reject a request - the address, the browser, the handshake - and
-one engine against one target tells you it failed, not where. This harness varies
-one layer at a time and writes one JSONL row per attempt.
+## What this is
 
-A gateway is a `.toml` file and an engine is a module plus one registry line, so
-neither ever edits the runner. Point it at NodeMaven, at a competitor, or at
-[a proxy you already own](#bringing-your-own-proxy).
+A failed request tells you that something failed. It does not tell you what.
+
+The target may be refusing the exit address. It may be reading the browser. The
+handshake may be the discriminator. The machine you are running on may be the
+variable. Or the proxy may be failing before the request reaches the target at
+all.
+
+`proxy-benchmark` separates those and measures them in one time window. It runs
+the same targets across controlled combinations of:
+
+- **engines** - plain HTTP clients, stock Chromium, patched browsers, CDP
+  drivers and anti-detect frameworks;
+- **proxy paths** - gateways, providers, countries, sticky sessions, and a
+  direct arm with no proxy at all;
+- **browser configuration** - resource blocking, headful, timezone and locale
+  alignment, humanized input where the engine has it;
+- **hosts** - when the machine itself turns out to be part of the experiment,
+  which here it did.
+
+Every attempt is one JSONL row under `data/runs/` carrying the full parameter
+set, and the tables below are generated from those rows rather than typed in.
+
+**Bring your own proxy.** No NodeMaven account is needed. A gateway is a `.toml`
+file and an engine is a module plus one registry line, so neither ever edits the
+runner - point it at [a proxy you already own](#bringing-your-own-proxy).
+
+## Why this exists
+
+The usual debugging loop is: request failed, so the proxy must be bad, so change
+the proxy, so it failed again, so the browser must be detected. None of those
+steps is justified by a single request.
+
+This asks the question with a control instead:
+
+| Question | The comparison that answers it |
+|---|---|
+| Is the address the problem? | the same engine through the gateway and direct, in one window |
+| Is the browser the problem? | several engines through the same pool, same hour |
+| Does the exit country matter? | one engine, `--countries us,any` |
+| Does the host matter? | the same configuration on two machines, overlapping hours |
+| Does an anti-detect browser actually help? | it and the unmodified control in the same matrix |
+| Is the handshake the discriminator? | ClientHello read against the target's answer |
+| Does warming an exit help? | the warm-up ladder, all rungs interleaved |
+
+The output that matters is not "this request passed". It is: this variable
+changed, these did not, and the outcome moved with it.
+
+## Quickstart
+
+A real measurement, no proxy account, no browser download. Measured 2026-08-27 on
+a fresh clone: 22 s to install, 31 s to run.
+
+    git clone https://github.com/nodemaven/proxy-benchmark && cd proxy-benchmark
+    python -m venv .venv
+    .venv\Scripts\Activate.ps1                 # macOS, Linux: . .venv/bin/activate
+    pip install -r requirements-ci.txt
+    python scripts/benchmark.py --engines http --targets ddg_serp \
+        --queries 5 --direct --preset none
+
+It prints the plan and what it will cost before it sends anything, then one line
+per attempt and a summary:
+
+    engine              target        exit                n   pass  verdicts
+    http-direct         ddg_serp      direct              5   100%  {'ok': 5}
+
+The first run is deliberately the bare HTTP client with no proxy. There is
+nothing to install and nothing to spend, and it establishes that the harness
+works before a second variable is introduced.
+
+Every attempt is also a JSONL row under `data/runs/`, which is the only thing
+this repository treats as evidence.
+
+Three directions from here, in the order most people want them:
+
+| you want | do this |
+|---|---|
+| the same thing through a proxy | [Bringing your own proxy](#bringing-your-own-proxy) - any proxy, no account here needed |
+| real browsers instead of a bare client | [Setup](#setup) - four Chromium builds, and why no two share a download |
+| to check a number here rather than take it | [Reproduce these numbers](#reproduce-these-numbers) - each headline mapped onto its command |
+
+## Documentation
+
+This file is the map. The depth is deliberately split by purpose, so nothing has
+to be read before the first run:
+
+| Document | What is in it |
+|---|---|
+| `README.md` | what the harness does, how the experiment is structured, the headline findings, and every command |
+| [`RESULTS.md`](RESULTS.md) | the full tables: denominators, Wilson intervals, Fisher tests, run ids, engine by engine and day by day. Generated from the rows |
+| [`NOTEBOOK.md`](NOTEBOOK.md) | how each result was arrived at, what was varied and what was silently held fixed, **and where an earlier conclusion of ours turned out to be wrong** |
+| [`docs/quickstart.md`](docs/quickstart.md) | an empty machine to a first measurement, step by step: Python, git, venv, dry-run, browsers, proxies, reading verdicts |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | adding an engine, a target or a provider, and the rules that are not obvious from the code |
+
+Want the numbers - `RESULTS.md`. Want to know how they were arrived at, including
+the ones we got wrong first - `NOTEBOOK.md`. Never used a terminal -
+`docs/quickstart.md` assumes nothing; this file assumes you know what a
+ClientHello is.
+
+## What it measures
+
+Three layers can reject a request, and debugging fails when you inspect the one
+above whichever is actually refusing you. That is the whole reason the axes are
+separate.
+
+| Layer | What gives you away | Read with |
+|---|---|---|
+| IP reputation | datacenter range, a burnt residential exit, a country the target treats harshly | `--countries`, `probe-and-hold`, `gateway-health` |
+| Browser signals | `navigator.webdriver`, empty plugin list, a SwiftShader renderer, a `HeadlessChrome` User-Agent | `engine-fingerprint`, `detect-page` |
+| TLS handshake | ClientHello shape: cipher and extension counts, absence of GREASE | `tls-echo` |
+
+A different handshake does not by itself explain a different pass rate. Measure
+the two together - [here they did not agree](#research-findings).
+
+## How the experiment is structured
+
+A run is a matrix, and every axis is independent: target, engine, provider,
+country, gateway parameters, resource blocking, headful, geo alignment, entry
+shape, warm-up rung. They do not nest inside one another, and that is the point -
+any one can be varied while the rest are held, and all of them are on every row.
+
+Two properties do most of the work:
+
+- **Cells interleave at batch granularity, never run in sequence.** Finishing one
+  engine before starting the next would measure the afternoon as well. The hour
+  is the largest confound this repository has found: the same gateway, country
+  and browser moved 69 points to 52 between two windows of one afternoon.
+- **A matrix that could not be controlled is refused, not quietly adjusted.** If
+  an option applies to some engines and not others, the run would compare a
+  humanized Camoufox against an unhumanized everything else and read it as an
+  engine difference. Every engine declares what it supports and `--dry-run`
+  refuses the matrix before it starts.
+
+## What is under test
+
+<!-- The table below is written by scripts/engine_table.py --readme and replaced
+     whole on every regeneration. Do not edit between the markers; edit the
+     registry or the engine's module docstring, which is where the text lives. -->
+
+<!-- ENGINES:BEGIN -->
+
+11 frameworks, one registry line each. Anything missing from the machine reports itself unavailable and names the install command, and the rest of the matrix still runs - `--dry-run` prints that list.
+
+| `--engines` | what it is | needs |
+|---|---|---|
+| `http` | Plain HTTP client. No browser, no JavaScript. The cheap baseline | nothing beyond `requests` |
+| `chromium` | Stock Playwright Chromium. The unmodified control every other engine is measured against | `playwright install chromium` |
+| `camoufox` | Camoufox: a patched Firefox driven through Playwright | `camoufox fetch` |
+| `patchright` | Patchright: Playwright with the automation tells patched out | `patchright install chromium` |
+| `obscura` | Obscura: a from-scratch browser in Rust, driven over CDP | a built Obscura binary |
+| `cloak` | CloakBrowser: a patched Chromium that hands back a Playwright browser | `cloakbrowser.ensure_binary()` |
+| `curlcffi` | A scriptless client wearing Chrome's handshake. The control for the control | `curl_cffi`, no browser |
+| `seleniumbase` | SeleniumBase UC mode: the WebDriver family, which the matrix did not have | the host's installed Chrome |
+| `zendriver` | Zendriver: Chrome over raw CDP, with no WebDriver and no Playwright | the host's installed Chrome |
+| `rebrowser` | Rebrowser: Playwright with the `Runtime.enable` leak patched out | `rebrowser_playwright install chromium` |
+| `botasaurus` | Botasaurus: the host's Chrome over raw CDP, driven by a scraping framework | the host's installed Chrome |
+
+Any of them takes a `:direct` suffix, which runs that engine around the gateway inside the same matrix, so the proxy and the no-proxy arm are measured in one window rather than an hour apart.
+
+<!-- ENGINES:END -->
+
+Six targets, chosen because they fail differently rather than because they are
+popular: `google_serp`, `bing_serp`, `ddg_serp`, `amazon_search`,
+`walmart_search`, and `ipinfo` - which is not a target but an echo service, used
+to prove the path works before anything is concluded from a refusal.
+
+## What the rows carry
+
+Every attempt writes one JSONL row: engine and engine version, target, provider
+and gateway parameters, country, preset, headful, geo, entry shape, warm-up rung,
+session and query, the verdict and the marker counts behind it, the failure
+reason, timing, and bytes. `ROW_FIELDS` in `nmbench/engines/base.py` is the
+schema. Those files are the source of truth, and the tables in this README and in
+`RESULTS.md` are generated from them - a number nobody has to remember to update
+is a number that cannot drift.
+
+**Verdicts come from page content, not HTTP status.** The same Google reCAPTCHA
+page arrived once as 429 and once as 200 (2026-08-11), so a run judged by status
+scores the second as a success. There is no boolean `success` column:
+
+| verdict | what it means |
+|---|---|
+| `ok` | the target returned the page that was asked for |
+| `captcha` | a challenge stood in front of the result |
+| `consent` | a consent or cookie wall stood in front of the result |
+| `block` | the target refused explicitly |
+| `empty` | a body arrived and the result was not in it |
+| `error` | the attempt never completed - the harness, never the target |
+
+The last two are the ones that decide whether a benchmark measures anything:
+
+- **`empty` is not `block`.** Google hands a scriptless client a 92 KB "enable
+  JavaScript" scaffold that stays on `/search` and rejects nothing, so scoring it
+  as a block credits Google with a refusal it never made. 14 of 14 such rows
+  carried `enablejs` and none carried `recaptcha`.
+- **`error` is ours.** A timed-out selector, a browser that would not launch and
+  a query that never reached the box produced no evidence, so they produce no
+  verdict. A harness that counts its own crashes as target refusals can
+  manufacture a very convincing result while measuring almost nothing.
+
+Four more columns are easy to misread:
+
+- **A refused address diverts the request, and the status does not say so.**
+  Google answers a refusal by sending the request to `/sorry/`, with a 200 about
+  a quarter of the time. `report.was_served` - a 200 whose final URL keeps the
+  host and path asked for - is the test, and it is a property of the exchange, so
+  nothing has to know a target's name.
+- **A batch is one session, and a session is the unit.** Ten queries through one
+  browser is one identity doing ten searches; ten browsers doing one query each
+  is a different experiment. The claim has been false once - until 2026-08-11
+  Camoufox opened a fresh context per query and discarded its cookie jar while
+  every other engine carried one - and `session-continuity` is the offline probe
+  that caught it.
+- **`bytes` is two measurements and `relayed` says which.** Playwright engines
+  count through `page.route` and see page resources; the relay counts sockets and
+  sees request headers and TLS overhead as well. Never pool them. The relay figure
+  is what a provider bills, and it adds a loopback hop, so `elapsed_ms` is not
+  comparable across `relayed`.
+- **The matrix carries an unmodified control.** `chromium` is Playwright's
+  Chromium with no arguments, no user agent override and no patches;
+  `navigator.webdriver` is `true` and stays that way, because without it a pass
+  rate cannot be told apart from the target letting everything through.
+  `tests/test_engines.py` reads the source of `ChromiumEngine.open` and fails if
+  `args=` or `user_agent` appear.
+
+**Response bodies are kept, gzipped.** A verdict is one word about 92 KB of
+markup, and the question that decides a report is usually asked after the run.
+Non-`ok` bodies plus a sample of the passes, controlled by `--no-bodies` and
+`--sample-ok`. The archive is gitignored, unlike `data/runs/`, because exit
+addresses appear in embedded links. Re-reading 250 stored Amazon bodies offline
+found an Akamai interstitial and an AWS WAF challenge filed as refusals, and moved
+21 historical rows at no traffic cost.
+
+## Results at a glance
+
+<!-- The table below is written by scripts/analysis/results_tables.py --readme and
+     replaced whole on every regeneration. Do not edit between the markers; edit the
+     script. Numbers typed into a README by hand drift from the runs they came from,
+     and the drift is found by a reader rather than by us. -->
+
+<!-- RESULTS:BEGIN -->
+
+Best and worst engine per target, from the 10432 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+
+| target | best | worst | rows |
+|---|---|---|---|
+| `amazon_search` | `chromium/none` 96% (419/436) | `patchright/none` 63% (288/457) | 3816 |
+| `google_serp` | every engine below 5%, best is 1.1% (5/460) - **not an engine comparison - the whole column is one browser on one host that this target refuses** | - | 3811 |
+| `bing_serp` | `chromium/light` 100% (45/45) | `http-direct` 76% (34/45) | 372 |
+| `ddg_serp` | `camoufox/light` 100% (44/44) | `chromium-direct/light` 22% (10/45) | 339 |
+| `walmart_search` | no cell reaches 30 judged attempts, so no engine is named | - | 35 |
+
+On the one target with enough evidence to rank engines, the top of the table is a **tie and not a podium**: `chromium`, `rebrowser`, `botasaurus`, `camoufox`, `zendriver`, `seleniumbase` sit within 4 points of each other and a two-sided Fisher exact, corrected for the 7 comparisons made, separates none of them. The first of them is `chromium`, which is the unmodified control.
+
+Amazon and the two smaller search engines are a win. **The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. On 2026-08-26 the same engine through the same gateway was served 39% (24/61) from a Windows workstation against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
+
+**[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
+
+<!-- RESULTS:END -->
+
+**Three row counts appear on this page and they count different things.** The
+badge counts every line in the committed `data/runs/*.jsonl` - matrix runs,
+probe-and-hold windows, fingerprints, gateway checks. The table above counts only
+matrix attempts that carried a query, which is `benchmark_*.jsonl` minus the
+plan and summary lines. The `rows` column is per target within that. Each is
+generated from the files and a test fails when the badge and the files disagree.
 
 ## Research findings
 
@@ -62,9 +323,9 @@ id, the denominator and the date it stopped being true.
   [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
 - **2026-08-24** - **On Amazon the unmodified browser finished in the leading
   group.** Stock Chromium 96% (419/436) against 63% (288/457) for the lowest
-  anti-detect engine, over 7627 attempts. Six engines sit within four points at
-  the top and no test separates them, so the top of that table is a tie rather
-  than a ranking - and the control is inside it.
+  anti-detect engine, over 3530 judged Amazon attempts in one 7630-row run. Six
+  engines sit within four points at the top and no test separates them, so the
+  top of that table is a tie rather than a ranking - and the control is inside it.
   [Full table](RESULTS.md#amazon_search-in-the-130-hour-run)
 - **2026-08-26** - **The same code, gateway and target scored 39% on one machine
   and 0% on another.** 24/61 from a Windows workstation against 0/84 from a Linux
@@ -113,134 +374,10 @@ saying so is in `data/runs/` with everything else.
 still in the notebook** - Amazon, the warm-up, the Google levels, the idle
 traffic and the ban. The Amazon one reversed outright: on a workstation in early
 August, Camoufox was served 90% while every Chromium engine met the throttle,
-which read as a Firefox-against-Chromium result. On the server at 7627 attempts
-the unmodified control came out on top and the Firefox reading was gone. A number
-here is a reading of the hours it was taken in, and the ones that changed are
-labelled rather than quietly edited.
-
-## Quickstart
-
-A real measurement, no proxy account, no browser download. Measured 2026-08-27 on
-a fresh clone: 22 s to install, 31 s to run.
-
-    git clone https://github.com/nodemaven/proxy-benchmark && cd proxy-benchmark
-    python -m venv .venv
-    .venv\Scripts\Activate.ps1                 # macOS, Linux: . .venv/bin/activate
-    pip install -r requirements-ci.txt
-    python scripts/benchmark.py --engines http --targets ddg_serp \
-        --queries 5 --direct --preset none
-
-It prints the plan and what it will cost before it sends anything, then one line
-per attempt and a summary:
-
-    engine              target        exit                n   pass  verdicts
-    http-direct         ddg_serp      direct              5   100%  {'ok': 5}
-
-Every attempt is also a JSONL row under `data/runs/`, which is the only thing
-this repository treats as evidence.
-
-Three directions from here, in the order most people want them:
-
-| you want | do this |
-|---|---|
-| the same thing through a proxy | [Bringing your own proxy](#bringing-your-own-proxy) - any proxy, no account here needed |
-| real browsers instead of a bare client | [Setup](#setup) - four Chromium builds, and why no two share a download |
-| to check a number above rather than take it | [Reproduce these numbers](#reproduce-these-numbers) - each headline mapped onto its command |
-
-Never used Python, or want the version that explains every step?
-[docs/quickstart.md](docs/quickstart.md) assumes no terminal experience. This file
-assumes you know what a ClientHello is.
-
-## What is under test
-
-<!-- The table below is written by scripts/engine_table.py --readme and replaced
-     whole on every regeneration. Do not edit between the markers; edit the
-     registry or the engine's module docstring, which is where the text lives. -->
-
-<!-- ENGINES:BEGIN -->
-
-11 frameworks, one registry line each. Anything missing from the machine reports itself unavailable and names the install command, and the rest of the matrix still runs - `--dry-run` prints that list.
-
-| `--engines` | what it is | needs |
-|---|---|---|
-| `http` | Plain HTTP client. No browser, no JavaScript. The cheap baseline | nothing beyond `requests` |
-| `chromium` | Stock Playwright Chromium. The unmodified control every other engine is measured against | `playwright install chromium` |
-| `camoufox` | Camoufox: a patched Firefox driven through Playwright | `camoufox fetch` |
-| `patchright` | Patchright: Playwright with the automation tells patched out | `patchright install chromium` |
-| `obscura` | Obscura: a from-scratch browser in Rust, driven over CDP | a built Obscura binary |
-| `cloak` | CloakBrowser: a patched Chromium that hands back a Playwright browser | `cloakbrowser.ensure_binary()` |
-| `curlcffi` | A scriptless client wearing Chrome's handshake. The control for the control | `curl_cffi`, no browser |
-| `seleniumbase` | SeleniumBase UC mode: the WebDriver family, which the matrix did not have | the host's installed Chrome |
-| `zendriver` | Zendriver: Chrome over raw CDP, with no WebDriver and no Playwright | the host's installed Chrome |
-| `rebrowser` | Rebrowser: Playwright with the `Runtime.enable` leak patched out | `rebrowser_playwright install chromium` |
-| `botasaurus` | Botasaurus: the host's Chrome over raw CDP, driven by a scraping framework | the host's installed Chrome |
-
-Any of them takes a `:direct` suffix, which runs that engine around the gateway inside the same matrix, so the proxy and the no-proxy arm are measured in one window rather than an hour apart.
-
-<!-- ENGINES:END -->
-
-Six targets, chosen because they fail differently rather than because they are
-popular: `google_serp`, `bing_serp`, `ddg_serp`, `amazon_search`,
-`walmart_search`, and `ipinfo` - which is not a target but an echo service, used
-to prove the path works before anything is concluded from a refusal.
-
-## Contents
-
-- [Research findings](#research-findings) - what the runs said, in one line each
-- [Quickstart](#quickstart) - a real measurement in under a minute, no account
-- [What is under test](#what-is-under-test) - the 11 engines and the 6 targets
-- [What it measures](#what-it-measures) - the three layers, and what reads each one
-- [Results at a glance](#results-at-a-glance) - best and worst engine per target,
-  generated from `data/runs/`
-- [Setup](#setup) - install, and the four browser downloads that surprise people
-- [Running it](#running-it) - first matrix, front-page entry, your own proxy, a
-  second provider, the axes
-- [Command reference](#command-reference) - every command and every flag value on
-  one page
-- [What the rows mean](#what-the-rows-mean) - the verdict enum and the columns
-  that are easy to misread
-- [Operational safety](#operational-safety) - breaker, budget, shared pool
-- [Reproduce these numbers](#reproduce-these-numbers) - each headline mapped onto
-  the command it comes out of
-- [Repository layout](#repository-layout) · [Contributing](#contributing)
-
-## What it measures
-
-| Layer | What gives you away | Read with |
-|---|---|---|
-| IP reputation | datacenter range, a burnt residential exit, a country the target treats harshly | `--countries`, `probe-and-hold`, `gateway-health` |
-| Browser signals | `navigator.webdriver`, empty plugin list, a SwiftShader renderer, a `HeadlessChrome` User-Agent | `engine-fingerprint`, `detect-page` |
-| TLS handshake | ClientHello shape: cipher and extension counts, absence of GREASE | `tls-echo` |
-
-Debugging fails when you inspect a layer above the one that is actually rejecting
-you, which is the whole reason the axes are separate.
-
-## Results at a glance
-
-<!-- The table below is written by scripts/analysis/results_tables.py --readme and
-     replaced whole on every regeneration. Do not edit between the markers; edit the
-     script. Numbers typed into a README by hand drift from the runs they came from,
-     and the drift is found by a reader rather than by us. -->
-
-<!-- RESULTS:BEGIN -->
-
-Best and worst engine per target, from the 10432 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
-
-| target | best | worst | rows |
-|---|---|---|---|
-| `amazon_search` | `chromium/none` 96% (419/436) | `patchright/none` 63% (288/457) | 3816 |
-| `google_serp` | every engine below 5%, best is 1.1% (5/460) - **not an engine comparison - the whole column is one browser on one host that this target refuses** | - | 3811 |
-| `bing_serp` | `chromium/light` 100% (45/45) | `http-direct` 76% (34/45) | 372 |
-| `ddg_serp` | `camoufox/light` 100% (44/44) | `chromium-direct/light` 22% (10/45) | 339 |
-| `walmart_search` | no cell reaches 30 judged attempts, so no engine is named | - | 35 |
-
-On the one target with enough evidence to rank engines, the top of the table is a **tie and not a podium**: `chromium`, `rebrowser`, `botasaurus`, `camoufox`, `zendriver`, `seleniumbase` sit within 4 points of each other and a two-sided Fisher exact, corrected for the 7 comparisons made, separates none of them. The first of them is `chromium`, which is the unmodified control.
-
-Amazon and the two smaller search engines are a win. **The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. On 2026-08-26 the same engine through the same gateway was served 39% (24/61) from a Windows workstation against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
-
-**[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
-
-<!-- RESULTS:END -->
+which read as a Firefox-against-Chromium result. On the server the unmodified
+control came out on top and the Firefox reading was gone. A number here is a
+reading of the hours it was taken in, and the ones that changed are labelled
+rather than quietly edited.
 
 ## Setup
 
@@ -287,6 +424,8 @@ Before spending anything:
 
     make check                        # ruff plus the offline suite
     python scripts/benchmark.py --dry-run
+
+The suite is offline. A green suite is the precondition for spending traffic.
 
 ## Running it
 
@@ -599,62 +738,12 @@ ten searches. Different experiments, different questions, both recorded on every
 row. At `--batch 1` a Chrome-driving engine also pays a fresh profile's 43 MB
 vendor fetch on every attempt.
 
-## What the rows mean
-
-**Verdicts come from page content, not HTTP status.** The same Google reCAPTCHA
-page arrived once as 429 and once as 200 (2026-08-11), so a run judged by status
-scores the second as a success. There is no boolean `success` column: the enum is
-`ok, captcha, consent, block, empty, error`, and every row carries the reason and
-the marker counts behind it.
-
-**`empty` is not `block`.** Google hands a scriptless client a 92 KB "enable
-JavaScript" scaffold that stays on `/search` and rejects nothing, so scoring it as
-a block credits Google with a refusal it never made. 14 of 14 such rows carried
-`enablejs` and none carried `recaptcha`.
-
-**`error` is the harness, never the target.** An attempt that threw produced no
-evidence, so it produces no verdict. A timed-out selector, a browser that would
-not launch and a query that never reached the box are all `error`.
-
-**A refused address diverts the request, and the status does not say so.** Google
-answers a refusal by sending the request to `/sorry/`, with a 200 about a quarter
-of the time. `report.was_served` - a 200 whose final URL keeps the host and path
-asked for - is the test, and it is a property of the exchange, so nothing has to
-know a target's name. Google is the only target here where it applies.
-
-**The matrix carries an unmodified control.** `chromium` is Playwright's Chromium
-with no arguments, no user agent override and no patches; `navigator.webdriver` is
-`true` and stays that way, because without it a pass rate cannot be told apart
-from the target letting everything through. `tests/test_engines.py` reads the
-source of `ChromiumEngine.open` and fails if `args=` or `user_agent` appear.
-
-**A batch is one session, and a session is the unit.** Ten queries through one
-browser is one identity doing ten searches; ten browsers doing one query each is a
-different experiment. The claim has been false once - until 2026-08-11 Camoufox
-opened a fresh context per query and discarded its cookie jar while every other
-engine carried one - and `session-continuity` is the offline probe that caught it.
-
-**Cells interleave, never run in sequence.** Finishing one engine before starting
-the next would measure the afternoon. Round-robin at batch granularity, one time
-window, same query order. Exactly one batch per cell defeats it, and the runner
-says so before it starts.
-
-**`bytes` is two measurements and `relayed` says which.** Playwright engines count
-through `page.route` and see page resources; the relay counts sockets and sees
-request headers and TLS overhead as well. Never pool them. The relay figure is
-what a provider bills, and it adds a loopback hop, so `elapsed_ms` is not
-comparable across `relayed`. The provider dashboard rounds to 0.01 GB and is not
-an instrument.
-
-**Response bodies are kept, gzipped.** A verdict is one word about 92 KB of
-markup, and the question that decides a report is usually asked after the run.
-Non-`ok` bodies plus a sample of the passes, controlled by `--no-bodies` and
-`--sample-ok`. The archive is gitignored, unlike `data/runs/`, because exit
-addresses appear in embedded links. Re-reading 250 stored Amazon bodies offline
-found an Akamai interstitial and an AWS WAF challenge filed as refusals, and moved
-21 historical rows at no traffic cost.
-
 ## Operational safety
+
+This harness sends real traffic to real targets through a shared production pool.
+More requests do not make a better experiment, and past a point they stop making
+an experiment at all - once a target is reacting to the harness, what is being
+measured is the harness.
 
 **The circuit breaker is not an error handler.** N consecutive failures stop a
 cell and it stays stopped: every retry after a refusal confirms automation to the
@@ -668,8 +757,7 @@ running past 10 spends about 98 retries per delivered page. `--breaker` defaults
 to 10, and `CircuitBreaker` stays at 5 because every `google_429` run on disk was
 measured there.
 
-**Pause between requests.** 3-5 seconds minimum. This is a shared production pool
-on a company account, not a lab.
+**Pause between requests.** 3-5 seconds minimum.
 
 **Never print or paste `Proxy-Authorization`.** It is base64, not encryption.
 
@@ -771,6 +859,8 @@ embedded links. And **exit addresses are recorded as their /24**, because a
 residential pool is other people's home connections. No analysis reads a full
 address back out, so nothing above depends on the masked half.
 
+If a number cannot be traced back to a run, it does not belong here.
+
 ## Repository layout
 
     nmbench/            the reusable package - this is what gets published
@@ -825,6 +915,12 @@ happens to send nothing says so, and `python -m nmbench` marks it `[offline]`.
 there because the instrument has already been broken that exact way by a commit
 that passed every test at the time. The two that catch people first: do not harden
 the unmodified control, and nothing branches on an engine, provider or target name.
+
+When adding an engine, a target or an experiment: keep the variable under test
+explicit, record enough to reproduce the result, do not compare runs from
+unrelated time windows, keep target refusals separate from harness and transport
+failures, add offline tests for classification and scheduling, and regenerate the
+derived blocks rather than editing a generated number by hand.
 
 The most useful issue you can open is that a number here is wrong. Bring a
 denominator.
