@@ -639,9 +639,26 @@ class TestBotasaurusDisableFeatures:
     what this engine did until 2026-09-01, leaving site isolation on in every row
     it ever wrote. These tests are about the union surviving, not about the
     string, because the vendor's value is read from the vendor and may change.
+
+    **Two of the three do not run on the gate, and that is a real gap rather
+    than a formality.** `requirements-ci.txt` deliberately installs no browser
+    framework, so anything reading the vendor's live value skips there. The
+    alternative - adding botasaurus-driver to the gate - is refused by that
+    file's own reasoning: it would make every push depend on a browser
+    framework resolving from PyPI, and the CI badge is the first thing a
+    stranger reads. So the gate is covered by the source-reading test below,
+    which needs nothing installed and runs everywhere, and the two that read
+    the vendor run on a developer machine and on the VPS. What no gate can
+    check is whether the vendor's *current* value survives the merge, because
+    that value only exists where the vendor is.
+
+    This was found the expensive way: both were written and mutation-tested on
+    a machine that had botasaurus-driver, pushed, and turned the gate red on
+    all four cells at once.
     """
 
     def _vendor_names(self):
+        pytest.importorskip("botasaurus_driver")
         from botasaurus_driver.core.config import Config
         return set(Config(headless=True).default_arguments)
 
@@ -690,7 +707,13 @@ class TestBotasaurusDisableFeatures:
 
         A vendor that moves or splits its switch must stop the engine, not make
         it quietly emit a value that discards names nobody knows are missing.
+
+        Skips without the vendor for the reason in the class docstring: the
+        guard reads `Config.__init__`'s source, so there is no way to exercise
+        it without the package that owns that source. Faking the module would
+        test the fake.
         """
+        pytest.importorskip("botasaurus_driver")
         from nmbench.engines import botasaurus as engine
         from nmbench.engines.base import EngineUnavailable
 
