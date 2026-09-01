@@ -263,6 +263,50 @@ class GoogleSerp:
         # measurable through `entry=url`, and that arm discards the typed
         # entry shape as well, so it is a different experiment.
         ("N1", ("https://www.theverge.com/",)),
+        # N1's design moved to the depth where the ladder actually separates,
+        # added 2026-09-01. N1 sits at L1's depth, where the arms measured so
+        # far are 4 points apart and nothing will ever resolve; L3 is the one
+        # rung with a resolvable effect, and it is 6 pages of which 4 are
+        # Google's. "Google's infrastructure was told about this exit" and "the
+        # browser lived through six navigations" are both consistent with every
+        # L3 row on disk, and this rung is what separates them: the same six
+        # visits in the same positions, with the four Google surfaces swapped
+        # for third-party pages carrying the same tag check.
+        #
+        # theverge and wikihow keep positions 1 and 2 exactly as in L3, so the
+        # arms differ in four URLs and in nothing else - not in depth, not in
+        # ordering, not in which page is met by a cold profile first.
+        #
+        # The four replacements come from `warmvet_20260901T132509Z`, run on the
+        # VPS because a 403 seen from behind the workstation's VPN gateway is
+        # not distinguishable from a site that refuses plain clients. Both
+        # controls held in that run: theverge and wikihow came back tagged, and
+        # en.wikipedia.org came back clean, so the marker list was matching
+        # Google-owned tags rather than prose or a header. Six of twelve
+        # candidates passed and four were needed.
+        #
+        # Which four is a judgement and it is worth naming as one. The measured
+        # fact is binary - the page carries a Google-owned tag or it does not -
+        # and all six passed it. The ranking used to cut six to four is the
+        # number of *distinct* Google-owned hosts in the body, on the reasoning
+        # that more distinct hosts is more independent reporting paths; that
+        # reasoning is not measured here. edition.cnn.com carried three
+        # (doubleclick, googlesyndication, googletagservices), arstechnica,
+        # wired and cnet two each, and the tie among those was broken
+        # arbitrarily. www.techradar.com also carried two and www.theguardian.com
+        # one; both are usable and swapping one in is not a new measurement.
+        #
+        # What this rung cannot answer, same as N1 and for the same reason:
+        # `entry=home` navigates to `home_url` before it can type, so this arm
+        # contacts Google immediately before the probe too. It asks whether the
+        # six visits before that have to be Google's, not whether Google has to
+        # be visited at all.
+        ("N3", ("https://www.theverge.com/",
+                "https://www.wikihow.com/Main-Page",
+                "https://arstechnica.com/",
+                "https://www.wired.com/",
+                "https://edition.cnn.com/",
+                "https://www.cnet.com/")),
     )
     # Google covers its own front page with a consent wall, and this is a cost
     # of the entry shape rather than a detail. Measured 2026-08-13 from this

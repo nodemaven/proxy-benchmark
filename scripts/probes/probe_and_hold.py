@@ -94,18 +94,29 @@ LADDER = {
     "N1": "L1's depth with none of L1's pages: one third-party page instead of "
           "one of the target's own, so the two differ in whose page it was and "
           "in nothing else",
+    "N3": "L3's depth with none of L3's target-owned pages: the same six "
+          "visits, four of them swapped for third-party pages that carry the "
+          "same check. N1's design at the depth where the ladder actually "
+          "separates",
 }
 
-# Rungs that are a control on composition rather than a step in depth. They sit
-# outside the L-chain's cumulativeness - a control that were a superset of the
-# rung it controls would be that rung plus something, which is the confound it
-# exists to remove - so anything reasoning about the chain has to skip them.
+# Rungs that are a control on composition rather than a step in depth, each
+# mapped to the rung it controls. They sit outside the L-chain's cumulativeness
+# - a control that were a superset of the rung it controls would be that rung
+# plus something, which is the confound it exists to remove - so anything
+# reasoning about the chain has to skip them.
 #
 # Named here and not inferred from the leading letter. A convention carried in
 # a string is exactly the kind of thing that survives until someone adds `N2`
 # meaning something else, and the cost of getting it wrong is an invariant that
 # quietly stops being checked.
-NEUTRAL_RUNGS = {"N1"}
+#
+# It is a mapping and not a set as of 2026-09-01, when N3 was added. The depth
+# invariant - a control matches the delivered depth of what it controls - lived
+# as `N1` and `L1` written into `tests/test_probe_and_hold.py`, so N3 would have
+# been added with that check silently applying to nothing. Which rung a control
+# answers is a property of the control, so it is declared with it.
+NEUTRAL_RUNGS = {"N1": "L1", "N3": "L3"}
 
 # Spellings accepted by --warm, mapped to the level they mean. `off` and `on`
 # are kept because they are what the rows already on disk were run with, and

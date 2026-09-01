@@ -175,46 +175,74 @@ class TestTheWarmUpLadder:
                 previous = pages
 
     def test_a_neutral_rung_matches_the_depth_of_the_rung_it_controls(self):
-        """`N1` answers L1 or it answers nothing.
+        """`N1` answers L1, `N3` answers L3, or they answer nothing.
 
-        A control that ran one page deeper would differ from L1 in depth as
-        well as in composition, which is the confound the whole rung exists to
-        remove, and the run would look like it had answered the question.
-        Checked on the delivered sequence and not on the declared list, because
-        the front page is appended afterwards and the declared lists could match
-        while the delivered ones did not.
+        A control that ran one page deeper would differ from the rung it
+        controls in depth as well as in composition, which is the confound the
+        whole rung exists to remove, and the run would look like it had answered
+        the question. Checked on the delivered sequence and not on the declared
+        list, because the front page is appended afterwards and the declared
+        lists could match while the delivered ones did not.
+
+        Which rung each control answers is read from `NEUTRAL_RUNGS` rather than
+        written here. Until 2026-09-01 this test named `N1` and `L1` directly,
+        so adding N3 would have left it passing while checking nothing about the
+        rung just added - a green test that had quietly stopped covering the
+        thing it was written for.
         """
         from nmbench.targets import TARGETS
         for name, target in TARGETS.items():
             rungs = probe_and_hold.warm_ladder(target)
-            if "N1" not in rungs:
-                continue
-            assert "L1" in rungs, (
-                f"{name} declares N1 with no L1 to control, so the arm has "
-                f"nothing to be compared against")
-            neutral = probe_and_hold.warm_sequence(target, "N1", Args())
-            first = probe_and_hold.warm_sequence(target, "L1", Args())
-            assert len(neutral) == len(first), f"{name}: {neutral} {first}"
+            for neutral_level, controlled in probe_and_hold.NEUTRAL_RUNGS.items():
+                if neutral_level not in rungs:
+                    continue
+                assert controlled in rungs, (
+                    f"{name} declares {neutral_level} with no {controlled} to "
+                    f"control, so the arm has nothing to be compared against")
+                neutral = probe_and_hold.warm_sequence(target, neutral_level,
+                                                       Args())
+                first = probe_and_hold.warm_sequence(target, controlled, Args())
+                assert len(neutral) == len(first), f"{name}: {neutral} {first}"
 
-    def test_a_neutral_rung_shares_no_page_with_the_chain_it_controls(self):
-        """Except the front page, which every rung ends on and which the entry
-        shape would navigate to anyway - see `ensure_entry`. Any other shared
-        page would put a target-owned visit in the arm whose claim is that it
-        has none before the last one."""
+    def test_a_neutral_rung_declares_no_page_belonging_to_the_target(self):
+        """Which is the whole claim of a neutral rung, so it is checked directly.
+
+        Except the front page, which every rung ends on and which the entry
+        shape would navigate to anyway - see `ensure_entry`. It is appended by
+        `warm_sequence` and is not in any declared list, so it is out of scope
+        here by construction rather than by exemption.
+
+        Until 2026-09-01 this was written the other way round: the test asserted
+        that a neutral rung shared no URL with any chain rung, and then excused
+        L3 outright because N1's page is in it. That excuse was load-bearing and
+        it was too wide. N3 is `L3` with the four Google surfaces swapped out,
+        so it *must* keep sharing theverge and wikihow with L3 while sharing
+        none of `translate`, `scholar`, `imghp` or `trends` - and a blanket
+        exemption on L3 permits all eight. Ownership is what the rung is about,
+        so ownership is what is asserted.
+        """
+        from urllib.parse import urlsplit
+
         from nmbench.targets import TARGETS
         for name, target in TARGETS.items():
             rungs = probe_and_hold.warm_ladder(target)
-            for level in probe_and_hold.NEUTRAL_RUNGS & set(rungs):
-                pages = set(rungs[level])
-                for other, urls in rungs.items():
-                    if other in probe_and_hold.NEUTRAL_RUNGS:
-                        continue
-                    if other == "L3":
-                        # L3 is the one rung that legitimately contains these:
-                        # it is the chain plus the neutral pages, which is what
-                        # makes N1 readable as L3's increment on its own.
-                        continue
-                    assert not (pages & set(urls)), f"{name} {level}/{other}"
+            neutral = probe_and_hold.NEUTRAL_RUNGS.keys() & set(rungs)
+            if not neutral:
+                continue
+            host = (urlsplit(target.home_url).hostname or "").lower()
+            # Only `www.` is stripped, and deliberately: anything cleverer is a
+            # guess at the public suffix list, and a wrong guess here would make
+            # a target-owned page read as third-party, which is the one error
+            # this test exists to catch.
+            domain = host[4:] if host.startswith("www.") else host
+            assert domain, f"{name} declares no usable home_url host"
+            for level in sorted(neutral):
+                for url in rungs[level]:
+                    page = (urlsplit(url).hostname or "").lower()
+                    owned = page == domain or page.endswith("." + domain)
+                    assert not owned, (
+                        f"{name} {level} declares {url}, which is the target's "
+                        f"own - the rung's claim is that it visits none")
 
     def test_a_rung_the_target_does_not_declare_is_refused(self, parser):
         args = Args()
