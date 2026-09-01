@@ -1564,6 +1564,39 @@ same class of vendor traffic, and at 460 KB per session it is three orders of
 magnitude below the model fetch. Refusing more hosts than the measurement
 requires is how a measurement harness turns into a browser nobody else runs.
 
+**Our own `--disable-features` was discarding the vendor's, and every botasaurus
+row before 2026-09-01 carries the consequence.** Chrome honours only the last
+such switch. botasaurus-driver ships
+`--disable-features=IsolateOrigins,site-per-process` in `default_arguments` and
+appends caller arguments after it, so the engine's
+`--disable-features=OptimizationHints` landed last, won, and threw the vendor's
+value away whole. Site isolation was therefore left **on** in an engine whose
+vendor turns it off, in every row this repository has written for it, and no
+column said so. Measured 2026-09-01 with
+`lab/probes/probe_botasaurus_flag_order.py` against botasaurus-driver 4.0.101:
+names lost `['IsolateOrigins', 'site-per-process']`.
+
+The fix is `merged_disable_features` in `nmbench/engines/botasaurus.py`, which
+reads the vendor's value out of the vendor's own source and emits the union, so
+the surviving switch carries every name either side asked for and the result no
+longer depends on which one lands last. It refuses to launch rather than guess if
+the vendor's shape changes. Same fix as botasaurus-driver #29 upstream, applied
+on our side of the call.
+
+Two limits on what this is. **It is not a correction to any published number** -
+nothing here measured what site isolation is worth to a verdict, so this is a
+difference between rows before and after the date, not a retraction. And the
+engine comment that used to explain why the flag "reaches the browser by luck"
+was **wrong about the mechanism**: it named `Config.browser_args`, a property
+returning `sorted(default_arguments + arguments)`, and warned that a value
+sorting before `IsolateOrigins` would go silently dead. `Browser.start` calls
+`Config.__call__` instead (`core/browser.py:326`), which preserves insertion
+order, so ours wins by position and the alphabet is irrelevant - a value named
+`AAAOptimizationHints` still wins, arm 3 of the same probe. The explanation
+fitted every character of the evidence, predicted the right outcome, and had
+never been checked against the launch path; the real defect was sitting beside it
+unnoticed for the whole time the warning was there.
+
 ### The axes, and the capabilities that are refused rather than dropped
 
 **A capability only some engines have must be refused by the runner, not dropped

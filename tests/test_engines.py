@@ -629,3 +629,79 @@ class TestTheZendriverShimEvaluatesWhatTheProbesActuallyPass:
             "up to the first `=>`, which is an inner arrow in most of the "
             "probes here, so the engine loses every row of every probe passing "
             "a block-bodied one. Call the arrow instead of unwrapping it.")
+
+
+class TestBotasaurusDisableFeatures:
+    """Chrome honours only the last `--disable-features` and drops the rest.
+
+    botasaurus-driver ships one of its own and appends the caller's after it, so
+    passing a bare `--disable-features` silently discards the vendor's - which is
+    what this engine did until 2026-09-01, leaving site isolation on in every row
+    it ever wrote. These tests are about the union surviving, not about the
+    string, because the vendor's value is read from the vendor and may change.
+    """
+
+    def _vendor_names(self):
+        from botasaurus_driver.core.config import Config
+        return set(Config(headless=True).default_arguments) 
+
+    def test_the_merged_value_keeps_every_name_the_vendor_asked_for(self):
+        from nmbench.engines.botasaurus import merged_disable_features
+
+        vendor = {arg.split("=", 1)[1] for arg in self._vendor_names()
+                  if arg.startswith("--disable-features=")}
+        assert len(vendor) == 1, (
+            "the vendor no longer ships exactly one --disable-features, so "
+            "what this engine merges has changed and the helper should have "
+            "refused rather than let this test read a different shape")
+        theirs = set(next(iter(vendor)).split(","))
+
+        merged = set(merged_disable_features("OptimizationHints")
+                     .split("=", 1)[1].split(","))
+        assert theirs <= merged, (
+            f"{sorted(theirs - merged)} is disabled by botasaurus-driver and "
+            "not by us, so our switch discards it and the browser under "
+            "measurement is not the one the vendor ships")
+        assert "OptimizationHints" in merged, (
+            "our own name did not survive the merge, so the 24-45 MB idle "
+            "download is back and no row would say so")
+
+    def test_the_engine_passes_the_merged_value_and_not_a_bare_one(self):
+        """Source, not behaviour: launching botasaurus needs a browser.
+
+        The failure this guards against is someone writing
+        `--disable-features=...` inline again, which reads as correct and
+        silently drops whatever the vendor disables.
+        """
+        source = (pathlib.Path(engines.__file__).parent
+                  / "botasaurus.py").read_text(encoding="utf-8")
+        body = source.split("driver = Driver(", 1)[1].split(")", 1)[0]
+        assert "merged_disable_features(" in body, (
+            "the Driver call no longer merges its --disable-features with the "
+            "vendor's, so whichever switch Chrome honours, one side's names "
+            "are being thrown away silently")
+        assert '"--disable-features=' not in body, (
+            "a bare --disable-features is being passed to Driver. It lands "
+            "after the vendor's and wins, discarding theirs whole. Pass it "
+            "through merged_disable_features instead")
+
+    def test_it_refuses_rather_than_guessing_when_the_vendor_shape_changes(self):
+        """The guard is the point of the helper, so it is tested directly.
+
+        A vendor that moves or splits its switch must stop the engine, not make
+        it quietly emit a value that discards names nobody knows are missing.
+        """
+        from nmbench.engines import botasaurus as engine
+        from nmbench.engines.base import EngineUnavailable
+
+        original = engine._VENDOR_DISABLE_FEATURES
+        engine._VENDOR_DISABLE_FEATURES = __import__("re").compile(
+            r'"--this-name-is-not-in-the-vendor-source=([^"]*)"')
+        try:
+            with pytest.raises(EngineUnavailable) as raised:
+                engine.merged_disable_features("OptimizationHints")
+        finally:
+            engine._VENDOR_DISABLE_FEATURES = original
+        assert "merged_disable_features" in str(raised.value), (
+            "the refusal should name the function to fix, since whoever hits "
+            "it is reading a stack trace and not this test")

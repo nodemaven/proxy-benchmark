@@ -105,6 +105,8 @@ at `MAX_WAIT = 200` seconds (`core/connection.py:306`), which clears
 `ENTRY_TIMEOUT_MS` at 60, so a browser that dies mid-series ends the identity
 rather than the run.
 """
+import inspect
+import re
 import time
 from contextlib import contextmanager
 
@@ -117,6 +119,45 @@ from .base import (
     record_judgement,
 )
 from .chromium import _package_version
+
+_VENDOR_DISABLE_FEATURES = re.compile(r'"--disable-features=([^"]*)"')
+
+
+def merged_disable_features(*ours):
+    """One `--disable-features` value carrying the vendor's names and ours.
+
+    Chrome keeps command-line switches in a map, so only the **last**
+    `--disable-features` survives and every earlier one is discarded whole -
+    measured 2026-08-25 by ordering a flag with a visible network effect first
+    and then last, and again 2026-08-31 with no network in it at all, on a
+    feature gating a JavaScript property.
+
+    botasaurus-driver ships its own `--disable-features` in
+    `Config.default_arguments` and appends caller arguments after it, so a
+    caller who passes one silently throws the vendor's away. This returns the
+    union instead, so whichever switch Chrome honours, nothing anybody asked for
+    is lost.
+
+    The vendor's value is read out of its own source rather than copied here, so
+    it cannot go stale behind us. It refuses rather than guessing: a value we
+    cannot find is a value we would discard without knowing, and that would
+    change the browser under measurement while every row still claimed it was
+    the ordinary one.
+    """
+    from botasaurus_driver.core.config import Config
+
+    found = _VENDOR_DISABLE_FEATURES.findall(inspect.getsource(Config.__init__))
+    if len(found) != 1:
+        raise EngineUnavailable(
+            f"botasaurus-driver {_package_version('botasaurus-driver')} has "
+            f"{len(found)} --disable-features in Config.__init__ and this "
+            "engine knows how to merge exactly one. Merging the wrong set "
+            "would launch a browser with features enabled that the vendor "
+            "disables, or drop ours, and either way the rows would not say so. "
+            "Re-read core/config.py and update merged_disable_features.")
+
+    names = found[0].split(",") + list(ours)
+    return "--disable-features=" + ",".join(dict.fromkeys(names))
 
 
 class _Page:
@@ -384,24 +425,57 @@ class BotasaurusEngine:
         # still earn their place on the component updater: dropping them puts
         # 5.8 MB of CRX download back.
         #
-        # It reaches the browser here by luck, and that is worth knowing before
-        # anyone edits this line. Chrome keeps switches in a map, so only the
-        # last `--disable-features` survives and the earlier one is discarded
-        # whole - measured 2026-08-25 by ordering this flag first and then last
-        # and watching the fetch appear and vanish. `Config.browser_args` returns
-        # `sorted(default_arguments + arguments)`, and `default_arguments`
-        # already carries `--disable-features=IsolateOrigins,site-per-process`.
-        # `I` sorts before `O`, so ours lands last and wins. Give the value a
-        # name sorting before `IsolateOrigins` and this line goes silently dead -
-        # no error, no change in the logs, only the 39 MB coming back. Merging
-        # into the one existing switch is the fix and is proposed upstream as
-        # botasaurus-driver #29.
+        # The value is merged rather than passed on its own, because the vendor
+        # ships a `--disable-features` of its own and Chrome honours only the
+        # last one. See `merged_disable_features` above for the mechanism.
+        #
+        # **This comment said something else until 2026-09-01, and the part that
+        # was wrong is the part that had never been run.** It read: ours wins
+        # because `Config.browser_args` returns
+        # `sorted(default_arguments + arguments)` and `I` sorts before `O`, so
+        # give the value a name sorting before `IsolateOrigins` and this line
+        # goes silently dead. Measured with
+        # `lab/probes/probe_botasaurus_flag_order.py`, against
+        # botasaurus-driver 4.0.101:
+        #
+        #   .browser_args, ours named AAAOptimizationHints   ours FIRST
+        #   the launch path, same value                      ours LAST, wins
+        #
+        # `browser_args` is a property nothing on the launch path reads.
+        # `Browser.start` calls `Config.__call__` (`core/browser.py:326`), which
+        # copies `default_arguments` and appends the caller's after them, so
+        # ours wins by position and the alphabet has nothing to do with it. The
+        # warned-about hazard does not exist; a real one was sitting next to it
+        # unnoticed.
+        #
+        # What the mistake looked like from the inside: `browser_args` is the
+        # obviously-named public property on the config object, the `sorted()`
+        # in it is real, and `I` really does sort before `O` - the explanation
+        # fitted every character of the evidence and predicted the right
+        # outcome. It was never checked which function the browser is launched
+        # from, which is one `inspect` call. A cause that fits is not a cause
+        # that was checked, and here it was load-bearing for a warning that
+        # would have sent the next person to the wrong line.
+        #
+        # **The cost of getting it wrong was not the warning, it was what the
+        # warning distracted from.** Ours winning meant the vendor's
+        # `IsolateOrigins,site-per-process` was discarded whole on every
+        # botasaurus row this repository has ever written, so site isolation was
+        # left ON in an engine whose vendor disables it, and nothing in any row
+        # said so. Same probe, arm 2: names lost `['IsolateOrigins',
+        # 'site-per-process']`. The merge is what fixes that, and it is the same
+        # fix proposed upstream as botasaurus-driver #29.
+        #
+        # Rows written before 2026-09-01 carry the unmerged flag. Nothing here
+        # measured what site isolation is worth to a verdict, so this is a
+        # difference between old rows and new ones and not a correction to any
+        # published number - do not quote it as one until it has been measured.
         #
         # Not a hardening of the browser under test: no flag here is visible to
         # a page, and `ChromiumEngine` - the control - is deliberately left
         # alone whatever it costs.
         driver = Driver(headless=headless, proxy=proxy_url, arguments=[
-            "--disable-features=OptimizationHints",
+            merged_disable_features("OptimizationHints"),
             "--disable-background-networking", "--disable-component-update"])
         try:
             driver.get("about:blank")
