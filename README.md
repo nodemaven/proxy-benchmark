@@ -36,7 +36,7 @@ the target itself.**
      link does not contain its own evidence is the kind of thing this repository
      exists to not do. -->
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
-[![rows](https://img.shields.io/badge/rows-16%2C283%20published-blue?style=flat-square)](data/runs)
+[![rows](https://img.shields.io/badge/rows-18%2C763%20published-blue?style=flat-square)](data/runs)
 
 </div>
 
