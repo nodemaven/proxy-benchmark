@@ -37,13 +37,30 @@ CONNECTs here cost a few hundred bytes and are the cheapest thing that can tell
 a wrong dialect from a wrong password - and the alternative is finding out from a
 matrix whose rows all claim settings that were never applied.
 
+**Repeat `--provider` and the gateways are interleaved, one attempt each in
+rotation, rather than run one after the other.** That is not a convenience. Four
+providers run back to back are four different hours, and every difference the
+table then shows between them is confounded with whatever the network was doing
+at the time - `config.py` states the same rule for the matrix and this probe is
+the cheaper instrument people will reach for first. Interleaving does not remove
+the confound, it spreads it evenly across the arms, which is the most a run from
+one machine can do.
+
+What it still does not buy: all four arms share this host, this line and this
+minute, so a number here describes the gateways *as reached from here*. Latency
+to a gateway is distance as much as it is the gateway.
+
 Usage:
     python scripts/probes/gateway_health.py
     python scripts/probes/gateway_health.py --n 30 --bare
     python scripts/probes/gateway_health.py --param filter=medium
     python scripts/probes/gateway_health.py --provider oxylabs --n 5
+    python scripts/probes/gateway_health.py --n 100 --identify \\
+        --provider nodemaven --provider oxylabs --provider decodo \\
+        --provider brightdata
 """
 import argparse
+import re
 import statistics
 import sys
 import time
@@ -57,7 +74,7 @@ from nmbench.console import tolerate_unencodable_output
 
 tolerate_unencodable_output()
 
-from nmbench import config, gateway, providers, proxy
+from nmbench import config, gateway, matrix, providers, proxy
 from nmbench.sink import JsonlSink
 
 
@@ -111,6 +128,38 @@ def attempt(index: int, params: dict, timeout: int, registry, provider,
     return row
 
 
+# Words that describe the business rather than the incorporation. Legal forms
+# are not evidence: `Charter Communications LLC` is an access provider and the
+# first version of this list called it hosting.
+#
+# **Matched as whole words, since 2026-09-14, and that is the second correction
+# to the same three lines.** As substrings they fired on `Telmex Colombia S.A.`
+# and `UNE EPM TELECOMUNICACIONES S.A.` - `colo` inside `Colombia` - so a
+# four-gateway health check reported two residential pools as returning
+# datacenter ranges, twenty attempts each, every one of them a consumer ISP in
+# Latin America. A warning line is only worth having if it is believed, and this
+# repository has already paid for that once: `NodeMaven\CLAUDE.md` records a
+# leftover report printing CHECK THE ACCOUNT BY HAND for an object whose
+# creation had failed in the same output.
+#
+# `re.escape` because `data center` carries a space and `latitude.sh` a dot, and
+# a `.` left live would match any character.
+HOSTING_WORDS = ("datacamp", "hosting", "data center", "datacenter", "vps",
+                 "digitalocean", "ovh", "linode", "hetzner", "colo", "colocation",
+                 "latitude.sh")
+HOSTING = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(w) for w in HOSTING_WORDS))
+
+
+def reads_as_hosting(org: str) -> bool:
+    """Whether an operator name describes hosting. A hint, never a verdict.
+
+    The ASN's own registration would settle it and this does not have one, so the
+    caller prints the names it matched rather than a count, and the reader
+    decides.
+    """
+    return bool(HOSTING.search(org.lower()))
+
+
 def report(rows: list, label: str) -> None:
     opened = [r for r in rows if r["opened"]]
     failed = [r for r in rows if not r["opened"]]
@@ -138,26 +187,30 @@ def report(rows: list, label: str) -> None:
         print("  exit operators")
         for org, count in orgs.most_common():
             print(f"    {count:>3}  {org[:64]}")
-        # Legal forms are not evidence: Charter Communications LLC is an access
-        # provider and the first version of this list called it hosting. A name
-        # check is a hint at best, so it only fires on words that describe the
-        # business rather than the incorporation.
-        datacenter = [o for o in orgs if any(
-            word in o.lower() for word in
-            ("datacamp", "hosting", "data center", "datacenter", "vps",
-             "digitalocean", "ovh", "linode", "hetzner", "colo"))]
+        datacenter = sorted(o for o in orgs if reads_as_hosting(o))
         if datacenter:
+            # Named, not just counted. The unnamed version of this line fired on
+            # 2026-09-14 for `Telmex Colombia S.A.` and there was no way to see
+            # that from the output - the reader is left believing a residential
+            # pool returned a datacenter range, with nothing to check it against.
             print("  at least one exit is on a network whose name reads as "
                   "hosting rather than an access provider. A residential pool "
                   "is what the targets are being asked to believe, so this is "
-                  "a finding about the pool and not about the run")
+                  "a finding about the pool and not about the run:")
+            for org in datacenter:
+                print(f"    {org[:70]}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=10,
                         help="tunnels to open, each on a fresh session")
-    parser.add_argument("--country", default="us")
+    parser.add_argument("--country", default="us",
+                        help=f"country to ask each gateway for. {matrix.ANY!r} "
+                             f"is this harness's keyword for unpinned, not a "
+                             f"country code, and is translated into each "
+                             f"gateway's own spelling - or left out entirely "
+                             f"where it has none")
     parser.add_argument("--timeout", type=int, default=20)
     parser.add_argument("--pause", type=float, default=1.0,
                         help="seconds between attempts. This opens no target "
@@ -185,26 +238,45 @@ def main() -> None:
                              "recognised parameter belongs to the sticky session "
                              "key, so adding one selects a different slice of "
                              "the pool")
-    parser.add_argument("--provider", default=None,
-                        help=f"which gateway to open tunnels to. Defined: "
-                             f"{providers.names()}, and adding one is a file in "
-                             f"data/providers/. This is the cheapest check a new "
-                             f"definition can be given, because a wrong username "
-                             f"format is otherwise invisible. Defaults to "
+    parser.add_argument("--provider", action="append", default=[],
+                        help=f"which gateway to open tunnels to, repeatable. "
+                             f"Defined: {providers.names()}, and adding one is a "
+                             f"file in data/providers/. This is the cheapest "
+                             f"check a new definition can be given, because a "
+                             f"wrong username format is otherwise invisible. "
+                             f"Given more than once the gateways are interleaved "
+                             f"one attempt each, because running them in "
+                             f"sequence measures the hour as much as the "
+                             f"provider. Defaults to "
                              f"{providers.default_name()!r}")
     args = parser.parse_args()
 
+    chosen = args.provider or [None]
+    if len(chosen) != len(set(chosen)):
+        parser.error("--provider was given the same gateway twice, which would "
+                     "put two arms of the same provider in one table and read "
+                     "as a comparison")
+    arms = []
     try:
-        provider = providers.load(args.provider)
-        # Against the provider that was named, so a parameter one gateway
-        # recognises and another does not is refused here rather than dropped
-        # silently by the gateway that does not.
-        extra = proxy.parse_params(args.param, provider=provider)
-        # Read before the first tunnel rather than inside it. Unset credentials
-        # would otherwise surface as an exception per attempt, and this probe is
-        # the one an operator runs when they already suspect the gateway - a
-        # traceback there reads as the outage they came to confirm.
-        creds = config.credentials(provider)
+        for name in chosen:
+            provider = providers.load(name)
+            # Against the provider that was named, so a parameter one gateway
+            # recognises and another does not is refused here rather than
+            # dropped silently by the gateway that does not.
+            extra = proxy.parse_params(args.param, provider=provider)
+            # Read before the first tunnel rather than inside it. Unset
+            # credentials would otherwise surface as an exception per attempt,
+            # and this probe is the one an operator runs when they already
+            # suspect the gateway - a traceback there reads as the outage they
+            # came to confirm.
+            #
+            # Every arm's credentials are read before ANY arm sends, so a run
+            # over four gateways with one password missing fails in the first
+            # second instead of a third of the way through a table it can no
+            # longer complete.
+            creds = config.credentials(provider)
+            arms.append({"provider": provider, "creds": creds, "extra": extra,
+                         "results": {}})
     except (providers.ProviderError, proxy.ParamError,
             config.MissingCredentials) as exc:
         parser.error(str(exc))
@@ -220,88 +292,155 @@ def main() -> None:
         raise SystemExit(1)
     print(f"own line: {line['exit_ip']}  {line.get('org') or '-'}  "
           f"{line.get('country') or '-'}")
-    print(f"provider: {provider.label} ({provider.status}), {creds.gateway}")
-    # The point of this line is to hand a refusal its most likely cause before
-    # the operator starts debugging their account. For a transcribed DSL that
-    # cause is the transcription; a definition carrying no DSL at all has
-    # nothing to have transcribed, so saying it anyway would send them looking
-    # through a vendor page that does not exist.
-    if not provider.measured and provider.known_params:
-        print("          the username format below was read off the vendor's "
-              "documentation and has never been sent from here, so a refusal "
-              "may be the transcription rather than the account")
-    elif not provider.measured:
-        print("          nothing here has ever been sent through this gateway, "
-              "and it takes no settings in the username - so a refusal is the "
-              "address, the port or the password, and nothing else")
-    # The country is asked for only where the definition sells one. A gateway
-    # that recognises no parameters is the ordinary shape of a proxy somebody
-    # already owns, and putting `country-us` into its username would come back
-    # as an authentication failure - which is exactly the reading this probe
-    # exists to rule out. This is the first thing a new definition is pointed at,
-    # so it must not be the thing that manufactures the failure.
-    asks_country = "country" in provider.known_params
-    base = ({"country": args.country, **extra} if asks_country else dict(extra))
-    # The label is a cell key as well as a heading, so it stays short and the
-    # explanation goes on its own line.
-    label = f"country={args.country}" if asks_country else "no parameters"
-    if not provider.known_params:
-        print("          this definition recognises no parameters, so nothing "
-              "is asked for and every tunnel opens onto the same exit")
-    elif not asks_country:
-        # Distinguished from the line above because the two are different
-        # findings. A gateway with no parameters at all is a proxy somebody
-        # owns; a gateway with parameters and no `country` sells something, just
-        # not geography, and --country silently doing nothing there would be the
-        # dropped-setting failure this repository is built around.
-        print(f"          this definition sells no country, so --country "
-              f"{args.country} was not sent. It knows "
-              f"{sorted(provider.known_params)}")
-    print(f"gateway:  {' '.join(f'{k}={v}' for k, v in sorted(base.items())) or 'none'}")
+    for arm in arms:
+        provider, creds, extra = arm["provider"], arm["creds"], arm["extra"]
+        print(f"provider: {provider.label} ({provider.status}), {creds.gateway}")
+        # The point of this line is to hand a refusal its most likely cause
+        # before the operator starts debugging their account. For a transcribed
+        # DSL that cause is the transcription; a definition carrying no DSL at
+        # all has nothing to have transcribed, so saying it anyway would send
+        # them looking through a vendor page that does not exist.
+        if not provider.measured and provider.known_params:
+            print("          the username format below was read off the "
+                  "vendor's documentation and has never been sent from here, "
+                  "so a refusal may be the transcription rather than the "
+                  "account")
+        elif not provider.measured:
+            print("          nothing here has ever been sent through this "
+                  "gateway, and it takes no settings in the username - so a "
+                  "refusal is the address, the port or the password, and "
+                  "nothing else")
+        # The country is asked for only where the definition sells one. A
+        # gateway that recognises no parameters is the ordinary shape of a proxy
+        # somebody already owns, and putting `country-us` into its username
+        # would come back as an authentication failure - which is exactly the
+        # reading this probe exists to rule out. This is the first thing a new
+        # definition is pointed at, so it must not be the thing that
+        # manufactures the failure.
+        asks_country = "country" in provider.known_params
+        # `any` is the harness's keyword for "do not pin one" and not a country
+        # code, so it is translated per gateway rather than sent as written -
+        # the same call the matrix makes, from `nmbench.matrix`, because a probe
+        # that spells it its own way is a second implementation of the rule it
+        # exists to check. On 2026-09-11 the literal reached four gateways and
+        # three of them refused every CONNECT; run from here that would have
+        # read as three dead gateways.
+        wire = matrix.wire_country(args.country, provider,
+                                   where=f"--country {args.country}")
+        arm["base"] = ({"country": wire, **extra} if asks_country and wire
+                       else dict(extra))
+        # The label is a cell key as well as a heading, so it stays short and
+        # the explanation goes on its own line.
+        arm["label"] = (f"country={wire}" if asks_country and wire
+                        else "no country" if asks_country else "no parameters")
+        if asks_country and args.country == matrix.ANY:
+            print(f"          --country {matrix.ANY} is unpinned, which this "
+                  f"gateway spells "
+                  f"{provider.country_any!r} - so "
+                  f"{'it is sent' if wire else 'no country is sent at all'}")
+        if not provider.known_params:
+            print("          this definition recognises no parameters, so "
+                  "nothing is asked for and every tunnel opens onto the same "
+                  "exit")
+        elif not asks_country:
+            # Distinguished from the line above because the two are different
+            # findings. A gateway with no parameters at all is a proxy somebody
+            # owns; a gateway with parameters and no `country` sells something,
+            # just not geography, and --country silently doing nothing there
+            # would be the dropped-setting failure this repository is built
+            # around.
+            print(f"          this definition sells no country, so --country "
+                  f"{args.country} was not sent. It knows "
+                  f"{sorted(provider.known_params)}")
+        pairs = " ".join(f"{k}={v}" for k, v in sorted(arm["base"].items()))
+        print(f"gateway:  {pairs or 'none'}")
+    if len(arms) > 1:
+        print(f"\n{len(arms)} gateways interleaved, one attempt each in "
+              f"rotation. Run in sequence they would differ by the hour as well "
+              f"as by the provider")
     print(f"raw rows -> {sink.path}\n")
 
-    rounds = [(label, base)]
-    # Nothing to strip when the first round already sends nothing, and a second
-    # identical round would read as a control against itself.
-    if args.bare and base:
-        rounds.append(("no parameters", {}))
+    # Every arm sends the same round labels, so `--bare` stays a property of the
+    # run rather than of one gateway. An arm whose base is empty has nothing to
+    # strip and its bare round would be the first round again, so it is skipped
+    # for that arm alone rather than for the run.
+    rounds = ["params", "bare"] if args.bare else ["params"]
 
-    results = {}
-    for label, base in rounds:
-        rows = []
-        held = f"health{uuid.uuid4().hex[:8]}"
-        print(f"{label}" + ("  one held session" if args.reuse_session else ""))
+    for round_name in rounds:
+        live = [a for a in arms
+                if round_name == "params" or a["base"]]
+        if not live:
+            continue
+        for arm in live:
+            arm["held"] = f"health{uuid.uuid4().hex[:8]}"
+            arm["rows"] = []
+            label = arm["label"] if round_name == "params" else "no parameters"
+            arm["round_label"] = label
+        heading = ("one held session" if args.reuse_session else "")
+        print(f"{'bare' if round_name == 'bare' else 'parameterised'} round "
+              f"{heading}")
+        # The rotation is here: index outermost, provider innermost, so arm N
+        # and arm N+1 are one attempt apart rather than one round apart.
         for index in range(args.n):
-            params = dict(base)
-            if params:
-                params = proxy.session_params(
-                    held if args.reuse_session
-                    else f"health{uuid.uuid4().hex[:8]}",
-                    provider=provider, **params)
-            row = attempt(index, params, args.timeout, registry, provider,
-                          args.identify)
-            # Named only when it is not the default, the rule the matrix cell
-            # key follows: the 221 gateway_health rows already on disk were all
-            # taken through the default, and a key that renamed itself now would
-            # leave them uncomparable against anything measured after.
-            suffix = "" if provider.id == providers.default_name() \
-                else f"/provider-{provider.id}"
-            row["cell"] = f"gateway_health/{label.replace(' ', '-')}{suffix}"
-            sink.write(row)
-            rows.append(row)
-            mark = "ok " if row["opened"] else "   "
-            print(f"  {mark}{index + 1:>3}  "
-                  f"{row['status'] or '-'!s:<5}{(row['reason'] or '-')[:24]:<26}"
-                  f"tcp {row['tcp_ms']!s:<8}connect {row['connect_ms']!s:<10}"
-                  f"{row['exit_ip'] or (row['error'] or '')[:44]!s:<18}"
-                  f"{(row.get('org') or '')[:38]}")
-            time.sleep(args.pause)
-        results[label] = rows
-        report(rows, label)
+            for arm in live:
+                provider = arm["provider"]
+                base = arm["base"] if round_name == "params" else {}
+                params = dict(base)
+                if params:
+                    params = proxy.session_params(
+                        arm["held"] if args.reuse_session
+                        else f"health{uuid.uuid4().hex[:8]}",
+                        provider=provider, **params)
+                row = attempt(index, params, args.timeout, registry, provider,
+                              args.identify)
+                # Named only when it is not the default, the rule the matrix
+                # cell key follows: the 221 gateway_health rows already on disk
+                # were all taken through the default, and a key that renamed
+                # itself now would leave them uncomparable against anything
+                # measured after.
+                suffix = "" if provider.id == providers.default_name() \
+                    else f"/provider-{provider.id}"
+                label = arm["round_label"].replace(" ", "-")
+                row["cell"] = f"gateway_health/{label}{suffix}"
+                sink.write(row)
+                arm["rows"].append(row)
+                mark = "ok " if row["opened"] else "   "
+                tag = f"{provider.id[:10]:<11}" if len(arms) > 1 else ""
+                print(f"  {mark}{index + 1:>3}  {tag}"
+                      f"{row['status'] or '-'!s:<5}"
+                      f"{(row['reason'] or '-')[:24]:<26}"
+                      f"tcp {row['tcp_ms']!s:<8}connect {row['connect_ms']!s:<10}"
+                      f"{row['exit_ip'] or (row['error'] or '')[:44]!s:<18}"
+                      f"{(row.get('org') or '')[:38]}")
+                time.sleep(args.pause)
+        for arm in live:
+            arm["results"][arm["round_label"]] = arm["rows"]
+            report(arm["rows"], f"{arm['provider'].label} {arm['round_label']}")
 
-    print("\n" + "=" * 84)
-    first = results[rounds[0][0]]
+    for arm in arms:
+        verdict(arm, args)
+
+    print(f"\nraw rows: {sink.path}")
+
+
+def verdict(arm: dict, args) -> None:
+    """What the arm's first round means for a matrix, per gateway.
+
+    Split out of `main` when the probe learned to interleave. With one provider
+    this printed once and read as a statement about the run; with four it has to
+    say which gateway it is about, and a single verdict over pooled rows would
+    average a dead gateway against three live ones into something like a mild
+    fault nobody would act on.
+    """
+    provider = arm["provider"]
+    results = arm["results"]
+    if not results:
+        return
+    first_label = arm["label"] if arm["label"] in results else next(iter(results))
+    first = results[first_label]
     opened = sum(1 for r in first if r["opened"])
+    print("\n" + "=" * 84)
+    print(f"{provider.label}:")
     if opened == len(first):
         print("the gateway answered every CONNECT. Transport is not a reason to "
               "hold a matrix.")
@@ -330,8 +469,6 @@ def main() -> None:
         elif bare_opened and not opened:
             print("Bare tunnels open and parameterised ones do not, so the "
                   "fault is in the parameter set, not in the account.")
-
-    print(f"\nraw rows: {sink.path}")
 
 
 if __name__ == "__main__":

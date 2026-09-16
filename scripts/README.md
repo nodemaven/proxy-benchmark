@@ -29,10 +29,21 @@ it, which is the one dependency this repository cannot have.
 ## probes/
 
 A probe that happens to send nothing declares `SENDS_REQUESTS = False`, so the
-command list does not overstate what it costs. Four do:
-`engine_fingerprint.py`, `geo_align_check.py`, `obscura_defects.py` and
-`session_continuity.py`. They read the browser rather than the network, which
-makes them the cheapest re-check available after an engine upgrade.
+command list does not overstate what it costs. Five do:
+`engine_fingerprint.py`, `geo_align_check.py`, `obscura_defects.py`,
+`session_continuity.py` and `tls_clienthello.py`. They read the browser rather
+than the network, which makes them the cheapest re-check available after an
+engine upgrade.
+
+`tls_clienthello.py` is the odd one of the five: it does open sockets, but both
+ends are on this machine. It runs a listener that accepts, reads the first TLS
+record and answers nothing, points each engine at it in turn, and computes the
+JA4 from what arrived. That is the same value `tls_echo.py` asks `tls.peet.ws`
+for, without needing a live host - which makes it the one to run from behind a
+gateway, and the one to run when an engine is upgraded. `tls_echo.py` is still
+the only route to the fingerprints that need a server which answers - the
+HTTP/2 SETTINGS hash and the header order - and to `obscura`, which refuses to
+navigate to `localhost` at all.
 
 The rest reach a gateway or a target. Before running one, read
 [Operational safety](../README.md#operational-safety) in the top-level README:

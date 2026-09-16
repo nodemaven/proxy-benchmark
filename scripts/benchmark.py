@@ -14,11 +14,13 @@ What it guarantees:
                  and the reason behind its verdict
   resume         an interrupted run continues instead of re-sending queries the
                  targets have already answered
-  restraint      a cell that fails `--breaker` times in a row stops and stays
-                 stopped, and the run says so rather than rotating a session
-                 and trying again. A failure shared by many cells at once stops
-                 the whole run instead, because that one is not about the
-                 targets and a night of it is worth nothing
+  restraint      a cell whose last `--breaker` sessions were all refused stops
+                 and stays stopped, and the run says so rather than rotating a
+                 session and trying again. Sessions and not attempts, because a
+                 batch is one browser on one sticky exit and ten attempts down a
+                 dead exit is one observation repeated. A failure shared by many
+                 cells at once stops the whole run instead, because that one is
+                 not about the targets and a night of it is worth nothing
   disclosure     the cost is printed before anything is sent, and --dry-run
                  prints it without sending at all
 
@@ -47,7 +49,7 @@ tolerate_unencodable_output()
 from nmbench import config, engines, gateway, matrix, providers, proxy
 from nmbench import queries as querylist
 from nmbench.artifacts import ArtifactStore
-from nmbench.breaker import CircuitBreaker, TransportWatch
+from nmbench.breaker import SessionBreaker, TransportWatch
 from nmbench.engines.base import validate_preset
 from nmbench.relay import Relay
 from nmbench.sink import RUNS_DIR, JsonlSink
@@ -118,24 +120,34 @@ def parse_args():
                              "patchright while costing zendriver most of its "
                              "yield")
     parser.add_argument("--pause", type=float, default=5.0)
-    parser.add_argument("--breaker", type=int, default=10,
-                        help="consecutive failures that stop a cell. Higher "
-                             "sees more of a partial refusal before giving up "
-                             "and costs that many confirmed-automation retries "
-                             "against the target, so it is a pool-safety "
-                             "setting and not a patience setting")
+    parser.add_argument("--breaker", type=int, default=3,
+                        help="consecutive SESSIONS with nothing served that "
+                             "stop a cell. One session is one browser on one "
+                             "sticky exit, so this is also the number of "
+                             "distinct exits that have to fail before the cell "
+                             "is given up, and a cell costs roughly this many "
+                             "times --batch confirmed-automation retries "
+                             "against a target that refuses everything: a "
+                             "pool-safety setting and not a patience setting. "
+                             "It counted attempts and not sessions until "
+                             "2026-09-14, where --batch 10 --breaker 10 made "
+                             "the limit exactly one session and a single bad "
+                             "exit ended a cell for good")
     parser.add_argument("--direct", action="store_true",
                         help="no proxy: the targets see this machine's own "
                              "address. A control, not a normal mode")
     parser.add_argument("--headful", action="store_true",
                         help="a real window with a real compositor and GPU. "
                              "Not every engine can do it")
-    parser.add_argument("--humanize", action="store_true",
-                        help="humanized cursor movement, where the engine has "
-                             "it. Camoufox and cloak declare it and the rest "
-                             "do not, so the runner refuses the flag for a "
-                             "matrix holding any engine without it rather than "
-                             "applying it to some columns and not others")
+    parser.add_argument("--humanize", default="off",
+                        choices=["off", "engine", "trueman"],
+                        help="humanized cursor movement. `engine` is the "
+                             "engine's own, which Camoufox and cloak declare "
+                             "and the rest do not, so the runner refuses the "
+                             "flag for a matrix holding any engine without it "
+                             "rather than applying it to some columns and not "
+                             "others. `trueman` is our own mover and is "
+                             "refused here outright - see the preflight")
     parser.add_argument("--param", action="append", default=[],
                         metavar="KEY=VALUE",
                         help="extra gateway parameter, repeatable. Every "
@@ -163,6 +175,15 @@ def parse_args():
                         help="browser build for the Chromium engines, for "
                              "example chrome. It reaches the cell key, so two "
                              "builds of one engine stay separable in the output")
+    parser.add_argument("--chrome-binary", default=None, metavar="PATH",
+                        help="run every engine on this one browser, so the "
+                             "engine is the variable instead of the browser it "
+                             "happens to bundle. Off by default: every row on "
+                             "disk was measured with each engine on its own "
+                             "build, and a silent default would make new rows "
+                             "incomparable with them without any column saying "
+                             "so. Engines that cannot take a binary are refused "
+                             "rather than run unpinned")
     return parser, parser.parse_args()
 
 
@@ -177,6 +198,25 @@ def resolve_resume(value: str) -> list:
 
 def preflight(parser, args, cells, chosen: dict) -> None:
     """Everything that can be checked without sending a request."""
+    # Refused here and offered in `probe_and_hold.py`, and the difference is
+    # mechanical rather than a policy: this runner calls `active.fetch()` and
+    # nothing else, which navigates straight to a URL and clicks nothing, so
+    # `nmbench.humanize` would have no click to walk to and the cursor would
+    # never move. Every row would still carry `humanize_mode=trueman`. That is
+    # the `--humanize` failure exactly - an option accepted at the command line
+    # and honoured by nobody - and it is cited three times in this tree, so it
+    # is refused rather than documented. The typed entry path lives in
+    # `scripts/probes/probe_and_hold.py --entry home`; that is where the flag
+    # works.
+    if args.humanize == "trueman":
+        parser.error(
+            "--humanize trueman is not available in this runner: it only ever "
+            "calls fetch(), which navigates to a search URL and clicks "
+            "nothing, so no pointer would move while every row still recorded "
+            "humanize_mode=trueman. Use "
+            "scripts/probes/probe_and_hold.py --entry home --humanize trueman, "
+            "which types into the box and clicks the button")
+
     availability = engines.report_availability()
     for name in {c.engine for c in cells}:
         if availability.get(name):
@@ -210,15 +250,30 @@ def preflight(parser, args, cells, chosen: dict) -> None:
                          f"would claim a blocking that never happened. Add "
                          f"--preset none, or drop the engine and measure "
                          f"blocking as its own axis against one that has it")
-        if args.humanize and not engine.supports_humanize:
-            parser.error(f"engine {name!r} has no humanized input, so "
-                         f"--humanize would move the cursor for the engines "
-                         f"that do and change nothing for this one. The run "
-                         f"would then compare humanized Camoufox against "
-                         f"unhumanized everything else and read as an engine "
-                         f"difference. Drop the engine, or drop the flag and "
-                         f"measure humanize as its own axis against the same "
-                         f"engine")
+        if args.chrome_binary and not engine.supports_chrome_binary:
+            parser.error(f"engine {name!r} cannot be pointed at a browser "
+                         f"binary, so --chrome-binary would pin the engines "
+                         f"that can take it and leave this one on whatever it "
+                         f"bundles. That is the failure this flag exists to "
+                         f"remove: measured 2026-09-02 in "
+                         f"tls_clienthello_20260902T180555Z.jsonl, the TLS "
+                         f"fingerprint of these engines is decided by the "
+                         f"Chrome major and not by the library, and the engines "
+                         f"in the registry span majors 136 to 151. A matrix "
+                         f"mixing a pinned engine with an unpinned one prints "
+                         f"the browser difference in the engine column. Drop "
+                         f"the engine, or drop the flag and accept that the "
+                         f"build is uncontrolled")
+        if args.humanize not in engine.humanize_modes:
+            parser.error(f"engine {name!r} has no {args.humanize!r} "
+                         f"humanization - it offers "
+                         f"{sorted(engine.humanize_modes)}. Applying it would "
+                         f"move the cursor for the engines that have it and "
+                         f"change nothing for this one. The run would then "
+                         f"compare humanized Camoufox against unhumanized "
+                         f"everything else and read as an engine difference. "
+                         f"Drop the engine, or drop the flag and measure "
+                         f"humanize as its own axis against the same engine")
 
     for cell in cells:
         try:
@@ -279,13 +334,21 @@ def preflight(parser, args, cells, chosen: dict) -> None:
         # `c.provider` is empty on the default provider, because the key of a
         # single-provider run has to stay byte-identical to the 132 already on
         # disk. Read it back through that default rather than comparing to "".
+        #
+        # The wire value and not the axis value, because `matrix.ANY` is a
+        # keyword of this harness: on a gateway that spells it, the spelling is
+        # what has to survive validation, and on one that does not, nothing is
+        # sent and there is nothing here to check.
         default = providers.default_name()
         for country in sorted({c.country for c in cells
                                if not c.direct and c.country
                                and (c.provider or default) == name}):
+            wire = (provider.country_any if country == matrix.ANY else country)
+            if not wire:
+                continue
             try:
                 proxy.build_username("check", provider=provider,
-                                     country=country)
+                                     country=wire)
             except proxy.ParamError as exc:
                 parser.error(f"provider {name!r}: {exc}")
 
@@ -430,6 +493,20 @@ def describe(plan_estimate: dict, args, cells, batches, lists_used: dict,
                       f"{','.join(asked_countries)} was not asked for and its "
                       f"cells are built once. The address is whatever single "
                       f"exit it has")
+            # `any` is the harness's keyword for an unpinned country and the
+            # gateways disagree about whether it can be asked for at all, so
+            # what each one is actually sent is printed before the run rather
+            # than left to be worked out from the rows. Until 2026-09-14 the
+            # keyword went out as written and three gateways refused the tunnel.
+            elif matrix.ANY in asked_countries:
+                if provider.country_any:
+                    print(f"          {name}: unpinned is sent as "
+                          f"country={provider.country_any}")
+                else:
+                    print(f"          {name}: unpinned sends no country "
+                          f"parameter at all - its definition names no "
+                          f"spelling for one, so the exit is whatever the "
+                          f"gateway's default is")
             if not config.available(provider):
                 print(f"          {name}: credentials not set "
                       f"({variables['login']}), so its cells "
@@ -461,11 +538,21 @@ def describe(plan_estimate: dict, args, cells, batches, lists_used: dict,
             print(f"          {cannot} cannot align and will be refused: they "
                   f"would report the host timezone while the others matched "
                   f"the exit, which is not a comparison")
-    if args.humanize:
+    if args.humanize != "off":
         cannot = sorted({c.engine for c in cells
-                         if not engines.REGISTRY[c.engine].supports_humanize})
-        print("humanize: on"
-              + (f", but {cannot} have no humanized input and will be refused"
+                         if args.humanize
+                         not in engines.REGISTRY[c.engine].humanize_modes})
+        print(f"humanize: {args.humanize}"
+              + (f", but {cannot} have no {args.humanize!r} humanization and "
+                 f"will be refused" if cannot else ""))
+    if args.chrome_binary:
+        cannot = sorted({c.engine for c in cells
+                         if not engines.REGISTRY[c.engine]
+                         .supports_chrome_binary})
+        print(f"browser : pinned to {args.chrome_binary}"
+              + (f", but {cannot} cannot take a binary and will be refused: "
+                 f"they would run whatever they bundle while the rest ran this, "
+                 f"and the browser difference would print in the engine column"
                  if cannot else ""))
     print(f"cost    : about {plan_estimate['megabytes']} MB and "
           f"{plan_estimate['hours']} h")
@@ -503,10 +590,20 @@ def summarise(rows: list, breakers: dict) -> None:
     target columns: two cells can share both and differ only in a gateway
     parameter, and averaging those together would report a number belonging to
     neither.
+
+    Two rates and not one, added 2026-09-14. `pass` is per attempt and `sess`
+    is how many of the cell's sessions served anything at all, and they answer
+    different questions because a batch is one browser on one sticky exit: a
+    cell that draws nine good exits and one dead one reads about 90% either
+    way, and a cell where every exit serves the first query and then gets
+    blocked reads 10% per attempt and 10/10 per session. Only the second pair
+    tells a caller whether the problem is the pool or the target, and the
+    attempt rate alone is what the 2026-09-11 file was read through.
     """
-    print("\n" + "=" * 100)
-    print(f"{'engine':<20}{'target':<14}{'exit':<16}{'n':>5}{'pass':>7}  verdicts")
-    print("-" * 100)
+    print("\n" + "=" * 108)
+    print(f"{'engine':<20}{'target':<14}{'exit':<16}{'n':>5}{'pass':>7}"
+          f"{'sess':>8}  verdicts")
+    print("-" * 108)
     grouped = defaultdict(list)
     for row in rows:
         grouped[row["cell"]].append(row)
@@ -523,7 +620,18 @@ def summarise(rows: list, breakers: dict) -> None:
         counts = Counter(r["verdict"] for r in cell_rows)
         breaker = breakers.get(cell_key)
         stopped = f"  STOPPED: {breaker.reason}" if breaker and breaker.tripped else ""
-        rate = f"{100 * passed / len(cell_rows):.0f}%"
+        # Not a zero, and the distinction is the reason this column can be
+        # empty at all. If no attempt in the cell reached the target's
+        # application layer there is nothing to take a percentage of: `0%`
+        # reads as "the target refused us every time" and what happened is that
+        # the target was never asked. Six cells of the 2026-09-11 run were
+        # published at 0% on exactly this.
+        no_verdict = breaker is not None and breaker.no_verdict
+        rate = "-" if no_verdict else f"{100 * passed / len(cell_rows):.0f}%"
+        # Sessions that served at least one attempt, over sessions run. A
+        # session is one exit, so this is also the cell's exit yield.
+        sessions = (f"{breaker.alive_sessions}/{breaker.sessions}"
+                    if breaker and breaker.sessions else "-")
         # Two cells can share an engine and a target and differ only in where
         # they left from, which is the whole point of the country axis. Printing
         # them as one line would average two measurements into neither.
@@ -531,14 +639,31 @@ def summarise(rows: list, breakers: dict) -> None:
         # `gateway` and not `-`, for the same reason the cell key says it: a
         # gateway selling no country is a place these rows left from, and a dash
         # would read as a column that failed to be filled in.
+        # The axis value first and the wire value behind it. An unpinned cell
+        # sends no country to three of the four gateways here, so reading the
+        # wire alone would print `gateway` for a cell that did vary the axis and
+        # collapse it into the row of a provider that sells no country at all.
         where = ("direct" if first.get("direct")
-                 else params.get("country") or "gateway")
+                 else first.get("country") or params.get("country")
+                 or "gateway")
         if first.get("geo") == "align":
             where += "+geo"
         if many_providers and first.get("provider"):
             where = f"{first['provider'][:8]}/{where}"
         print(f"{first['engine']:<20}{first['target']:<14}{where:<16}"
-              f"{len(cell_rows):>5}{rate:>7}  {dict(counts)}{stopped}")
+              f"{len(cell_rows):>5}{rate:>7}{sessions:>8}  "
+              f"{dict(counts)}{stopped}")
+
+    silent = sorted(key for key, cell_rows in grouped.items()
+                    if breakers.get(key) is not None
+                    and breakers[key].no_verdict)
+    if silent:
+        print(f"\n{len(silent)} of {len(grouped)} cells have no pass rate at "
+              f"all: every attempt in them failed below the application layer, "
+              f"so the target never answered and there is nothing to be a "
+              f"percentage of. Read these as unmeasured, not as zero.")
+        for key in silent:
+            print(f"  {key}")
 
     print("\nwhy the non-ok verdicts happened")
     print("-" * 92)
@@ -568,6 +693,20 @@ def main() -> int:
     unknown = [t for t in target_names if t not in TARGETS]
     if unknown:
         parser.error(f"unknown targets {unknown}, known: {sorted(TARGETS)}")
+
+    if args.chrome_binary and args.channel:
+        parser.error("--channel and --chrome-binary both name the browser to "
+                     "launch, and the path wins silently. Read 2026-09-02 in "
+                     "the bundled driver, coreBundle.js: `resolveExecutablePath` "
+                     "returns the path whenever one is given, and the registry "
+                     "lookup that reads the channel is the `else` branch. So a "
+                     "run passing both records a channel that decided nothing. "
+                     "Pass the path alone")
+    if args.chrome_binary and not Path(args.chrome_binary).is_file():
+        parser.error(f"--chrome-binary {args.chrome_binary!r} is not a file. "
+                     f"Checked here rather than at launch, because a bad path "
+                     f"surfaces once per cell as an engine error and the run "
+                     f"would spend the matrix discovering it")
 
     provider_names = [p.strip() for p in (args.providers or "").split(",")
                       if p.strip()] or [providers.default_name()]
@@ -667,7 +806,7 @@ def main() -> int:
                           sample_ok=args.sample_ok,
                           enabled=not args.no_bodies)
     registry = gateway.ExitRegistry()
-    breakers = {c.key: CircuitBreaker(c.key, limit=args.breaker,
+    breakers = {c.key: SessionBreaker(c.key, limit=args.breaker,
                                       base_pause=args.pause) for c in cells}
     # One level above the cell breakers, and the only thing in the run that can
     # see a transport failure. A cell breaker stops a cell and moves on, which
@@ -693,7 +832,7 @@ def main() -> int:
             sid = f"bm{uuid.uuid4().hex[:8]}"
             params = ({} if cell.direct
                       else proxy.session_params(sid, provider=provider,
-                                                **cell.params))
+                                                **cell.params_for(provider)))
 
             aligning = cell.geo == "align"
             if cell.direct:
@@ -749,6 +888,7 @@ def main() -> int:
                        "preset": cell.preset, "headless": not args.headful,
                        "humanize": args.humanize, "store": store,
                        "channel": args.channel,
+                       "chrome_binary": args.chrome_binary,
                        "provider": provider,
                        "geoip": aligning,
                        "timezone_id": timezone_id if aligning else None}
@@ -808,6 +948,14 @@ def main() -> int:
                         row.update({
                             "cell": cell.key, "target": cell.target,
                             "batch_index": batch.index, "geo": cell.geo,
+                            # What the axis asked for, beside the `params`
+                            # column which is what went on the wire. The two
+                            # differ for an unpinned cell and that difference is
+                            # the whole of the 2026-09-11 defect: with only the
+                            # wire value on the row, three providers' unpinned
+                            # cells are indistinguishable from a gateway that
+                            # sells no country.
+                            "country": cell.country,
                             "relayed": bool(hop),
                             "exit_prefix": identity.get("exit_prefix"),
                             "exit_label": identity.get("exit_label"),
@@ -826,6 +974,14 @@ def main() -> int:
                             # refused, or never asked. Without it those are one
                             # row and the saving cannot be attributed.
                             row["relay_blocked"] = spent["blocked"]
+                            # The session's handshake, not this attempt's - see
+                            # `Relay.since`. The first is taken rather than the
+                            # last so the value is stable across a session; a
+                            # second distinct one would be a finding, and
+                            # `Relay.ja4` keeps the whole list for the run that
+                            # goes looking.
+                            if spent["ja4"]:
+                                row["tls_ja4"] = spent["ja4"][0]
                             # The gateway names an exit on only some of its
                             # CONNECT replies, so an empty list here means it did
                             # not say, never that the address was reused.
@@ -863,14 +1019,14 @@ def main() -> int:
                                         "verdict_reason": watch.reason})
                             raise TransportLost(watch.reason)
 
-                        wait = breaker.record(row["verdict"])
-                        if breaker.tripped:
-                            print(f"  {cell.key}: stopped, {breaker.reason}")
-                            sink.write({"cell": cell.key, "target": cell.target,
-                                        "verdict": "cell_stopped",
-                                        "verdict_reason": breaker.reason})
-                            break
-                        time.sleep(wait)
+                        # The error string and not only the verdict: `error`
+                        # covers both a target that would not answer and a
+                        # tunnel that never opened, and telling those apart is
+                        # the whole of what this breaker adds. Nothing here can
+                        # stop the cell - a session is judged when it ends, so
+                        # the rest of a batch is always sent and the exit is
+                        # always given its ten attempts.
+                        time.sleep(breaker.record(row["verdict"], row["error"]))
             except TransportLost:
                 # The transport, not this session. It ends the run, and it must
                 # reach the handler below rather than the catch-all added under
@@ -883,9 +1039,6 @@ def main() -> int:
                 # fail the same way on this cell's remaining batches.
                 breaker.trip(f"engine could not start: {exc}")
                 print(f"  {cell.key}: {exc}")
-                sink.write({"cell": cell.key, "target": cell.target,
-                            "verdict": "cell_stopped",
-                            "verdict_reason": breaker.reason})
             except Exception as exc:
                 # A browser that would not launch, a relay that would not bind,
                 # a session that died between two queries. All of these are this
@@ -904,25 +1057,59 @@ def main() -> int:
                 # Written as its own verdict rather than as `error`, because
                 # `error` is an attempt that reached the network and this never
                 # did. Pooling them would charge our own launcher to the
-                # engine's error rate. It is fed to the breaker all the same: an
-                # engine that cannot start should stop its own cell rather than
-                # draw a fresh exit every batch for nothing.
+                # engine's error rate.
+                #
+                # Nothing is fed to the breaker here, which is a change of
+                # 2026-09-14 and not an omission. The old runner recorded a
+                # synthetic `error` attempt so that an engine which cannot start
+                # would stop its own cell; a session breaker gets that for free
+                # and more honestly, because a batch that sent nothing closes as
+                # `abandoned` below and a run of those stops the cell under a
+                # reason that names the launcher rather than the target. The
+                # synthetic attempt would also have been counted as having
+                # reached the target, which is the one thing it certainly did
+                # not do.
                 reason = f"{type(exc).__name__}: {exc}".strip()
                 # zendriver's launch failure is a multi-line banner, so the
                 # console gets the first line and the row keeps all of it.
                 headline = (reason.splitlines() or [""])[0][:160]
-                breaker.record("error")
                 print(f"  {cell.key}: the session did not start or did not "
                       f"survive. This batch is lost, the run continues. "
                       f"{headline}")
                 sink.write({"cell": cell.key, "target": cell.target,
                             "verdict": "session_failed",
                             "verdict_reason": reason})
-                if breaker.tripped:
-                    print(f"  {cell.key}: stopped, {breaker.reason}")
-                    sink.write({"cell": cell.key, "target": cell.target,
-                                "verdict": "cell_stopped",
-                                "verdict_reason": breaker.reason})
+
+            # One place, after every path out of the session above, because a
+            # session is the unit this breaker judges and there is no other
+            # moment at which it is over. The handlers report what went wrong
+            # with the batch; whether the cell continues is decided here.
+            outcome = breaker.end_session()
+            sink.write({"cell": cell.key, "target": cell.target,
+                        "batch_index": batch.index, "geo": cell.geo,
+                        "country": cell.country,
+                        # The id string, which is what an attempt row carries in
+                        # this column too. Same name has to mean the same thing
+                        # or the two row kinds cannot be read together, and
+                        # reading them together is the point of the column.
+                        "provider": cell.provider,
+                        "verdict": "session_closed",
+                        "verdict_reason": outcome,
+                        "exit_prefix": identity.get("exit_prefix"),
+                        "exit_label": identity.get("exit_label"),
+                        "exit_org": identity.get("org")})
+            if outcome == "unreachable":
+                # Said out loud at the session that produced it rather than
+                # only in the summary, because it is the reading the console
+                # otherwise gets wrong: a wall of `error` lines looks like a
+                # target refusing us and this one never got that far.
+                print(f"  {cell.key}: nothing in this session reached the "
+                      f"target, so it scores nothing rather than zero")
+            if breaker.tripped:
+                print(f"  {cell.key}: stopped, {breaker.reason}")
+                sink.write({"cell": cell.key, "target": cell.target,
+                            "verdict": "cell_stopped",
+                            "verdict_reason": breaker.reason})
     except TransportLost:
         # Already reported where it was detected, with the state that justified
         # it. Reaching here only means the browser has been closed.

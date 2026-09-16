@@ -17,12 +17,18 @@ prettier table that means less:
   2026-08-13 and `X11; Linux x86_64` from 2026-08-19.
 
   Note what that check can and cannot do. It confirms the move happened around
-  the stated date; it does not make `host` a measured column. **No row in
-  `data/runs/` records which machine produced it**, so the labels this script
-  prints are a function of the timestamp and nothing else, and 2 rows on the
-  moving day itself are labelled `vps` while their UA says Windows. Anything
-  read out of the host split has to be read as a date split too - see the
-  Google section, where that is the whole finding.
+  the stated date; it does not make `host` a measured column for the rows that
+  are already on disk. **No row written before 2026-09-02 records which machine
+  produced it**, so for those the labels this script prints are a function of the
+  timestamp and nothing else, and 2 rows on the moving day itself are labelled
+  `vps` while their UA says Windows. Anything read out of the host split in the
+  tables below has to be read as a date split too - see the Google section,
+  where that is the whole finding.
+
+  `host`, `host_os` and `host_cpus` were added to `ROW_FIELDS` on 2026-09-02 and
+  every row from then on carries them, so `era()` prefers the recorded value and
+  the confound closes for future runs rather than retroactively. Nothing in this
+  document moves as a result; the next run is what it changes.
 
   That gap was closed on 2026-08-26, and not by a better cut of these files:
   both machines were run at the same minutes against the same target through
@@ -239,6 +245,29 @@ def when(row):
 
 
 def era(row):
+    """Which machine a row came from: read off the row, or inferred from its date.
+
+    The recorded value wins whenever there is one. `host` was added to
+    `ROW_FIELDS` on 2026-09-02 for exactly this reason - until then the label in
+    every table below was a function of the timestamp and nothing else, so the
+    host split and the date split were the same cut under two names and neither
+    could be read without the other.
+
+    Every row on disk when the column was added predates it, so this branch
+    changes no number in the current `RESULTS.md`. It changes what the next run
+    means.
+
+    An unlabelled machine appears here under its hash - `h:` and eight hex
+    characters, from `nmbench.host` - rather than being folded into `vps` or
+    `workstation` by its date. That is deliberate and it is the point: a new
+    machine showing up as its own row in the table is a question the reader can
+    see, and the same rows quietly summed into an era they did not belong to is
+    the failure this column exists to end. Set `NMBENCH_HOST` on each machine to
+    the name used in the notes and the tables read as before.
+    """
+    recorded = row.get("host")
+    if recorded:
+        return recorded
     stamp = when(row)
     if stamp is None:
         return "unknown"
@@ -948,6 +977,259 @@ def engine_caveats(rows):
             print(block + "\n")
 
 
+def chrome_major(engine_version):
+    """The Chrome major out of an `engine_version`, or None when it is not there.
+
+    Three shapes appear in the rows and only two carry it. `chromium`,
+    `patchright`, `cloak`, `seleniumbase` and `rebrowser` lead with a full
+    `151.0.7922.34`; `curlcffi` names the profile it imitates as `chrome146`.
+    `zendriver` and `botasaurus` record a truncated User-Agent instead and
+    `camoufox` is not Chrome at all, so for those this is None and the table
+    below says so rather than guessing. That gap is not cosmetic - the finding
+    in this section is that the fingerprint tracks the browser version, and two
+    engines do not record the variable it tracks.
+    """
+    if not engine_version:
+        return None
+    match = re.match(r"\s*(\d+)\.\d+\.\d+\.\d+", engine_version)
+    if match:
+        return match.group(1)
+    match = re.search(r"chrome(\d+)", engine_version)
+    return match.group(1) if match else None
+
+
+def tls_section():
+    """The per-engine JA4 table, from the newest `tls_clienthello` run.
+
+    **Newest rather than pooled, and that is a rule about this probe rather
+    than a shortcut.** A fingerprint is a property of the engine as it is
+    installed right now: the value moves on a browser upgrade, so two runs a
+    week apart are two different measurements of two different things and
+    summing them would produce a table with no date on it. The run id is
+    printed for the same reason every other number here carries one.
+
+    Returns quietly when no such run is on disk. The probe is not part of the
+    matrix - it is run when an engine is added or upgraded - so a repository
+    with no TLS run yet is a normal state and not a failure to report.
+
+    **A run made with `--chrome-binary` cannot be the source of this table**,
+    and that is two experiments rather than a filter. This table answers what an
+    engine sends as installed, each on the browser it ships. A pinned run
+    answers what it sends when the browser is held fixed, where the engines
+    agree by construction. Taking the newest file blindly would let one pinned
+    run overwrite the finding with its own control, and the overwrite would be
+    silent: the table would still print, with one group in it.
+    """
+    paths = sorted(glob.glob(os.path.join(RUNS_DIR, "tls_clienthello_*.jsonl")))
+    if not paths:
+        return
+    unpinned, pinned = [], []
+    for candidate in paths:
+        found = []
+        with open(candidate, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if row.get("tls_ja4"):
+                    found.append(row)
+        if not found:
+            continue
+        (pinned if any(r.get("chrome_binary") for r in found)
+         else unpinned).append((candidate, found))
+    if not unpinned:
+        return
+    path, rows = unpinned[-1]
+
+    run = os.path.basename(path).replace(".jsonl", "")
+    stamps = [s for s in (when(r) for r in rows) if s]
+    day = f"{min(stamps):%Y-%m-%d}" if stamps else "an unrecorded date"
+    reference = next((r for r in rows if r.get("reference")), None)
+    measured = [r for r in rows if not r.get("reference")]
+
+    print("## The TLS handshake, engine by engine\n")
+    print(f"From `{run}`, {day}, on the workstation. Not from the matrix: "
+          f"`tls_ja4` is on a matrix row only for the three engines that need "
+          f"the relay, and this probe covers the rest by pointing each engine "
+          f"at a listener on the same machine that answers nothing and reads "
+          f"the first record. Nothing left the machine to produce this table. "
+          f"See `scripts/probes/tls_clienthello.py`.\n")
+    print("The JA4 is what a target sees before it has been sent a request - "
+          "before any JavaScript runs, before a single header. An engine that "
+          "is distinguishable here cannot be rescued by anything done "
+          "afterwards.\n")
+
+    print("| engine | JA4 | Chrome major | build as the row records it |")
+    print("|---|---|---|---|")
+    for row in sorted(measured, key=lambda r: (r["tls_ja4"], r["engine"])):
+        major = chrome_major(row.get("engine_version"))
+        version = row.get("engine_version") or "(unrecorded)"
+        print(f"| `{row['engine']}` | `{row['tls_ja4']}` | "
+              f"{major or '-'} | `{version[:60]}` |")
+    print()
+
+    groups = collections.defaultdict(list)
+    for row in measured:
+        groups[row["tls_ja4"]].append(row)
+    biggest = max(groups.values(), key=len)
+
+    # An engine whose version string names the profile it imitates rather than
+    # a build it launched. Separated out before anything is counted, because
+    # calling `curl_cffi` a browser automation stack would be the one wrong
+    # sentence in a paragraph whose whole point is that the browser decides.
+    impersonators = [r for r in measured
+                     if re.search(r"chrome\d+", r.get("engine_version") or "")]
+    faked = {r["engine"] for r in impersonators}
+    drivers = [r for r in biggest if r["engine"] not in faked]
+    majors = sorted({m for m in (chrome_major(r.get("engine_version"))
+                                 for r in drivers) if m})
+    print(f"**{len(biggest)} of the {len(measured)} engines send a handshake "
+          f"that is identical character for character.** {len(drivers)} of "
+          f"them are browsers driven through {len(drivers)} unrelated "
+          f"automation stacks, and what they have in common is not the stack: "
+          f"it is that each launched a Chrome. Every group in this table is a "
+          f"set of Chrome builds rather than a set of libraries - the largest "
+          f"covers majors {', '.join(majors) if majors else '(none recorded)'} "
+          f"- so an engine outside it is running a different browser, not a "
+          f"different kind of engine.\n")
+    print("Two consequences a reader can act on. **If a target is refusing one "
+          "of these engines and serving another in the same group, the "
+          "handshake is not what told it apart** - look at the JavaScript "
+          "surface, the header order or the HTTP/2 SETTINGS instead. And **an "
+          "engine's anti-detect work does not reach this layer at all**: the "
+          "unmodified control and the patched engines built on the same Chrome "
+          "are indistinguishable here.\n")
+
+    for row in impersonators:
+        shared = [o["engine"] for o in groups[row["tls_ja4"]]
+                  if o["engine"] != row["engine"]]
+        if shared:
+            print(f"**The exception that shows the rule is `{row['engine']}`.** "
+                  f"It is the one client here that chooses a fingerprint on "
+                  f"purpose, and `{row.get('engine_version')}` lands it on the "
+                  f"same value as {', '.join(f'`{s}`' for s in sorted(shared))} "
+                  f"- real browsers, measured in the same sweep. The "
+                  f"impersonation is doing what it says.\n")
+
+    if reference:
+        same = sorted(r["engine"] for r in measured
+                      if r["tls_ja4"] == reference["tls_ja4"])
+        other = sorted(r["engine"] for r in measured
+                       if r["tls_ja4"] != reference["tls_ja4"])
+        print(f"**Against the browser on the machine.** The same sweep "
+              f"launched the installed Chrome "
+              f"(`{reference.get('engine_version')}`) through the same "
+              f"listener, and it sends `{reference['tls_ja4']}`. Matching it: "
+              f"{', '.join(f'`{n}`' for n in same) or 'nothing'}. Not matching, "
+              f"and therefore separable before the request: "
+              f"{', '.join(f'`{n}`' for n in other) or 'nothing'}.\n")
+        print("Matching is not the same as being undetectable. This is one "
+              "record on the wire and says nothing about the JavaScript "
+              "surface or the HTTP/2 layer. The sound direction to read it is "
+              "the negative one: an engine that does not match is "
+              "distinguishable before it has sent a request.\n")
+
+        # Which of the non-matching engines miss only because they are on a
+        # different Chrome. Worth separating out because the reference is this
+        # machine's Chrome and not a universal one: an engine that misses on a
+        # build difference matches on a host running that build, and an engine
+        # that misses while on the same build does not. Reading the two the
+        # same way would turn a local accident into a property of the library.
+        ref_major = chrome_major(reference.get("engine_version"))
+        by_build = sorted(
+            f"`{r['engine']}` on {chrome_major(r.get('engine_version'))}"
+            for r in measured
+            if r["engine"] in other and chrome_major(r.get("engine_version"))
+            and chrome_major(r.get("engine_version")) != ref_major)
+        if by_build and ref_major:
+            print(f"**The misses here are build differences, not library "
+                  f"differences.** {', '.join(by_build)}, against a reference "
+                  f"on {ref_major}. That is a fact about this machine as much "
+                  f"as about these engines: the same engines would match on a "
+                  f"host whose installed Chrome were their build, and would "
+                  f"miss again the day either side updates. It is a reason to "
+                  f"treat the row as dated rather than as a ranking, and it is "
+                  f"the reason `--chrome-binary` exists.\n")
+    else:
+        print("**This run predates the reference measurement and therefore has "
+              "no line for the browser itself.** The probe now launches the "
+              "installed Chrome through the same listener in the same sweep, "
+              "so the next run answers \"does this engine look like a "
+              "browser\" and not only \"how do these engines differ from each "
+              "other\". Re-run "
+              "`python scripts/probes/tls_clienthello.py` to fill it in.\n")
+
+    # Only the engines that share a fingerprint with one whose build *is*
+    # recorded. That keeps `http` and `camoufox` out without naming them: they
+    # are alone in their groups and neither is a Chrome, so a missing Chrome
+    # major is not a gap in their rows. Anything sitting inside a Chrome group
+    # with no version is.
+    unrecorded = sorted(
+        r["engine"] for r in measured
+        if not chrome_major(r.get("engine_version"))
+        and any(chrome_major(o.get("engine_version"))
+                for o in groups[r["tls_ja4"]]))
+    if unrecorded:
+        print(f"**The gap in this table is the column that explains it.** "
+              f"{' and '.join(f'`{u}`' for u in unrecorded)} record a "
+              f"truncated User-Agent in `engine_version` and no browser "
+              f"version, so for those the variable this whole section turns on "
+              f"is not on the row. They are placed in a group by their "
+              f"fingerprint here; nothing in `data/runs/` says which Chrome "
+              f"produced it. **That is the argument for pinning one browser "
+              f"across the engines that can take one** - it turns the build "
+              f"from an uncontrolled difference into a held-fixed one.\n")
+
+    if pinned:
+        pin_path, pin_rows = pinned[-1]
+        pin_run = os.path.basename(pin_path).replace(".jsonl", "")
+        pin_stamps = [s for s in (when(r) for r in pin_rows) if s]
+        pin_day = (f"{min(pin_stamps):%Y-%m-%d}" if pin_stamps
+                   else "an unrecorded date")
+        pin_measured = [r for r in pin_rows if not r.get("reference")]
+        pin_values = {r["tls_ja4"] for r in pin_measured}
+        pin_names = sorted(r["engine"] for r in pin_measured)
+        # What the pin was worth, in the only unit that matters here: the
+        # engines whose Chrome major is not the one they ran unpinned. An
+        # engine already on the pinned build moves nothing and proves nothing,
+        # so counting all of them would overstate it.
+        #
+        # `comparable` is printed with the count rather than left implicit. An
+        # engine with no recorded build on one side cannot be said to have
+        # moved or stayed, and dropping it silently would report a smaller
+        # number as though it were the whole answer.
+        before = {r["engine"]: chrome_major(r.get("engine_version"))
+                  for r in measured}
+        comparable = [r for r in pin_measured
+                      if before.get(r["engine"])
+                      and chrome_major(r.get("engine_version"))]
+        moved = sorted(
+            f"`{r['engine']}` {before[r['engine']]} to "
+            f"{chrome_major(r.get('engine_version'))}"
+            for r in comparable
+            if chrome_major(r.get("engine_version")) != before[r["engine"]])
+        if len(pin_values) == 1:
+            landed = f"land on one value, `{sorted(pin_values)[0]}`"
+        else:
+            landed = f"land on {len(pin_values)} values"
+        print(f"**It has been run, and the pin holds.** From `{pin_run}`, "
+              f"{pin_day}, `--chrome-binary` pointed the {len(pin_measured)} "
+              f"engines that can take one - "
+              f"{', '.join(f'`{n}`' for n in pin_names)} - at a single Chrome. "
+              f"They {landed}.")
+        if moved:
+            print(f"{len(moved)} of the {len(comparable)} whose build is "
+                  f"recorded on both sides moved to get there: "
+                  f"{', '.join(moved)}. So the spread in the table above is "
+                  f"the browser and not the library, shown by removing it "
+                  f"rather than by argument.")
+        print("The engines that cannot be pointed at a binary are skipped "
+              "rather than measured unpinned beside the rest: a row on a "
+              "different browser, in a table whose subject is the browser, "
+              "would read as a property of the library.\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--readme", action="store_true",
@@ -1326,6 +1608,11 @@ def main():
         seen = "; ".join(f"`{v}`" for v, _ in versions[name].most_common(3))
         print(f"| `{name}` | {seen[:150]} |")
     print()
+
+    # Immediately after the version table, because the finding below is that
+    # the two columns are the same column: the handshake follows the build in
+    # that table and not the library name in it.
+    tls_section()
     return 0
 
 

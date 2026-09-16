@@ -37,6 +37,12 @@ itself:
   measured the pool            cell that the target never once answered. That
                                cell reads `unmeasured`, never 0%: it carries no
                                observation of the engine at all
+  ten attempts down one exit   a batch is one browser on one sticky exit - 24 of
+  are one observation          24 sessions held a single exit prefix, measured -
+                               so the attempt tables have a second denominator
+                               under them, how many exits the gateway gave us
+                               that were worth anything. That one is the
+                               provider's and it gets its own section
 
 Usage:
     python scripts/analysis/report.py
@@ -86,15 +92,50 @@ def load(paths: list) -> list:
     return rows
 
 
-def engine_label(row: dict, countries: set, strip_direct: bool = False) -> str:
+def asked_country(row: dict) -> str:
+    """What the country axis asked for, which is not always what was sent.
+
+    The `country` column carries the axis value and `params` carries the wire
+    value. They agree except for an unpinned cell, where the harness's keyword
+    is translated through the provider's own dialect: NodeMaven has a wire value
+    for it, and Oxylabs, Decodo and Bright Data have none, so those three are
+    sent no country parameter at all.
+
+    Reading the wire value alone - which is all this report could do before
+    2026-09-14, because the axis value was not on the row - labels those three
+    arms `?` and pools them with each other. They are three separate answers to
+    the question "what does this gateway give you unpinned", and the run they
+    came from is the one that asked it.
+
+    Falls back to the wire value for every row written before the column
+    existed. 130 of those are on disk and they all came through one gateway
+    that does spell it, so the fallback is exact for them rather than a guess.
+    """
+    return row.get("country") or (row.get("params") or {}).get("country") or ""
+
+
+def engine_label(row: dict, countries: set, strip_direct: bool = False,
+                 gateways: set = frozenset()) -> str:
     """The engine as the report names it, carrying everything that makes a row
     a different measurement.
 
     The engine field already distinguishes the build and the proxy side. What it
-    does not carry is headful, geo alignment and the exit country, and two rows
-    differing in any of those are answers to different questions. The country is
-    appended only when the run held more than one, so the common case stays
-    readable.
+    does not carry is headful, geo alignment, which gateway answered and the exit
+    country, and two rows differing in any of those are answers to different
+    questions. Each is appended only when the run held more than one, so the
+    common case stays readable.
+
+    **The gateway was missing until 2026-09-14 and every run on disk hid it.**
+    Every committed run came through one provider, so the omission cost nothing
+    and could not be seen; the first four-provider run would have pooled all four
+    into one row per engine. It was found by feeding this script a synthetic run
+    of the shape the next one has - two gateways, one of them with a dead tunnel
+    on one arm - and reading the output: the dead arm's ten attempts were all
+    `error`, so they left the pass-rate denominator, and the row they had been
+    pooled into printed `100%`. A whole provider's failure disappearing into
+    another provider's success is the largest attribution error this file has
+    held, and it took no measurement to find - only running the thing on data
+    shaped like the question about to be asked.
     """
     name, sep, rest = (row.get("engine") or "?").partition("/")
     if strip_direct and name.endswith("-direct"):
@@ -104,8 +145,10 @@ def engine_label(row: dict, countries: set, strip_direct: bool = False) -> str:
         label += " headful"
     if row.get("geo") == "align":
         label += " geo"
+    if len(gateways) > 1 and not row.get("direct"):
+        label += " " + (row.get("provider") or "?")
     if not strip_direct and len(countries) > 1 and not row.get("direct"):
-        label += " " + ((row.get("params") or {}).get("country") or "?")
+        label += " " + (asked_country(row) or "?")
     return label
 
 
@@ -365,6 +408,92 @@ def transport(attempts: list) -> None:
               "before quoting one.")
 
 
+SESSION_OUTCOMES = ["alive", "dead", "unreachable", "abandoned"]
+
+
+def sessions(bookkeeping: list) -> None:
+    """The run at the unit the breaker actually judges.
+
+    Every other table here counts attempts, and a batch is ten attempts down one
+    sticky exit inside one browser. That makes ten of them one observation
+    repeated, not ten observations: measured, 24 of 24 sessions held exactly one
+    exit prefix. So a cell's pass rate has a second denominator hiding under it -
+    how many of the exits the gateway handed us were worth anything at all - and
+    that one belongs to the provider rather than to the engine.
+
+    Four outcomes, and the last two are the reason this section exists:
+
+      alive        at least one attempt in the session was served. The exit
+                   worked
+      dead         the target answered and refused every attempt. The exit was
+                   reachable and burnt
+      unreachable  no attempt got as far as the target. There is no verdict in
+                   this session about anything except the path
+      abandoned    the batch sent nothing at all, so this is our own launcher and
+                   not an answer from anywhere
+
+    A cell with no `alive` and no `dead` session has never been answered by its
+    target, and 0% there is a number about the pool wearing the engine's name. It
+    is named at the foot of this section, and the pass-rate table prints it
+    `unmeasured`.
+
+    These rows exist from 2026-09-14. A run recorded before that has the
+    information only as `batch_index` on its attempts, which cannot see a batch
+    that sent nothing, so the section says it is absent rather than printing an
+    empty table that reads as a clean run.
+    """
+    closed = [r for r in bookkeeping if r.get("verdict") == "session_closed"]
+    if not closed:
+        print("\n  no session rows: this run predates them (2026-09-14), so "
+              "everything below is attempt-level only. Absent, not zero")
+        return
+
+    by_cell = defaultdict(Counter)
+    exits = defaultdict(set)
+    for row in closed:
+        by_cell[row.get("cell")][row.get("verdict_reason")] += 1
+        if row.get("exit_prefix"):
+            exits[row.get("cell")].add(row["exit_prefix"])
+
+    print("\nSESSIONS: ONE BROWSER ON ONE STICKY EXIT")
+    print("  alive means the exit served at least one page. unreachable means "
+          "nothing in the session reached")
+    print("  the target, and abandoned means the batch sent nothing, which is "
+          "this harness and not a result")
+    print("-" * 100)
+    print(f"  {'cell':<58}{'alive':>6}{'dead':>6}{'unrch':>6}{'abnd':>6}"
+          f"{'exits':>7}")
+    silent = []
+    for key in sorted(by_cell):
+        counts = by_cell[key]
+        if not counts["alive"] and not counts["dead"]:
+            silent.append(key)
+        print(f"  {key:<58}" + "".join(f"{counts[name]:>6}"
+                                       for name in SESSION_OUTCOMES)
+              + f"{len(exits[key]):>7}")
+
+    total = Counter()
+    for counts in by_cell.values():
+        total.update(counts)
+    served = total["alive"]
+    ran = sum(total[name] for name in ("alive", "dead", "unreachable"))
+    if ran:
+        print(f"\n  {served} of {ran} sessions served at least one page "
+              f"({served / ran:.0%}). That is the exit yield of this run, and "
+              f"it is\n  a property of the pools rather than of the engines: "
+              f"every engine here drew from the same sessions.")
+    if total["abandoned"]:
+        print(f"  {total['abandoned']} sessions sent nothing at all. Those are "
+              f"ours - a browser that would not start - and they are\n  excluded "
+              f"from the yield above rather than charged to a gateway.")
+    if silent:
+        print(f"\n  {len(silent)} of {len(by_cell)} cells were never answered by "
+              f"their target in any session. No pass rate\n  below can be read "
+              f"for these: unmeasured, not zero.")
+        for key in silent:
+            print(f"    {key}")
+
+
 def yield_split(attempts: list, label_of) -> None:
     """Pass rate split into the address failing and the engine failing.
 
@@ -590,6 +719,18 @@ def attribution(attempts: list, countries: set, targets: list) -> None:
               f"{left:>9.0f}%{right:>9.0f}%{gap:>+7.0f}   {reading}")
     print("  direct rows left from the operator's own address, which is one "
           "line in one country and not a sample of anything")
+    gateways = {r.get("provider") for r in attempts
+                if r.get("provider") and not r.get("direct")}
+    if len(gateways) > 1:
+        # Said rather than fixed. The pairing needs the proxied and direct rows
+        # of one engine to share a label, and the direct row belongs to no
+        # gateway, so a provider in the label would put the two sides in
+        # different groups and empty this table. The proxied column here is
+        # therefore an average over the gateways and the tables above are not.
+        print(f"  the proxied column pools {len(gateways)} gateways "
+              f"({', '.join(sorted(gateways))}), because the direct side "
+              f"belongs to none of them and\n  the pair is what this table is "
+              f"for. Every other table names the gateway; this one cannot")
 
 
 def pool(attempts: list) -> None:
@@ -757,11 +898,17 @@ def main() -> int:
     if not attempts:
         raise SystemExit(f"{', '.join(p.name for p in paths)} holds no attempts")
 
-    countries = {(r.get("params") or {}).get("country") for r in attempts
-                 if not r.get("direct")}
-    countries.discard(None)
+    countries = {asked_country(r) for r in attempts if not r.get("direct")}
+    countries.discard("")
+    # Proxied rows only, for the same reason the country set is: a direct row
+    # came through no gateway, and counting its absence as a second value would
+    # put the provider into every label of a single-gateway run that happened to
+    # carry a direct arm.
+    gateways = {r.get("provider") for r in attempts if not r.get("direct")}
+    gateways.discard(None)
 
-    cells = group(attempts, lambda r: (engine_label(r, countries),
+    cells = group(attempts, lambda r: (engine_label(r, countries,
+                                                    gateways=gateways),
                                        r.get("target")))
     labels = sorted({label for label, _ in cells})
     targets = sorted({target for _, target in cells})
@@ -774,19 +921,44 @@ def main() -> int:
             if group_rows[0].get("cell") == row.get("cell"):
                 stopped[(label, target)] = row.get("verdict_reason")
 
+    # Cells whose target never answered a single session. Independent of whether
+    # the breaker stopped them: a cell can run its whole quota against a tunnel
+    # that never opened and finish with a full n and no observation in it, and
+    # that shape has no `cell_stopped` row to key on.
+    answered = {r.get("cell") for r in bookkeeping
+                if r.get("verdict") == "session_closed"
+                and r.get("verdict_reason") in ("alive", "dead")}
+    ran_sessions = {r.get("cell") for r in bookkeeping
+                    if r.get("verdict") == "session_closed"}
+    unanswered = set()
+    for (label, target), group_rows in cells.items():
+        key = group_rows[0].get("cell")
+        if key in ran_sessions and key not in answered:
+            unanswered.add((label, target))
+
     scope(paths, attempts, bookkeeping)
     coverage(attempts, labels, targets, cells)
     transport(attempts)
+    sessions(bookkeeping)
     # Before the pass rates, deliberately. A reader who sees one number first
     # anchors on it, and the whole point of the split is that the single number
     # is the one that cannot be attributed to anybody.
-    yield_split(attempts, lambda r: engine_label(r, countries))
+    yield_split(attempts, lambda r: engine_label(r, countries,
+                                                 gateways=gateways))
 
     def pass_cell(label, target):
         rows = cells.get((label, target))
         if not rows:
             return "-"
         stats = tally(rows)
+        if (label, target) in unanswered:
+            # Read off the session rows rather than off the bodies: not one
+            # session in this cell got an answer out of the target, so there is
+            # nothing here to take a percentage of. This arm catches the case
+            # the one below cannot - a cell that ran its full quota into a
+            # tunnel that never opened and was never stopped, so it has a
+            # respectable n and no observation inside it.
+            return f"unmeasured n={stats['judged']}"
         if (label, target) in stopped and not live_responses(rows):
             # The breaker counts a refused address exactly like a failed page,
             # so a cell can be stopped by ten burned exits in a row without the
@@ -803,8 +975,9 @@ def main() -> int:
     print_matrix(
         "PASS RATE: HOW OFTEN THE PAGE ACTUALLY ARRIVED",
         "ok over judged attempts. * marks a cell the breaker stopped, whose "
-        "remaining queries were never sent. `unmeasured` is such a cell that "
-        "was never served a single body, so it says nothing about the engine",
+        "remaining queries were never sent. `unmeasured` is a cell whose target "
+        "never answered it - no body served, or no session that reached the "
+        "target at all - so it says nothing about the engine and is not a 0%",
         labels, targets, pass_cell)
 
     def cost_cell(label, target):

@@ -355,7 +355,10 @@ def main() -> int:
             print(f"\n--- pass {index + 1} of {args.passes}")
             options = {"direct": args.direct, "params": params,
                        "preset": "none", "headless": args.headless,
-                       "humanize": False}
+                       # A string since 2026-09-03. `False` still normalises to
+                       # `"off"` and would have gone on working; written out so
+                       # the value in this file matches the one in the column.
+                       "humanize": "off"}
             try:
                 with engines.session(args.engine, **options) as active:
                     # `new_page` takes the byte counter it will write into, not

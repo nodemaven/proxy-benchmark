@@ -221,6 +221,14 @@ SCAN = (
     "cloudflare", "cf-chl", "turnstile", "just a moment", "attention required",
     "ak_bmsc", "akamai", "_abck", "datadome", "perimeterx", "px-captcha",
     "incapsula", "imperva", "recaptcha", "hcaptcha",
+    # Alibaba's, and it belongs beside the five above rather than in a
+    # marketplace-only list: it is a vendor interstitial, and it is the one that
+    # does not announce itself in the status line. Read off bodies 2026-09-03 -
+    # lazada.sg answered 200 on 4 of 4 direct attempts, every body 1735 bytes,
+    # and every one a script redirecting to `//_____tmd_____/punish?x5secdata=`.
+    # Without these three the run's own table printed `{'200': 4}` for lazada
+    # beside `{'403': 4}` for shopee, which reads as the site that let us in.
+    "_____tmd_____", "x5secdata", "/punish",
     "enable javascript", "access denied", "forbidden", "unusual", "automated",
     "rate limit", "no results", "__NEXT_DATA__", "search-result",
 )
@@ -238,10 +246,41 @@ def browser_attempt(session, site, query, settle_ms, store) -> dict:
     so it cannot favour one.
     """
     url = site.url(query)
-    row = blank_row(f"{session.label}-direct/{session.preset}",
+    # Read off the session, not spelled here. Three of these were literals
+    # until 2026-09-05 - `-direct` in the label, `direct=True`, `params={}` -
+    # and they were right only because every browser arm until then had been
+    # direct. `marketplace_recon.py --geo sg` opens the session through the
+    # pool, and the rows still called themselves `patchright-direct` with no
+    # country in them: `marketplace_recon_20260905T095839Z`, 3 of 3.
+    #
+    # What the mistake looks like from the inside is that the row is built
+    # before the work, so the literals read as placeholders being filled in
+    # rather than as claims being made. `http_attempt` beside this one never
+    # had the bug, because it delegates to `session.fetch`, which builds its
+    # row from the session - the same probe wrote correct `direct=False,
+    # params={"country": "sg"}` through that path in
+    # `marketplace_recon_20260903T182409Z`. The hand-built row is where this
+    # class of error lives, and the fix is to stop hand-building the part the
+    # session already knows.
+    #
+    # `provider` is written as the provider's `id` and not as the object. The
+    # first version of this line passed the object, every browser arm died on
+    # `TypeError: Object of type Provider is not JSON serializable` at the
+    # sink, and three Shopee runs of 2026-09-05 -
+    # `marketplace_recon_20260905T101920Z`, `102005Z` and `102050Z` - captured
+    # nothing at all. It passed the suite and `--dry-run` because both take the
+    # direct arm, where the attribute is None and None serializes fine. The
+    # convention was already in the codebase eight times over - every session
+    # class writes `getattr(self.provider, "id", None)` - and copying the
+    # attribute name without copying the `id` is what broke it.
+    suffix = "-direct" if session.direct else ""
+    row = blank_row(f"{session.label}{suffix}/{session.preset}",
                     session.version, query, url,
-                    target=site.name, direct=True, preset=session.preset,
-                    params={}, headless=bool(session.headless),
+                    target=site.name, direct=session.direct,
+                    preset=session.preset, params=dict(session.params or {}),
+                    provider=getattr(getattr(session, "provider", None),
+                                     "id", None),
+                    headless=bool(session.headless),
                     session_index=session.index)
     session.index += 1
 

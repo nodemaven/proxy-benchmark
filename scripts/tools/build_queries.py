@@ -17,11 +17,12 @@ identical phrasings together, and sending "best X" a hundred times in a row is a
 pattern in itself. Shuffling breaks the run of templates while keeping the file
 reproducible.
 
-There are two lists because there are two kinds of target. A search engine
+There are three lists because there are three kinds of target. A search engine
 answers "photosynthesis exam questions"; a shop answers it with an empty shelf,
 and that verdict would be read as the shop refusing us. The product list keeps
-the shop's column a measurement of admission rather than of inventory. Both are
-built the same way from the same seed, so neither is the privileged one.
+the shop's column a measurement of admission rather than of inventory. A map
+answers neither, and answers a place query with a feed of businesses. All three
+are built the same way from the same seed, so none is the privileged one.
 
 Honest limitation, stated here because it belongs in the report: ten templates
 over a hundred subjects is a hundred distinct topics, not a thousand. It
@@ -236,11 +237,119 @@ PRODUCT_CATEGORIES = {
     },
 }
 
+# What somebody looking for a business types: a trade and a place, not a question
+# and not an object with a constraint. Maps answers a product query with a page
+# that has no places on it, and that page cannot be told from a refused one after
+# the fact - the `s-no-results` problem with no `s-no-results` to read.
+#
+# The category is the region and the templates are its trades, which is the same
+# shape the two lists above use and it is load-bearing here for a second reason:
+# a trade has to exist in every city of its own category, and regions are how
+# that is kept true. `sauna in {t}` over the Nordics reads; over Latin America it
+# would be a query about nothing.
+#
+# **Every query names its city.** That is what makes the list usable on an
+# arbitrary exit: Maps answers "dentist in Austin Texas" with Austin dentists
+# whether it was asked from Texas or from Sao Paulo, so a pass rate measured
+# across a rotating pool is a measurement of admission and not of where the exit
+# happened to land. A bare "dentist" would make every row depend on the exit's
+# geoip and the column would be unreadable.
+PLACE_CATEGORIES = {
+    "north_america": {
+        "terms": ["Austin Texas", "Portland Oregon", "Toronto", "Vancouver",
+                  "Chicago", "Denver", "Montreal", "San Diego", "Nashville",
+                  "Calgary"],
+        "templates": ["dentist in {t}", "plumber in {t}", "coffee shop in {t}",
+                      "gym in {t}", "car repair in {t}", "pharmacy in {t}",
+                      "hardware store in {t}", "immigration lawyer in {t}",
+                      "veterinarian in {t}", "locksmith in {t}"],
+    },
+    "british_isles": {
+        "terms": ["Manchester", "Edinburgh", "Dublin", "Bristol", "Leeds",
+                  "Glasgow", "Cardiff", "Belfast", "Brighton", "Cork"],
+        "templates": ["bakery in {t}", "bookshop in {t}", "barber in {t}",
+                      "dry cleaner in {t}", "optician in {t}",
+                      "bike shop in {t}", "physiotherapist in {t}",
+                      "tattoo studio in {t}", "garden centre in {t}",
+                      "letting agent in {t}"],
+    },
+    "western_europe": {
+        "terms": ["Berlin", "Lisbon", "Rotterdam", "Lyon", "Antwerp", "Munich",
+                  "Porto", "Bordeaux", "Utrecht", "Ghent"],
+        "templates": ["bakery in {t}", "bicycle repair in {t}", "dentist in {t}",
+                      "notary in {t}", "physiotherapist in {t}",
+                      "language school in {t}", "coworking space in {t}",
+                      "florist in {t}", "shoe repair in {t}", "wine shop in {t}"],
+    },
+    "nordics": {
+        "terms": ["Stockholm", "Oslo", "Helsinki", "Copenhagen", "Gothenburg",
+                  "Bergen", "Aarhus", "Tampere", "Malmo", "Trondheim"],
+        "templates": ["sauna in {t}", "dentist in {t}", "coffee roastery in {t}",
+                      "bike shop in {t}", "optician in {t}",
+                      "dry cleaner in {t}", "veterinarian in {t}",
+                      "hair salon in {t}", "tailor in {t}", "pharmacy in {t}"],
+    },
+    "central_europe": {
+        "terms": ["Warsaw", "Prague", "Budapest", "Krakow", "Vienna",
+                  "Bratislava", "Wroclaw", "Brno", "Ljubljana", "Gdansk"],
+        "templates": ["dentist in {t}", "currency exchange in {t}",
+                      "hostel in {t}", "physiotherapist in {t}",
+                      "car rental in {t}", "laundromat in {t}", "tailor in {t}",
+                      "optician in {t}", "veterinarian in {t}", "bakery in {t}"],
+    },
+    "southern_europe": {
+        "terms": ["Barcelona", "Milan", "Athens", "Valencia", "Bologna",
+                  "Seville", "Thessaloniki", "Turin", "Malaga", "Palermo"],
+        "templates": ["notary in {t}", "locksmith in {t}", "tailor in {t}",
+                      "physiotherapist in {t}", "car rental in {t}",
+                      "laundromat in {t}", "hair salon in {t}",
+                      "optician in {t}", "bike rental in {t}",
+                      "pharmacy in {t}"],
+    },
+    "southeast_asia": {
+        "terms": ["Singapore", "Kuala Lumpur", "Bangkok", "Jakarta", "Manila",
+                  "Ho Chi Minh City", "Penang", "Cebu", "Hanoi", "Surabaya"],
+        "templates": ["coffee shop in {t}", "phone repair in {t}",
+                      "laundry service in {t}", "money changer in {t}",
+                      "motorcycle rental in {t}", "dental clinic in {t}",
+                      "coworking space in {t}", "tailor in {t}",
+                      "printing shop in {t}", "car workshop in {t}"],
+    },
+    "east_asia": {
+        "terms": ["Tokyo", "Seoul", "Osaka", "Taipei", "Hong Kong", "Fukuoka",
+                  "Busan", "Kyoto", "Kaohsiung", "Nagoya"],
+        "templates": ["coffee shop in {t}", "phone repair in {t}",
+                      "dental clinic in {t}", "hair salon in {t}",
+                      "stationery shop in {t}", "camera shop in {t}",
+                      "coworking space in {t}", "laundry service in {t}",
+                      "bicycle shop in {t}", "optician in {t}"],
+    },
+    "oceania": {
+        "terms": ["Sydney", "Melbourne", "Auckland", "Brisbane", "Perth",
+                  "Wellington", "Adelaide", "Christchurch", "Hobart",
+                  "Canberra"],
+        "templates": ["dentist in {t}", "plumber in {t}", "electrician in {t}",
+                      "cafe in {t}", "gym in {t}", "veterinarian in {t}",
+                      "car repair in {t}", "physiotherapist in {t}",
+                      "hardware store in {t}", "hair salon in {t}"],
+    },
+    "latin_america": {
+        "terms": ["Mexico City", "Buenos Aires", "Santiago", "Bogota", "Lima",
+                  "Sao Paulo", "Montevideo", "Guadalajara", "Medellin", "Quito"],
+        "templates": ["dentist in {t}", "notary in {t}",
+                      "currency exchange in {t}", "laundry service in {t}",
+                      "phone repair in {t}", "hair salon in {t}",
+                      "veterinarian in {t}", "car workshop in {t}",
+                      "bakery in {t}", "pharmacy in {t}"],
+    },
+}
+
 # Name on disk -> the categories it is built from. Adding a third kind of target
 # is an entry here, not a second copy of this script.
 LISTS = {
     "serp_1000": SEARCH_CATEGORIES,
     "amazon_1000": PRODUCT_CATEGORIES,
+    "places_1000": PLACE_CATEGORIES,
 }
 
 

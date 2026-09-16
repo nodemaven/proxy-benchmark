@@ -1,12 +1,13 @@
 # data/queries/
 
-Two committed lists of 1000 queries each, generated once by
+Three committed lists of 1000 queries each, generated once by
 `scripts/tools/build_queries.py` with `seed=20260811` and checked in.
 
 | File | Asked of | Why it is separate |
 |---|---|---|
 | `serp_1000.txt` | search engines | ordinary questions across ten subject areas |
 | `amazon_1000.txt` | shops | products, so an empty shelf cannot read as a refusal |
+| `places_1000.txt` | maps | a trade and a city, so a feed with no places cannot read as a refusal |
 
 Committed rather than generated at runtime, because reproducibility means a
 stranger gets the same inputs. The header of each file records the list name, the
@@ -25,10 +26,18 @@ identical phrasings together, and sending "best X" a hundred times in a row is a
 pattern in itself. Shuffling breaks the run of templates while keeping the file
 reproducible.
 
-**There are two lists because there are two kinds of target.** Amazon asked
+**There are three lists because there are three kinds of target.** Amazon asked
 "photosynthesis exam questions" returns `s-no-results`, which is the search
-working, and nothing can separate that from a soft refusal after the fact. Both
-lists are built the same way from the same seed, so neither is privileged.
+working, and nothing can separate that from a soft refusal after the fact. Maps
+asked the same thing returns a feed with nothing in it and no marker at all
+saying why, which is the same problem with none of the evidence. All three lists
+are built the same way from the same seed, so none is privileged.
+
+**Every query in `places_1000.txt` names its city**, which is what makes it
+usable on a rotating pool: Maps answers "dentist in Austin Texas" with Austin
+dentists whether the exit is in Texas or in Sao Paulo. A bare trade would make
+every row depend on the exit's geoip and the column would measure the pool's
+country mix rather than admission.
 
 ## Which list a run uses
 

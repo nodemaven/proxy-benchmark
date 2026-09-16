@@ -37,9 +37,15 @@ is reported as its own answer: it would mean the gateway parses positionally
 and refuses an order it did not expect, which is a stronger statement than
 either branch below.
 
-Nothing here fetches a target. The measurement is the CONNECT reply, with the
-echo fallback only on replies that name no exit, so it costs a few kilobytes
-and no pool reputation.
+The exit address is read by one instrument on every arm, and by default that is
+an echo request through the tunnel - around 330 bytes each, so a default run of
+3 arms by 4 rounds costs 12 CONNECTs and about 4 kB, and no pool reputation.
+
+Reading it off the CONNECT header instead would be cheaper and is not sound
+here: only one of the back ends behind this name sends the header, which one
+answers is decided by the username, and the arms differ by construction in
+exactly that. `--source` picks the instrument and `attempt` states the whole
+argument.
 
 Two ways this comes back inconclusive rather than wrong, both reported as such:
 
@@ -75,19 +81,47 @@ from nmbench.sink import JsonlSink
 FILTER = "medium"
 
 
-def attempt(arm: str, params: dict, timeout: int, provider, registry) -> dict:
-    """One CONNECT, and an echo request only when the reply named no exit.
+def attempt(arm: str, params: dict, timeout: int, provider, registry,
+            source: str = "echo") -> dict:
+    """One CONNECT, and the exit address read by one named instrument.
 
-    Roughly half the replies carry `X-Proxy-Exit-IP` and the rest do not. This
-    probe needs the address on every attempt, because a missing one is a lost
-    round rather than a slower one.
+    **The instrument is chosen and not taken as it comes, and that is the whole
+    of this function.** Roughly half the replies carry `X-Proxy-Exit-IP` and the
+    rest do not, and which half a reply lands in is not noise: measured
+    2026-08-12 over 17 opened tunnels, every reply reading `Connection
+    established` carried the header and every reply reading `OK` carried none,
+    with no exception either way. So the source is decided by which back end
+    answered, the back end is decided by the username, and the arms of this
+    probe differ by construction in exactly that.
+
+    Falling back per reply - CONNECT header when there is one, echo when there
+    is not - therefore reads `canonical` off one instrument and `shuffled` off
+    another whenever they land on different back ends. Two arms then differ
+    because two instruments differ, which is what "the session key is the
+    username string" is supposed to look like, and the run cannot tell the two
+    apart. That was this function's behaviour until 2026-09-08.
+
+    `echo` is the default because it is the only source available on every
+    reply; the header is available on some. Both are recorded when both exist,
+    so their agreement is measured for free rather than assumed - see the
+    instrument check in `main`.
     """
     info = gateway.exit_ip(timeout=timeout, provider=provider, **params)
 
     row = dict(info)
-    row["source"] = "connect-header" if info["exit_ip"] else None
-    if info["status"] == 200 and not info["exit_ip"]:
+    header_ip = info.get("exit_ip")
+    row["header_ip"] = header_ip
+    row["source"] = "connect-header" if header_ip else None
+
+    # `echo` asks on every opened tunnel, so every arm is read the same way.
+    # `auto` asks only when the header named nothing, which is the pre-2026-09-08
+    # behaviour and is kept solely so the two can be compared on one account.
+    wants_echo = info["status"] == 200 and (
+        source == "echo" or (source == "auto" and not header_ip)
+    )
+    if wants_echo:
         seen = gateway.echo(provider=provider, **params)
+        row["echo_ip"] = seen.get("exit_ip")
         row["exit_ip"] = seen.get("exit_ip")
         row["source"] = "echo" if seen.get("exit_ip") else None
         row["error"] = row["error"] or seen.get("error")
@@ -126,6 +160,14 @@ def main() -> None:
                              "for exploration is 3-5 s on a shared production "
                              "pool")
     parser.add_argument("--provider", default=None)
+    parser.add_argument("--source", default="echo",
+                        choices=("echo", "header", "auto"),
+                        help="which instrument reads the exit address. `echo` "
+                             "asks the target on every arm, which is the only "
+                             "source available on every reply. `header` uses "
+                             "the CONNECT header and loses the arms that do "
+                             "not carry one. `auto` mixes them per reply and "
+                             "is unsound here - see attempt()")
     args = parser.parse_args()
 
     try:
@@ -181,7 +223,8 @@ def main() -> None:
     rows = []
     for round_index in range(args.rounds):
         for arm, params in arms.items():
-            row = attempt(arm, params, args.timeout, provider, registry)
+            row = attempt(arm, params, args.timeout, provider, registry,
+                          source=args.source)
             sink.write(row)
             rows.append(row)
             print(f"  {round_index + 1}.{arm:<10} "
@@ -195,6 +238,44 @@ def main() -> None:
     by_arm = defaultdict(list)
     for row in rows:
         by_arm[row["arm"]].append(row)
+
+    # Which instrument read each arm. Printed before the verdict and not after,
+    # because it decides whether the verdict may be read at all: an arm read by
+    # a different instrument from the arm it is compared against can differ for
+    # a reason that has nothing to do with parameter order.
+    sources = {arm: Counter(r["source"] or "none" for r in by_arm[arm])
+               for arm in arms}
+    print("instrument per arm")
+    for arm in arms:
+        shown = ", ".join(f"{name}={n}"
+                          for name, n in sources[arm].most_common())
+        print(f"  {arm:<10} {shown}")
+    named = {name for arm in arms for name in sources[arm] if name != "none"}
+    if len(named) > 1:
+        print("\nINCONCLUSIVE: the arms were not all read by the same "
+              "instrument.")
+        print("  Which source answers is decided by the back end and the back "
+              "end by the username, so a difference between arms here is a "
+              "difference between instruments and cannot be attributed to "
+              "parameter order. Re-run with --source echo, which is available "
+              "on every reply.")
+        print(f"\nraw rows: {sink.path}")
+        return
+
+    # Free, and it is the one thing that says whether the two instruments are
+    # interchangeable at all. Only rows where both were read can contribute, so
+    # this is silent under --source header and under an account whose back end
+    # never sends the header.
+    both = [r for r in rows if r.get("header_ip") and r.get("echo_ip")]
+    if both:
+        agree = sum(1 for r in both if r["header_ip"] == r["echo_ip"])
+        print(f"\ninstrument agreement: {agree}/{len(both)} replies where the "
+              f"CONNECT header and the echo were both read named the same "
+              f"address")
+        if agree != len(both):
+            print("  They disagree, so the header does not name the address "
+                  "the target sees. That is a finding in its own right and it "
+                  "invalidates every past run that mixed the two.")
 
     exits = {}
     for arm in arms:
