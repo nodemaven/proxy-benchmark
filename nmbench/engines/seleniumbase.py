@@ -191,7 +191,8 @@ class SeleniumBaseSession:
             direct=self.direct, preset=None,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=bool(self.headless), humanize=False,
+            headless=bool(self.headless),
+            humanize=False, humanize_mode="off",
             session_index=self.index,
         )
         self.index += 1
@@ -223,7 +224,10 @@ class SeleniumBaseEngine:
     # from, the same as the Chromium-family engines.
     supports_geo_align = False
     supports_geoip = False
-    supports_humanize = False
+    # Neither kind. WebDriver, not Playwright, so `nmbench.humanize` has no
+    # `page.mouse` to drive here - see `BotasaurusEngine` for why that is left
+    # as a declaration rather than reimplemented against a second input API.
+    humanize_modes = frozenset({"off"})
     runs_script = True
     # This session has no `search`. The reason is `record_status`, which the
     # module docstring argues has to default False here: without a status
@@ -242,6 +246,13 @@ class SeleniumBaseEngine:
     # session actually took, so a run made without a relay is readable rather
     # than merely wrong.
     needs_relay = True
+    # See `ZendriverEngine`: declared rather than derived from the line above,
+    # so that every engine answers "can this arm be relayed" and no caller falls
+    # back to a default.
+    accepts_relay = True
+    # `Driver(binary_location=...)`, so this engine can be held to the same
+    # browser as the others.
+    supports_chrome_binary = True
 
     @classmethod
     def check(cls) -> str:
@@ -269,7 +280,7 @@ class SeleniumBaseEngine:
              headless: bool = True, uc: bool = True,
              record_status: bool = False, relay_address: str = None,
              ready_timeout_ms: int = 8000, store=None, provider=None,
-             **ignored):
+             chrome_binary: str = None, **ignored):
         unavailable = self.check()
         if unavailable:
             raise EngineUnavailable(unavailable)
@@ -326,10 +337,17 @@ class SeleniumBaseEngine:
             options["proxy"] = proxy_string
         if record_status:
             options["log_cdp_events"] = True
+        if chrome_binary:
+            # Left out entirely rather than passed as None, because the default
+            # is what every row on disk was measured with and this dict is
+            # handed to the vendor whole.
+            options["binary_location"] = chrome_binary
 
         label = self.name if not record_status else f"{self.name}-cdplog"
         if not uc:
             label = f"{label}-plain"
+        if chrome_binary:
+            label = f"{label}-pinned"
 
         driver = Driver(**options)
         try:

@@ -16,6 +16,58 @@ ruff
 # 2026-08-13, same user agent, same markers - so the pin costs nothing and buys
 # a control that stays comparable. Moving it is a decision to re-baseline, not
 # a dependency bump.
+#
+# **It has now happened, and "nearly" is the word that has to come out.** The
+# workstation venv holds playwright 1.62.0 against this 1.60.0, measured
+# 2026-09-05 by `pip list` beside this file. Same failure as the patchright
+# block below and for the same reason: a pin states what a fresh `pip install
+# -r` would fetch, and nothing re-reads it afterwards, so this file kept saying
+# 1.60.0 while the interpreter had moved.
+#
+# The sentence above - "Every control row in data/runs/ was taken on the build
+# 1.60.0 downloads" - is therefore false, and the useful part is by how much.
+# Read out of `engine_version` across every run file the same day, chromium rows
+# only: **1607 on `148.0.7778.96 / playwright 1.60.0` against 17 on 1.62.0**,
+# the 17 split `151.0.7922.34` x14 and `149.0.7827.201` x3. All 17 are in
+# `b2b_recon_20260901T094129Z`, `engine_fingerprint_20260902T135127Z`, the three
+# `tls_clienthello_20260902*` files and `tls_echo_20260902T180455Z`.
+#
+# **No `probehold_*` row is among them**, so the pass-rate baseline the control
+# exists for is intact and nothing already measured needs retracting. What is
+# broken is forward-looking and silent: the next chromium probehold run from
+# this workstation would be taken on 151 and pooled with 1607 rows from 148
+# without anything saying so. Three major Chromium versions apart, and the only
+# thing that would record it is the `engine_version` field nobody reads until
+# two numbers disagree.
+#
+# Not resolved here, because the two ways out are not equivalent and the choice
+# is not a maintenance one: pin the venv back to 1.60.0 and keep the baseline,
+# or accept 1.62.0, move this pin deliberately, and treat the 1607 rows as a
+# closed series the way the patchright note below already does for its 43 files.
+#
+# **Resolved 2026-09-10, the user's call: the venv went back to 1.60.0 and the
+# baseline stays.** `pip list` beside this file agrees with this line again, and
+# `chromium.launch().version` answers `148.0.7778.96`.
+#
+# One thing the downgrade turned up that no `pip list` check could have seen.
+# Reinstalling the package was not enough: `chromium-1223` was **gone from this
+# machine entirely**, `executable_path` named a file that did not exist, and it
+# had to be re-downloaded. So the drift was not only a Python package resolving
+# forward - the browser build all 1607 control rows were measured on had been
+# off the disk for some unrecorded stretch, and nothing would have said so until
+# a run failed to launch. `pip list` reports which client is installed and is
+# silent about which browser is on disk. The check that covers both is
+# `p.chromium.launch().version`, and it is one line.
+#
+# These pins are the whole story only for the four packages carrying `==`. The
+# unpinned six drift per host, measured the same day against the new OVH
+# machine: camoufox 0.5.4 here against 0.5.6 there, cloakbrowser 0.5.7 / 0.5.10,
+# zendriver 0.15.5 / 0.16.0, seleniumbase 4.51.12 / 4.54.0, curl_cffi
+# 0.16.2 / 0.16.3, botasaurus-driver equal at 4.0.101. A host-against-host
+# comparison is therefore sound for the control column, patchright and
+# rebrowser, and confounded for the other six. Pinning them is a separate
+# decision with a real cost - it freezes six anti-detect libraries whose value
+# is being current - and it has not been taken.
 playwright==1.60.0
 
 # The patched Playwright driver, and the engine every Google finding here rests

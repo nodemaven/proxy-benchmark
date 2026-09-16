@@ -16,6 +16,7 @@ from .base import (
     await_ready,
     blank_row,
     entry_row_url,
+    humanize_mode,
     keep_body,
     record_error,
     record_judgement,
@@ -26,7 +27,8 @@ from .base import (
 
 class CamoufoxSession:
     def __init__(self, pages, *, preset, direct, params, headless, humanize,
-                 ready_timeout_ms, version, store=None, provider=None):
+                 ready_timeout_ms, version, store=None, provider=None,
+                 hand_rng=None):
         # A context, not the browser. `browser.new_page()` opens a fresh context
         # every time, so this engine alone was throwing its cookie jar away
         # between queries while the other three carried one across the batch:
@@ -44,7 +46,20 @@ class CamoufoxSession:
         # column reports what was used and not what was asked for.
         self.provider = provider
         self.headless = headless
-        self.humanize = humanize
+        # A mode string since 2026-09-03, not a bool. "engine" is what this
+        # session has always done - the `humanize=True` passed to `Camoufox()`
+        # at launch, which is the browser synthesising its own cursor - and
+        # "trueman" is the model in `nmbench.pointer` driven from here instead.
+        #
+        # **They are alternatives and not a stack.** Both move the cursor to the
+        # same element, so running them together would compose two hands into
+        # one path and produce a movement neither model describes. The launch
+        # option below is passed `humanize == "engine"` for that reason.
+        self.humanize = humanize_mode(humanize)
+        self.hand = None
+        if self.humanize == "trueman":
+            from ..humanize import PointerHand
+            self.hand = PointerHand(rng=hand_rng)
         self.ready_timeout_ms = ready_timeout_ms
         self.version = version
         self.index = 0
@@ -78,7 +93,8 @@ class CamoufoxSession:
             direct=self.direct, preset=self.preset,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=bool(self.headless), humanize=bool(self.humanize),
+            headless=bool(self.headless),
+            humanize=self.humanize != "off", humanize_mode=self.humanize,
             session_index=self.index,
         )
         self.index += 1
@@ -94,7 +110,7 @@ class CamoufoxSession:
         """
         validate_preset(self.preset, target)
         row = self._row(target, query, entry_row_url(target, query))
-        return run_search(page, target, query, row, rng=rng,
+        return run_search(page, target, query, row, rng=rng, hand=self.hand,
                           ready_timeout_ms=self.ready_timeout_ms,
                           store=self.store, counter=counter)
 
@@ -142,17 +158,40 @@ class CamoufoxEngine:
     # It is also a wider treatment than the zone: locale and geolocation move
     # with it. A geo arm compared across the two kinds is not like-for-like.
     supports_geoip = True
-    # The only engine here with humanized input. Declared so the runner can
-    # refuse a mixed matrix rather than humanize this column alone.
-    supports_humanize = True
+    # Both kinds. "engine" is Camoufox's own input synthesis, the option it
+    # takes at launch and the only humanization this repository had until
+    # 2026-09-03; "trueman" is the model in `nmbench.pointer` driven through
+    # `nmbench.humanize`, which works here because this session's `search` goes
+    # through `base.run_search` on an ordinary Playwright page.
+    #
+    # Declared as a set rather than a boolean so the runner can refuse a mixed
+    # matrix per mode. The old boolean could only say "this engine humanizes",
+    # which stopped being enough the moment there were two ways to do it: a
+    # matrix of `--humanize trueman` over camoufox and chromium is a comparison,
+    # and one that quietly gave camoufox its native cursor instead would not be.
+    humanize_modes = frozenset({"off", "engine", "trueman"})
     runs_script = True
     # `CamoufoxSession.search` exists, so this engine can be entered through the
     # target's own front page. See `ChromiumEngine` for why this is declared
     # rather than discovered at the call site.
     supports_typing = True
-    # Playwright takes proxy credentials directly, so a relay would add a
-    # loopback hop and buy nothing. See `nmbench.relay` for what that hop costs.
+    # Playwright takes proxy credentials directly, so this engine does not need
+    # a relay to reach the pool.
     needs_relay = False
+    # It could be taught to take one - it is Playwright-driven, so the same
+    # three lines that gave `ChromiumEngine` the option would work here - and
+    # this `open` has not been, so the flag says no. Declared as unfinished work
+    # rather than as a property of the engine: what the relay buys is the exit
+    # of the tunnel the page used and the ClientHello, and a Firefox handshake
+    # beside the Chromium ones is a comparison this repository wants. It was not
+    # done on 2026-09-06 because the run that needed it was patchright's, and an
+    # engine given the option in the same commit that never exercised it is an
+    # untested path that reads as a tested one.
+    accepts_relay = False
+    # Firefox, and a patched one. There is no Chrome here to hold fixed, so a
+    # matrix that pins a Chrome binary has to leave this engine out rather than
+    # run it on something else and print the two side by side.
+    supports_chrome_binary = False
 
     @classmethod
     def check(cls) -> str:
@@ -174,7 +213,7 @@ class CamoufoxEngine:
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,
              preset: str = "light", headless: bool = True,
-             humanize: bool = False, geoip: bool = False,
+             humanize="off", hand_rng=None, geoip: bool = False,
              ready_timeout_ms: int = 8000, store=None, provider=None,
              **ignored):
         unavailable = self.check()
@@ -194,7 +233,14 @@ class CamoufoxEngine:
         # widest gap in the repository. The runners always passed the flag
         # explicitly, so no benchmark row is affected, but a probe calling
         # `fetch_camoufox` without it was aligned and its row does not say so.
-        with Camoufox(headless=headless, humanize=humanize, geoip=geoip,
+        # `humanize == "engine"` and not `bool(humanize)`. Under
+        # `--humanize trueman` this browser must launch with its own cursor off,
+        # or two hands drive one path and the movement belongs to neither model.
+        # The mode string is what makes that expressible; the boolean could not
+        # have said it.
+        humanize = humanize_mode(humanize)
+        with Camoufox(headless=headless, humanize=humanize == "engine",
+                      geoip=geoip,
                       block_webrtc=True, proxy=proxy_cfg) as browser:
             # One context for the whole batch, the same shape the other engines
             # run in. The patched values live in the binary and the proxy is set
@@ -203,7 +249,7 @@ class CamoufoxEngine:
             context = browser.new_context()
             yield CamoufoxSession(context, preset=preset, direct=direct,
                                   params=params, headless=headless,
-                                  humanize=humanize,
+                                  humanize=humanize, hand_rng=hand_rng,
                                   ready_timeout_ms=ready_timeout_ms,
                                   version=self.version(), store=store,
                                   provider=provider)

@@ -208,7 +208,7 @@ class ObscuraSession:
             direct=self.direct, preset=self.preset,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=True, humanize=False,
+            headless=True, humanize=False, humanize_mode="off",
             session_index=self.index,
             session_exit_prefix=self.session_exit_prefix,
         )
@@ -338,7 +338,13 @@ class ObscuraEngine:
     # no run claims an alignment it did not perform.
     supports_geo_align = False
     supports_geoip = False
-    supports_humanize = False
+    # "off" only, and unlike the four engines above this one is not a structural
+    # limit: the browser is driven over CDP *through Playwright*, so it has a
+    # `page.mouse` and `nmbench.humanize` would work on it unchanged. It is left
+    # out because it has never been run that way, and the flags in this file
+    # stay False until the thing they claim has been performed - the same rule
+    # the geo pair two lines up is held to.
+    humanize_modes = frozenset({"off"})
     runs_script = True
     # `ObscuraSession.search` exists and this still answers False, which is the
     # one combination worth explaining.
@@ -404,6 +410,14 @@ class ObscuraEngine:
     # Takes credentials in its own proxy argument, so a relay would add a
     # loopback hop and buy nothing. See `nmbench.relay` for what that hop costs.
     needs_relay = False
+    # And this `open` does not handle a relay address, so one would be swallowed
+    # by `**ignored`. See `chromium.ChromiumEngine.accepts_relay` for why the
+    # two flags ask different questions.
+    accepts_relay = False
+    # Its own browser, not a driver over somebody else's. There is no Chrome
+    # here to hold fixed, and a matrix that pins one has to leave this engine
+    # out rather than print it beside engines that took the pin.
+    supports_chrome_binary = False
 
     @classmethod
     def check(cls) -> str:

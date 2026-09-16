@@ -114,6 +114,7 @@ from .. import providers
 from .base import (
     EngineUnavailable,
     blank_row,
+    browser_build,
     keep_body,
     record_error,
     record_judgement,
@@ -257,7 +258,8 @@ class BotasaurusSession:
             direct=self.direct, preset=None,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=bool(self.headless), humanize=False,
+            headless=bool(self.headless),
+            humanize=False, humanize_mode="off",
             session_index=self.index,
         )
         self.index += 1
@@ -316,7 +318,13 @@ class BotasaurusEngine:
     # `--geo align` result is currently unattributable without the pair.
     supports_geo_align = True
     supports_geoip = False
-    supports_humanize = False
+    # Neither kind. No input synthesis of its own, and `nmbench.humanize` drives
+    # a Playwright `page.mouse`, which this engine does not have - it is its own
+    # driver. Adding "trueman" here means a second implementation of the walk
+    # against botasaurus's own input API, which is the drift `pointer.py`'s
+    # docstring exists to prevent, so it is a declaration about what has been
+    # built and not a claim that it cannot be.
+    humanize_modes = frozenset({"off"})
     runs_script = True
     # One `Input.dispatchKeyEvent` of type `char` per character and nothing
     # else, so there is no Enter to submit with. See the module docstring.
@@ -325,6 +333,13 @@ class BotasaurusEngine:
     # credentialed proxy URL, so the relay is what keeps this to one hop and one
     # byte counter. See the module docstring.
     needs_relay = True
+    # See `ZendriverEngine`: declared rather than derived from the line above,
+    # so that every engine answers "can this arm be relayed" and no caller falls
+    # back to a default.
+    accepts_relay = True
+    # `Driver(chrome_executable_path=...)`, so this engine can be held to the
+    # same browser as the others.
+    supports_chrome_binary = True
 
     @classmethod
     def check(cls) -> str:
@@ -354,7 +369,8 @@ class BotasaurusEngine:
     def open(self, *, direct: bool = False, params: dict = None,
              headless: bool = True, record_status: bool = True,
              relay_address: str = None, ready_timeout_ms: int = 8000,
-             store=None, timezone_id: str = None, provider=None, **ignored):
+             store=None, timezone_id: str = None, chrome_binary: str = None,
+             provider=None, **ignored):
         unavailable = self.check()
         if unavailable:
             raise EngineUnavailable(unavailable)
@@ -474,7 +490,10 @@ class BotasaurusEngine:
         # Not a hardening of the browser under test: no flag here is visible to
         # a page, and `ChromiumEngine` - the control - is deliberately left
         # alone whatever it costs.
-        driver = Driver(headless=headless, proxy=proxy_url, arguments=[
+        driver = Driver(headless=headless, proxy=proxy_url,
+                        # None leaves the vendor's own discovery in place, which
+                        # is what every row on disk was measured with.
+                        chrome_executable_path=chrome_binary, arguments=[
             merged_disable_features("OptimizationHints"),
             "--disable-background-networking", "--disable-component-update"])
         try:
@@ -521,9 +540,11 @@ class BotasaurusEngine:
                 agent = ""
 
             yield BotasaurusSession(
-                driver, label=self.name, direct=direct, params=params,
+                driver,
+                label=f"{self.name}-pinned" if chrome_binary else self.name,
+                direct=direct, params=params,
                 headless=headless,
-                version=f"{agent[:40]} / {self.version()}",
+                version=f"{browser_build(agent)} / {self.version()}",
                 ready_timeout_ms=ready_timeout_ms, seen_status=seen,
                 store=store, provider=provider)
         finally:

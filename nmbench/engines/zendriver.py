@@ -55,6 +55,7 @@ from .base import (
     ENTRY_TIMEOUT_MS,
     EngineUnavailable,
     blank_row,
+    browser_build,
     entry_row_url,
     keep_body,
     keep_error_body,
@@ -194,7 +195,8 @@ class ZendriverSession:
             direct=self.direct, preset=None,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=bool(self.headless), humanize=False,
+            headless=bool(self.headless),
+            humanize=False, humanize_mode="off",
             session_index=self.index,
         )
         self.index += 1
@@ -444,7 +446,10 @@ class ZendriverEngine:
     # reason `base.ROW_FIELDS` gives.
     supports_geo_align = True
     supports_geoip = False
-    supports_humanize = False
+    # Neither kind, for the reason `BotasaurusEngine` gives: `nmbench.humanize`
+    # drives a Playwright `page.mouse` and this engine speaks CDP through its
+    # own client. A declaration about what is built, not about what is possible.
+    humanize_modes = frozenset({"off"})
     runs_script = True
     # `ZendriverSession.search` exists, written against zendriver's own API
     # rather than through the shared Playwright helper. See `ChromiumEngine` for
@@ -455,6 +460,13 @@ class ZendriverEngine:
     # machine's own address. `open` refuses it; this attribute is how the runner
     # knows to build one first, without knowing which engine asked.
     needs_relay = True
+    # Trivially, since it cannot run a pool arm any other way. Declared anyway
+    # rather than derived from the line above, so that a caller asking "can this
+    # arm be relayed" gets an answer from every engine and never from a default.
+    accepts_relay = True
+    # `zd.start(browser_executable_path=...)`, so this engine can be held to the
+    # same browser as the others.
+    supports_chrome_binary = True
 
     @classmethod
     def check(cls) -> str:
@@ -477,7 +489,8 @@ class ZendriverEngine:
     def open(self, *, direct: bool = False, params: dict = None,
              headless: bool = True, record_status: bool = True,
              relay_address: str = None, ready_timeout_ms: int = 8000,
-             store=None, timezone_id: str = None, provider=None, **ignored):
+             store=None, timezone_id: str = None, chrome_binary: str = None,
+             provider=None, **ignored):
         unavailable = self.check()
         if unavailable:
             raise EngineUnavailable(unavailable)
@@ -504,6 +517,9 @@ class ZendriverEngine:
         try:
             browser = loop.run_until_complete(
                 zd.start(headless=headless, browser_args=browser_args or None,
+                         # None leaves zendriver's own AUTO discovery in place,
+                         # which is what every row on disk was measured with.
+                         browser_executable_path=chrome_binary,
                          # How long we wait for Chrome to open its debug port,
                          # and nothing about the browser itself - the launch is
                          # unchanged, only our patience with it.
@@ -563,9 +579,11 @@ class ZendriverEngine:
                 chrome_version = ""
 
             yield ZendriverSession(
-                browser, tab, loop, label=self.name, direct=direct,
+                browser, tab, loop,
+                label=f"{self.name}-pinned" if chrome_binary else self.name,
+                direct=direct,
                 params=params, headless=headless,
-                version=f"{chrome_version[:40]} / {self.version()}",
+                version=f"{browser_build(chrome_version)} / {self.version()}",
                 ready_timeout_ms=ready_timeout_ms, seen_status=seen,
                 store=store, provider=provider)
         finally:

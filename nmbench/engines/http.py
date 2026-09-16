@@ -5,10 +5,12 @@ the control that says whether a refusal needed a browser to provoke. When this
 engine is refused and a browser is not, the address is the tell; when the
 reverse happens, the browser is.
 """
+import ssl
 import time
 from contextlib import contextmanager
 
 import requests
+import urllib3
 
 from .. import providers, proxy
 from .base import blank_row, keep_body, record_error, record_judgement
@@ -83,9 +85,10 @@ def supported_encodings() -> str:
 # new constant. Bumping swaps one arbitrary value for another, loses the 289
 # rows' comparability and buys nothing. If it is ever bumped, bump it in a
 # commit that runs both values in one window, the way the geo axis was added.
-# Note also that no row records this string - `engine_version` on this arm is
-# `requests.__version__` - so the parameter that decided those 61 attempts is
-# nowhere in `data/runs/`.
+# Note also that no row records this string. `engine_version` on this arm names
+# the libraries that build the request and the handshake, and that is not the
+# same thing as the pin below, so the parameter that decided those 61 attempts
+# is still nowhere in `data/runs/`.
 BROWSER_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"),
@@ -185,7 +188,7 @@ class HttpEngine:
     supports_headful = False
     supports_geo_align = False
     supports_geoip = False
-    supports_humanize = False
+    humanize_modes = frozenset({"off"})
     runs_script = False
     # No box to type into either. A client could post the form by hand, and that
     # would be a third entry shape rather than this one: no keystrokes, no
@@ -195,6 +198,16 @@ class HttpEngine:
     # Sends its own Proxy-Authorization, so a relay would add a loopback hop and
     # buy nothing. See `nmbench.relay` for what that hop costs.
     needs_relay = False
+    # And this `open` does not handle a relay address either, so one passed to
+    # it would be swallowed by `**ignored` and the request would go straight to
+    # the gateway. False is what stops a run labelling this arm relayed and then
+    # finding nothing in its exit column. See `chromium.ChromiumEngine` for why
+    # "needs one" and "can take one" are two questions.
+    accepts_relay = False
+    # No browser at all. This arm's handshake comes from the OpenSSL the
+    # interpreter was linked against, which is what `version` reports, and no
+    # browser binary can move it.
+    supports_chrome_binary = False
 
     @classmethod
     def check(cls) -> str:
@@ -202,7 +215,43 @@ class HttpEngine:
 
     @classmethod
     def version(cls) -> str:
-        return requests.__version__
+        """`requests`, and the two libraries under it that decide the handshake.
+
+        `requests` does not choose a cipher list. urllib3 builds the SSL context
+        and Python's `ssl` module hands it whatever OpenSSL the interpreter was
+        linked against, so those two are what a JA4 on this arm is a property
+        of - and until 2026-09-02 neither was written down anywhere.
+
+        What that cost: `tls_echo_20260901T112110Z.jsonl` and
+        `..113512Z.jsonl`, 14 minutes apart on one host, record this arm at 18
+        ciphers and then 31, with the extension hash unchanged and this string
+        reading `2.34.2` in both. 2026-09-02 reads 18 again, so the middle run
+        is the outlier - but with only `requests.__version__` on the row there
+        is no way to say what moved, and the question is still open in
+        NOTEBOOK.md for exactly that reason. The comment on `BROWSER_HEADERS`
+        above names the same gap for the pinned Chrome version.
+
+        Two libraries and not one because they fail independently: a `pip`
+        operation can move urllib3 without touching the interpreter, and a
+        different interpreter can carry a different OpenSSL with urllib3
+        unchanged.
+
+        Deliberately not a shared column. On every browser engine the handshake
+        comes from BoringSSL or NSS compiled into the browser, and `curl_cffi`
+        links its own; a column filled from this process would name Python's
+        OpenSSL on rows whose ClientHello it had nothing to do with. It is only
+        true here, so it is only recorded here.
+
+        This changes the string's format, so rows before today read `2.34.2`
+        bare. That is honest: those rows really did not record the stack, and
+        the discontinuity is where the column started meaning more. Every other
+        engine already formats this field as slash-separated parts.
+        """
+        # Two tokens, so "OpenSSL 1.1.1q  5 Jul 2022" loses a build date that
+        # the version already implies. Works unchanged for a LibreSSL build,
+        # which formats the same way.
+        stack = " ".join(ssl.OPENSSL_VERSION.split()[:2])
+        return f"{requests.__version__} / urllib3 {urllib3.__version__} / {stack}"
 
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,

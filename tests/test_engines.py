@@ -7,14 +7,17 @@ differently. An engine that drifts from the contract makes its column in the
 report incomparable, and the drift would otherwise only show up as a missing key
 in a data file six hours into a run.
 """
+import inspect
 import pathlib
 
 import pytest
 
 from nmbench import engines
 from nmbench.engines.base import (
+    HUMANIZE_MODES,
     ROW_FIELDS,
     blank_row,
+    browser_build,
     keep_error_body,
     record_error,
     record_judgement,
@@ -41,8 +44,8 @@ class TestRegistry:
         assert "chromium" in engines.REGISTRY
 
     @pytest.mark.parametrize("feature", ["supports_geo_align",
-                                         "supports_humanize",
-                                         "supports_typing"])
+                                         "supports_typing",
+                                         "supports_chrome_binary"])
     def test_an_optional_feature_has_at_least_two_implementers(self, feature):
         """A capability only one engine has is not an axis, it is a confound.
 
@@ -64,6 +67,36 @@ class TestRegistry:
             f"only {able} implement {feature}, so a matrix using it holds no "
             f"engine to compare against")
 
+    @pytest.mark.parametrize("mode", ["engine", "trueman"])
+    def test_a_humanize_mode_has_at_least_two_implementers(self, mode):
+        """The same rule as above, for the capability that stopped being a bool.
+
+        `supports_humanize` was a boolean until 2026-09-03 and was covered by
+        the parametrized test above. It is now `humanize_modes`, a set, because
+        there are two different movers and they are alternatives rather than a
+        stack - running Camoufox's own hand and ours together would compose two
+        models into one path and produce a movement neither describes. The
+        argument for two implementers is unchanged: a mode only one engine has
+        measures that engine's implementation and not the mode.
+        """
+        able = [name for name, engine in ENGINE_CLASSES
+                if mode in engine.humanize_modes]
+        assert len(able) >= 2, (
+            f"only {able} offer humanize mode {mode!r}, so a matrix using it "
+            f"holds no engine to compare against")
+
+    @pytest.mark.parametrize("name,engine", ENGINE_CLASSES)
+    def test_every_engine_can_be_left_unhumanized(self, name, engine):
+        """`off` is the control arm and every engine has to be able to run it.
+
+        An engine that offered only `trueman` could not appear in a matrix
+        beside its own unhumanized self, which is the only comparison that
+        isolates the cursor from everything else the binary does.
+        """
+        assert "off" in engine.humanize_modes, (
+            f"{name} cannot run unhumanized, so the pointer axis has no "
+            f"control column")
+
     def test_the_key_is_the_engine_name(self):
         for name, engine in ENGINE_CLASSES:
             assert engine.name == name
@@ -84,8 +117,9 @@ class TestRegistry:
     def test_the_interface_is_uniform(self, name, engine):
         for attribute in ("name", "check", "version", "open",
                           "supports_blocking", "supports_headful",
-                          "supports_geo_align", "supports_humanize",
-                          "supports_typing", "runs_script", "needs_relay"):
+                          "supports_geo_align", "humanize_modes",
+                          "supports_typing", "runs_script", "needs_relay",
+                          "accepts_relay", "supports_chrome_binary"):
             assert hasattr(engine, attribute), f"{name} is missing {attribute}"
 
     @pytest.mark.parametrize("name,engine", ENGINE_CLASSES)
@@ -96,7 +130,15 @@ class TestRegistry:
         into a cell claiming an alignment it never had."""
         assert isinstance(engine.supports_geo_align, bool)
         assert isinstance(engine.supports_headful, bool)
-        assert isinstance(engine.supports_humanize, bool)
+        # A set and not a bool since 2026-09-03. `frozenset` specifically: it is
+        # a class attribute inherited by four subclasses, and a mutable one
+        # would let a single engine's edit reach every sibling that inherited
+        # the same object.
+        assert isinstance(engine.humanize_modes, frozenset)
+        assert engine.humanize_modes <= set(HUMANIZE_MODES), (
+            f"{engine.humanize_modes - set(HUMANIZE_MODES)} is not a humanize "
+            f"mode the runner can be asked for, so it could never be selected "
+            f"and the declaration would be decoration")
         # `probe_and_hold.py` reads this to decide whether an engine can be
         # entered through the target's own front page. An engine that did not
         # answer would fall back to the URL path somewhere, and one entry column
@@ -109,6 +151,58 @@ class TestRegistry:
         # leave from this machine's own address into rows labelled as pool
         # exits. That is the one failure mode that produces plausible numbers.
         assert isinstance(engine.needs_relay, bool)
+        # A second and different question: whether the engine can be *pointed*
+        # at a relay, which is not the same as being unable to work without one.
+        # `patchright` is the case that forced the split - it reaches the pool
+        # perfectly well on its own, and its rows carried no exit address and no
+        # ClientHello for that reason, which is the gap `nmbench.relay` closes.
+        #
+        # Declared rather than discovered by passing `relay_address` and seeing
+        # what happens: every `open` in this package ends in `**ignored`, so an
+        # engine that does not handle it swallows the address, dials the gateway
+        # itself, and produces rows that say `relayed` with nothing behind it.
+        assert isinstance(engine.accepts_relay, bool)
+        # An engine that cannot reach the pool without a relay and cannot be
+        # given one has no pool arm at all. That combination is unreachable
+        # today and this is what keeps it that way, because the failure it
+        # produces is a run that starts and then refuses every cell.
+        assert not (engine.needs_relay and not engine.accepts_relay), (
+            f"{name} declares it needs a relay and cannot take one")
+        # The runner reads this to refuse a matrix mixing a pinned engine with
+        # one that cannot be pinned. An engine that did not answer would be
+        # handed `chrome_binary` and drop it into `**ignored`, and its row would
+        # sit beside the pinned ones carrying a browser 15 majors away from
+        # theirs with nothing in the file saying so.
+        assert isinstance(engine.supports_chrome_binary, bool)
+
+    @pytest.mark.parametrize("name,engine", ENGINE_CLASSES)
+    def test_an_engine_that_accepts_a_relay_names_it(self, name, engine):
+        """`accepts_relay = True` has to be visible in the signature.
+
+        Without this the flag is decoration, and decoration here is worse than
+        nothing: `**ignored` catches `relay_address` silently, so an engine that
+        declares True and forgot the parameter dials the gateway itself while
+        every row it writes says `relayed`. Nothing downstream can see that -
+        the bytes are right, the verdicts are right, and only the exit column is
+        empty, which is what it looks like when the gateway declines to name an
+        exit.
+
+        It caught one for real on 2026-09-06: `RebrowserEngine` inherits the
+        flag from `ChromiumEngine` and overrides `open` with its own copy of the
+        proxy line, so adding the option to the parent silently made a promise
+        the subclass did not keep.
+
+        Read off `inspect.signature` rather than by calling anything, so it
+        costs no browser and cannot go stale the way a hand-kept list would.
+        """
+        if not engine.accepts_relay:
+            return
+        parameters = inspect.signature(engine.open).parameters
+        assert "relay_address" in parameters, (
+            f"{name} declares accepts_relay but its open() does not name "
+            f"relay_address, so a caller's address would fall into **ignored "
+            f"and the arm would reach the gateway directly while its rows said "
+            f"relayed")
 
     @pytest.mark.parametrize("name,engine", ENGINE_CLASSES)
     def test_check_returns_a_message_or_nothing(self, name, engine):
@@ -222,6 +316,74 @@ class TestTheTimezoneReachesTheBrowser:
         assert len(able) >= 2, (
             f"only {able} install the zone {moment}, so the geo axis cannot "
             f"separate the installation moment from the engine again")
+
+
+# The vendor argument each engine hands the path to. Named per engine because
+# there is no agreement between the drivers: Playwright takes `executable_path`,
+# zendriver `browser_executable_path`, botasaurus `chrome_executable_path` and
+# SeleniumBase `binary_location`. The marker is what separates an engine that
+# forwards the path from one that accepts it into `**ignored`.
+CHROME_BINARY_TAKERS = [
+    ("chromium", "executable_path=chrome_binary"),
+    ("patchright", "executable_path=chrome_binary"),
+    ("rebrowser", "executable_path=chrome_binary"),
+    ("zendriver", "browser_executable_path=chrome_binary"),
+    ("botasaurus", "chrome_executable_path=chrome_binary"),
+    ("seleniumbase", "binary_location"),
+]
+
+
+class TestTheBrowserCanBeHeldFixed:
+    """`supports_chrome_binary` is a promise about the largest uncontrolled
+    variable in this repository.
+
+    Measured 2026-09-02 in `tls_clienthello_20260902T180555Z.jsonl`: the TLS
+    fingerprint an engine presents is decided by its Chrome major and not by the
+    library driving it - rebrowser on 136, cloak on 146, seleniumbase on 149,
+    zendriver and botasaurus all land on one value, while chromium and patchright
+    on 151 land on another, and the entire difference is three ML-DSA signature
+    algorithms. The engines in the registry span majors 136 to 151, systematically
+    by engine, so any engine-to-engine number carries a browser difference inside
+    it unless the browser is pinned.
+
+    An engine that declared the capability and dropped the path would be worse
+    than one that refused: the run would report a pin, the rows would carry the
+    label, and the browser spread would still be there with nothing left in the
+    file to detect it. That is the same failure `--humanize` produced for real,
+    which is why this is a test and not a convention.
+    """
+
+    @pytest.mark.parametrize("name, marker", CHROME_BINARY_TAKERS)
+    def test_open_accepts_a_path(self, name, marker):
+        engine = engines.REGISTRY[name]
+        assert engine.supports_chrome_binary
+        signature = __import__("inspect").signature(engine.open)
+        assert "chrome_binary" in signature.parameters
+        assert signature.parameters["chrome_binary"].default is None
+
+    @pytest.mark.parametrize("name, marker", CHROME_BINARY_TAKERS)
+    def test_the_path_is_forwarded_and_not_merely_accepted(self, name, marker):
+        source = __import__("inspect").getsource(engines.REGISTRY[name].open)
+        assert marker in source
+
+    def test_the_declared_set_is_exactly_the_measured_one(self):
+        """The list above is what the runner's refusal is built on, so a new
+        engine that can take a path has to appear in both or the guard will
+        refuse a matrix it should have allowed."""
+        declared = {name for name, engine in ENGINE_CLASSES
+                    if engine.supports_chrome_binary}
+        assert declared == {name for name, _ in CHROME_BINARY_TAKERS}
+
+    def test_a_pinned_run_is_labelled_as_one(self):
+        """Intent in the label, outcome in the version. The path itself is not
+        in the label - it is machine-specific and would make a useless cell key -
+        so `-pinned` is the only thing that says a run was not on the engine's
+        own build, and a table mixing pinned and unpinned rows needs it."""
+        from nmbench.engines.chromium import label_for
+
+        assert label_for("chromium") == "chromium"
+        assert label_for("chromium", "chrome") == "chromium-chrome"
+        assert label_for("chromium", None, "/opt/chrome") == "chromium-pinned"
 
 
 class TestRawCdpCannotOutwaitTheRun:
@@ -356,6 +518,44 @@ class TestEngineLabels:
     def test_the_two_builds_do_not_collide(self):
         from nmbench.engines.chromium import label_for
         assert label_for("patchright") != label_for("patchright", "chrome")
+
+
+class TestTheBuildIsReadableOffTheRow:
+    """`browser_build`, which exists because a slice threw the build away.
+
+    The Playwright engines read `browser.version` and record `151.0.7922.34`.
+    zendriver and botasaurus expose no such handle, so both took the User-Agent
+    and cut it to 40 characters - which keeps `Mozilla/5.0 (Windows NT 10.0;
+    Win64; x64` and drops the one token anybody would want. Measured 2026-09-02
+    on `tls_clienthello_20260902T180555Z`, eight engines share a TLS fingerprint
+    that is decided by the Chrome build, and these two were the only ones whose
+    rows could not say which build they ran. The variable the finding turns on
+    was cut off by a slice.
+    """
+
+    def test_the_chrome_build_is_taken_out_of_the_user_agent(self):
+        assert browser_build(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"
+        ) == "151.0.7922.34"
+
+    def test_firefox_is_read_too(self):
+        """Camoufox is not in this path today, but the fallback below is silent
+        and a Firefox User-Agent arriving here should not take it."""
+        assert browser_build(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) "
+            "Gecko/20100101 Firefox/143.0"
+        ) == "143.0"
+
+    def test_a_string_with_no_build_keeps_the_old_behaviour(self):
+        """The fallback is the slice this replaced, so an engine reporting
+        something unexpected degrades to what it recorded before rather than to
+        an empty column."""
+        assert browser_build("a" * 60) == "a" * 40
+
+    def test_nothing_is_reported_as_nothing(self):
+        assert browser_build("") == ""
+        assert browser_build(None) == ""
 
 
 class TestRowSchema:
@@ -728,3 +928,167 @@ class TestBotasaurusDisableFeatures:
         assert "merged_disable_features" in str(raised.value), (
             "the refusal should name the function to fix, since whoever hits "
             "it is reading a stack trace and not this test")
+
+
+class TestTheEnterThatSubmitsTheQuery:
+    """`submit_query`'s last two lines, and the only place the harness asks a
+    target for an answer.
+
+    Tested with fakes because the property is about **which keyword arguments
+    reach Playwright**, and that is invisible in every column the run writes. A
+    row whose Enter was waited for twice and a row whose Enter was waited for
+    once are byte-identical until one of them times out, so nothing downstream
+    could ever notice the flags being dropped. That is the whole reason these
+    exist: measured 2026-09-05 on `probehold_20260904T214642Z`, the doubled wait
+    had been in this function since it was written and surfaced as
+    `ElementHandle.press: Timeout 30000ms exceeded` - our own configured 60 s
+    never reached, because `press` waits for the navigation itself and was given
+    no timeout of its own.
+    """
+
+    class Handle:
+        def __init__(self, value=""):
+            self.value = value
+            self.log = []
+            self.press_kwargs = None
+
+        def input_value(self):
+            return self.value
+
+        def click(self):
+            self.log.append("click")
+
+        # The two signatures below are copied from the **sync** API and are
+        # deliberately strict - no `**kwargs`. A fake looser than the thing it
+        # stands for cannot fail where the real one does, and on 2026-09-04 this
+        # one did exactly that: `press(self, keys, **kwargs)` swallowed a
+        # `noWaitAfter=True` that the real sync `press` rejects, four tests went
+        # green, the whole suite went green, and the run that followed raised
+        # `TypeError: ElementHandle.press() got an unexpected keyword argument
+        # 'noWaitAfter'` on every probe -`probehold_20260904T224114Z`, 25
+        # attempts, 8.26 MB, 0 judged rows, all four cells stopped by the
+        # breaker. `test_the_fakes_are_no_looser_than_the_library` now pins them
+        # against the installed library so they cannot drift apart again.
+        def type(self, text, *, delay=None, timeout=None, no_wait_after=None):
+            self.value += text
+            self.log.append(f"type:{text}")
+
+        def press(self, key, *, delay=None, timeout=None, no_wait_after=None):
+            self.log.append(f"press:{key}")
+            if key == "Enter":
+                self.press_kwargs = {"delay": delay, "timeout": timeout,
+                                     "no_wait_after": no_wait_after}
+
+    class Navigation:
+        value = "response"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class Page:
+        def __init__(self, handle):
+            self.handle = handle
+            self.navigation_kwargs = None
+
+        def wait_for_selector(self, selector, **kwargs):
+            return self.handle
+
+        def expect_navigation(self, **kwargs):
+            self.navigation_kwargs = kwargs
+            return TestTheEnterThatSubmitsTheQuery.Navigation()
+
+    class Target:
+        name = "fake"
+        search_box = "input#q"
+
+    def _submit(self, query="kimchi mistakes", timeout_ms=60000):
+        from nmbench.engines.base import submit_query
+
+        handle = self.Handle()
+        page = self.Page(handle)
+        import random
+
+        result = submit_query(page, self.Target(), query,
+                              rng=random.Random(3), timeout_ms=timeout_ms)
+        return page, handle, result
+
+    def test_the_key_press_does_not_wait_for_the_navigation_as_well(self):
+        """`no_wait_after=True` is what makes Enter a keystroke and nothing else.
+
+        Read off the shipped driver 2026-09-05,
+        `patchright/driver/package/lib/coreBundle.js`: `_press` wraps the
+        keystroke in `waitForSignalsCreatedBy(progress, !options.noWaitAfter,
+        ...)`, which holds a barrier until any navigation the keystroke started
+        has committed. Without the flag the navigation below is waited for twice.
+
+        The keyword is snake_case here and camelCase in that quote, and the
+        difference is not cosmetic: the generated sync wrapper translates at the
+        boundary, `no_wait_after` in and `noWaitAfter=no_wait_after` out to the
+        async impl. Reading the impl or the wire validator - both camelCase, both
+        real - and writing what they say is what broke
+        `probehold_20260904T224114Z`.
+        """
+        _page, handle, _result = self._submit()
+        assert handle.press_kwargs is not None, "Enter was never pressed"
+        assert handle.press_kwargs.get("no_wait_after") is True
+
+    def test_the_fakes_are_no_looser_than_the_library(self):
+        """The fakes above may not accept a keyword the real sync API refuses.
+
+        This is the check that was missing on 2026-09-04, and it is one line of
+        `inspect` against the installed package rather than a re-reading of
+        anyone's source. It fails in three separate ways, all of which have now
+        happened or nearly happened: a fake that grows a `**kwargs` and stops
+        being able to reject anything, a call site spelled in the impl's or the
+        protocol's camelCase, and an upstream release that renames or drops the
+        keyword - `no_wait_after` is deprecated, so the third is the one to
+        expect.
+
+        Skipped where patchright is absent, which is the offline CI gate by
+        design - `requirements-ci.txt` installs no browser framework. So this
+        guards the machine that runs the harness, and the strict signatures on
+        the fakes are what guards CI.
+        """
+        import inspect
+
+        sync_api = pytest.importorskip("patchright.sync_api")
+
+        for name in ("press", "type"):
+            fake = inspect.signature(getattr(self.Handle, name))
+            real = inspect.signature(getattr(sync_api.ElementHandle, name))
+            var_kinds = (inspect.Parameter.VAR_KEYWORD,
+                         inspect.Parameter.VAR_POSITIONAL)
+            assert not [p for p in fake.parameters.values()
+                        if p.kind in var_kinds], (
+                f"the fake ElementHandle.{name} takes *args or **kwargs, so it "
+                f"accepts keywords the real one rejects and cannot fail where "
+                f"the run fails")
+            assert set(fake.parameters) == set(real.parameters), (
+                f"the fake ElementHandle.{name} and the installed one no longer "
+                f"take the same arguments: fake {sorted(fake.parameters)}, "
+                f"library {sorted(real.parameters)}")
+
+    def test_the_two_waits_carry_the_same_budget(self):
+        """The failure this pins is not that the wait was too short but that
+        there were two of them with different budgets, so the caller's number
+        was unreachable. Asserting equality rather than a value, because the
+        defect is the disagreement and not either figure."""
+        page, handle, _result = self._submit(timeout_ms=12345)
+        assert handle.press_kwargs.get("timeout") == 12345
+        assert page.navigation_kwargs["timeout"] == 12345
+
+    def test_the_navigation_is_still_what_the_response_comes_from(self):
+        """A cheap guard on the obvious way to 'fix' the doubled wait: dropping
+        `expect_navigation` and returning None would make every typed row carry
+        no `status`, which reads in the report as the target answering nothing
+        rather than as the harness having stopped asking."""
+        page, _handle, result = self._submit()
+        assert result == "response"
+        assert page.navigation_kwargs["wait_until"] == "domcontentloaded"
+
+    def test_the_query_is_typed_before_it_is_submitted(self):
+        _page, handle, _result = self._submit(query="swimming technique")
+        assert handle.log == ["click", "type:swimming technique", "press:Enter"]

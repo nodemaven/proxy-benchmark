@@ -67,15 +67,27 @@ def load():
 
 benchmark = load()
 
-# The four flags preflight guards, each with the engine attribute that decides
-# whether a cell may carry it. Parametrized rather than written out four times,
-# because the failure mode is one mechanism and a fifth capability should cost
-# one line here.
+# The five flags preflight guards, each with the test that decides whether a
+# cell may carry it. Parametrized rather than written out five times, because
+# the failure mode is one mechanism and a sixth capability should cost one line
+# here.
+#
+# The fourth column was an attribute name until 2026-09-03, when
+# `supports_humanize` became `humanize_modes` and stopped being a bool. A
+# predicate covers both shapes without giving `engines_with` a hidden special
+# case keyed on the attribute name, and the label is kept beside it so a failure
+# still names the capability rather than a lambda.
 CAPABILITIES = [
-    ("headful", True, "supports_headful"),
-    ("geo", "align", "supports_geo_align"),
-    ("preset", "light", "supports_blocking"),
-    ("humanize", True, "supports_humanize"),
+    ("headful", True, "supports_headful",
+     lambda e: e.supports_headful),
+    ("geo", "align", "supports_geo_align",
+     lambda e: e.supports_geo_align),
+    ("preset", "light", "supports_blocking",
+     lambda e: e.supports_blocking),
+    ("humanize", "engine", "humanize_modes",
+     lambda e: "engine" in e.humanize_modes),
+    ("chrome_binary", "/opt/chrome", "supports_chrome_binary",
+     lambda e: e.supports_chrome_binary),
 ]
 
 
@@ -88,9 +100,10 @@ class Parser:
         raise Refused(message)
 
 
-def engines_with(attribute: str, value: bool) -> list:
+def engines_with(can, value: bool) -> list:
+    """Engine names on one side of a capability predicate."""
     return sorted(name for name, engine in engines.REGISTRY.items()
-                  if getattr(engine, attribute) is value)
+                  if bool(can(engine)) is value)
 
 
 def args(**overrides):
@@ -106,7 +119,8 @@ def args(**overrides):
     be refused, and two is a comparison that was typed.
     """
     settings = {"headful": False, "geo": "off", "preset": "none",
-                "humanize": False, "direct": True, "countries": "us"}
+                "humanize": "off", "direct": True, "countries": "us",
+                "chrome_binary": None}
     settings.update(overrides)
     return argparse.Namespace(**settings)
 
@@ -163,13 +177,13 @@ def every_engine_installed(monkeypatch):
 
 
 class TestACapabilityOnlySomeEnginesHave:
-    @pytest.mark.parametrize("flag, value, attribute", CAPABILITIES,
+    @pytest.mark.parametrize("flag, value, attribute, can", CAPABILITIES,
                              ids=lambda v: str(v))
-    def test_a_mixed_matrix_is_refused(self, flag, value, attribute):
+    def test_a_mixed_matrix_is_refused(self, flag, value, attribute, can):
         """The whole rule in one assertion: the flag is either applied to every
         column or the run does not start."""
-        able = engines_with(attribute, True)
-        unable = engines_with(attribute, False)
+        able = engines_with(can, True)
+        unable = engines_with(can, False)
         assert able and unable, (
             f"{attribute} is no longer an axis: every engine answers the same, "
             f"so this test proves nothing. Delete it or the flag.")
@@ -180,28 +194,29 @@ class TestACapabilityOnlySomeEnginesHave:
             "the refusal has to name the engine that cannot, or the operator "
             "is told a matrix is wrong without being told which column to drop")
 
-    @pytest.mark.parametrize("flag, value, attribute", CAPABILITIES,
+    @pytest.mark.parametrize("flag, value, attribute, can", CAPABILITIES,
                              ids=lambda v: str(v))
-    def test_every_engine_able_is_allowed(self, flag, value, attribute):
+    def test_every_engine_able_is_allowed(self, flag, value, attribute, can):
         """The other half, and the one that stops the guard being a refusal to
         run anything. An axis nobody can run is not measured either."""
-        able = engines_with(attribute, True)
+        able = engines_with(can, True)
         benchmark.preflight(Parser(), args(**{flag: value}), cells(*able),
                             chosen())
 
-    @pytest.mark.parametrize("flag, value, attribute", CAPABILITIES,
+    @pytest.mark.parametrize("flag, value, attribute, can", CAPABILITIES,
                              ids=lambda v: str(v))
-    def test_the_flag_off_asks_nothing_of_anyone(self, flag, value, attribute):
+    def test_the_flag_off_asks_nothing_of_anyone(self, flag, value, attribute,
+                                                 can):
         """An engine without the capability is a normal engine. Refusing it
         whenever it appears would make the registry a list of Camoufox."""
         benchmark.preflight(Parser(), args(),
-                            cells(*engines_with(attribute, False)), chosen())
+                            cells(*engines_with(can, False)), chosen())
 
     def test_one_engine_that_cannot_is_enough(self):
         """Not a property of the mixture: a single-column matrix asking for a
         capability that column does not have is the same wrong run, and the
         row would still record the flag."""
-        unable = engines_with("supports_headful", False)
+        unable = engines_with(lambda e: e.supports_headful, False)
         with pytest.raises(Refused):
             benchmark.preflight(Parser(), args(headful=True), cells(unable[0]),
                                 chosen())
@@ -227,7 +242,7 @@ class TestTheRestOfPreflight:
         preset = sorted(SCRIPT_BLOCKING)[0]
         target = next(name for name, t in TARGETS.items()
                       if getattr(t, "needs_script", False))
-        engine = engines_with("supports_blocking", True)[0]
+        engine = engines_with(lambda e: e.supports_blocking, True)[0]
         with pytest.raises(Refused, match=target):
             benchmark.preflight(Parser(), args(preset=preset),
                                 cells(engine, target=target, preset=preset),

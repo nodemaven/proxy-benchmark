@@ -88,7 +88,7 @@ class CurlCffiSession:
             direct=self.direct, preset=None,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=True, humanize=False,
+            headless=True, humanize=False, humanize_mode="off",
             session_index=self.index,
         )
         self.index += 1
@@ -135,7 +135,9 @@ class CurlCffiEngine:
     supports_headful = False
     supports_geo_align = False
     supports_geoip = False
-    supports_humanize = False
+    # No browser, so there is no cursor to move and no kind of humanization
+    # that means anything here. Not a gap.
+    humanize_modes = frozenset({"off"})
     runs_script = False
     # No box to type into. See `HttpEngine` for why posting the form by hand
     # would be a third entry shape rather than this one.
@@ -143,6 +145,16 @@ class CurlCffiEngine:
     # Sends its own Proxy-Authorization, so a relay would add a loopback hop and
     # buy nothing. See `nmbench.relay` for what that hop costs.
     needs_relay = False
+    # And this `open` does not handle a relay address, so one would be swallowed
+    # by `**ignored`. It would also be the wrong instrument here: the relay's
+    # other purchase is the ClientHello, and this engine's whole point is that
+    # its handshake is a compiled-in BoringSSL profile that `--impersonate`
+    # already names on the row.
+    accepts_relay = False
+    # No browser to point anywhere. The Chrome this engine imitates is a
+    # compiled-in BoringSSL profile named by `--impersonate`, so the version is
+    # already an axis of its own and a binary path has nothing to bind to.
+    supports_chrome_binary = False
 
     @classmethod
     def check(cls) -> str:

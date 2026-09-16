@@ -61,7 +61,7 @@ arrive at launch, for the reason the other Chromium engines do.
 """
 from contextlib import contextmanager
 
-from .. import providers, proxy
+from .. import providers
 from .base import EngineUnavailable
 from .chromium import ChromiumEngine, ChromiumSession, label_for
 
@@ -85,8 +85,10 @@ class RebrowserEngine(ChromiumEngine):
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,
              preset: str = "light", headless: bool = True,
-             channel: str = None, ready_timeout_ms: int = 8000, store=None,
-             timezone_id: str = None, provider=None, **ignored):
+             channel: str = None, chrome_binary: str = None,
+             ready_timeout_ms: int = 8000, store=None,
+             humanize=False, hand_rng=None, timezone_id: str = None,
+             provider=None, relay_address: str = None, **ignored):
         unavailable = self.check()
         if unavailable:
             raise EngineUnavailable(unavailable)
@@ -96,8 +98,17 @@ class RebrowserEngine(ChromiumEngine):
 
         params = params or {}
         provider = None if direct else (provider or providers.load())
-        proxy_cfg = None if direct else proxy.proxy_dict(provider=provider,
-                                                        **params)
+        # Threaded through here as well as in the two engines in `chromium.py`,
+        # and not because this engine has a run waiting for it. `accepts_relay`
+        # is inherited from `ChromiumEngine`, so leaving this `open` without the
+        # parameter would have left a True declaration beside an `**ignored`
+        # that swallows the address - the arm would report itself relayed and
+        # dial the gateway directly, which is the exact failure the flag was
+        # added to make impossible. Either the parameter or a False here; this
+        # is the cheaper of the two because it shares `proxy_config`.
+        proxy_cfg = self.proxy_config(direct=direct, params=params,
+                                      provider=provider,
+                                      relay_address=relay_address)
 
         with api.sync_playwright() as pw:
             # No `args` and no `user_agent`, exactly as the control launches:
@@ -105,15 +116,18 @@ class RebrowserEngine(ChromiumEngine):
             # `locale` is deliberately not set beside the timezone. See
             # `base.ROW_FIELDS`.
             browser = pw.chromium.launch(headless=headless, proxy=proxy_cfg,
-                                         channel=channel)
+                                         channel=channel,
+                                         executable_path=chrome_binary)
             try:
                 context = browser.new_context(timezone_id=timezone_id)
                 yield ChromiumSession(
-                    context, label=label_for(self.name, channel), preset=preset,
+                    context,
+                    label=label_for(self.name, channel, chrome_binary),
+                    preset=preset,
                     direct=direct, params=params, headless=headless,
                     version=f"{browser.version} / {self.version()}"
                             f"{' / ' + channel if channel else ''}",
                     ready_timeout_ms=ready_timeout_ms, store=store,
-                    provider=provider)
+                    humanize=humanize, hand_rng=hand_rng, provider=provider)
             finally:
                 browser.close()

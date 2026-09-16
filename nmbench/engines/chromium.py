@@ -71,6 +71,7 @@ back to another build when the requested one is missing.
 """
 import os
 import shutil
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -82,6 +83,7 @@ from .base import (
     await_ready,
     blank_row,
     entry_row_url,
+    humanize_mode,
     keep_body,
     record_error,
     record_judgement,
@@ -95,7 +97,7 @@ class ChromiumSession:
 
     def __init__(self, pages, *, label, preset, direct, params, headless,
                  version, ready_timeout_ms, humanize=False, store=None,
-                 provider=None):
+                 provider=None, hand_rng=None):
         self.pages = pages           # anything with .new_page()
         self.label = label
         self.store = store
@@ -115,7 +117,23 @@ class ChromiumSession:
         # while moving the cursor would put the flag out of reach of anyone
         # reading the rows back, which is the failure --humanize already had
         # once at the command line.
-        self.humanize = humanize
+        #
+        # A mode string since 2026-09-03, not a bool - "off", "engine" or
+        # "trueman". True and False are still accepted and mapped, because this
+        # is called by probes outside this package and a keyword that silently
+        # changed meaning would be worse than one that changed name.
+        self.humanize = humanize_mode(humanize)
+        # The cursor, when there is one. Made here and not per query so the
+        # position persists across a held series: a hand that starts each query
+        # from the same point is a stronger signal than no hand at all.
+        #
+        # Seeded from `rng` when the caller has one, so a `--seed` run repeats
+        # its pointer as well as its queries. `PointerHand` draws its own device
+        # per session on purpose - see `pointer.pick_device`.
+        self.hand = None
+        if self.humanize == "trueman":
+            from ..humanize import PointerHand
+            self.hand = PointerHand(rng=hand_rng)
         self.version = version
         self.ready_timeout_ms = ready_timeout_ms
         self.index = 0
@@ -149,7 +167,8 @@ class ChromiumSession:
             direct=self.direct, preset=self.preset,
             params={} if self.direct else dict(self.params),
             provider=getattr(self.provider, "id", None),
-            headless=bool(self.headless), humanize=bool(self.humanize),
+            headless=bool(self.headless),
+            humanize=self.humanize != "off", humanize_mode=self.humanize,
             session_index=self.index,
         )
         self.index += 1
@@ -165,7 +184,7 @@ class ChromiumSession:
         """
         validate_preset(self.preset, target)
         row = self._row(target, query, entry_row_url(target, query))
-        return run_search(page, target, query, row, rng=rng,
+        return run_search(page, target, query, row, rng=rng, hand=self.hand,
                           ready_timeout_ms=self.ready_timeout_ms,
                           store=self.store, counter=counter)
 
@@ -199,14 +218,23 @@ class ChromiumSession:
         return row
 
 
-def label_for(name: str, channel: str = None) -> str:
+def label_for(name: str, channel: str = None, chrome_binary: str = None) -> str:
     """The engine label, carrying the browser build when it is not the default.
 
     Two runs of the same engine on different browser builds are two different
     measurements, so the difference has to reach the cell key. Patchright on
     bundled Chromium and Patchright on installed Chrome do not score the same,
     and a row that called both `patchright` could not be told apart afterwards.
+
+    A pinned binary is marked but not named. The path is long, machine-specific
+    and would make a useless cell key; what the reader needs is that this cell
+    was not on the engine's own browser, and then `engine_version`, which
+    records the build that actually launched. Intent in the label, outcome in
+    the version - and the pin is only worth anything if those two agree, which
+    is checkable precisely because they are separate.
     """
+    if chrome_binary:
+        return f"{name}-pinned"
     return name if not channel else f"{name}-{channel}"
 
 
@@ -231,10 +259,17 @@ class ChromiumEngine:
     # producing a cell that claims an alignment it never had.
     supports_geo_align = False
     supports_geoip = False
-    # No humanized input. The row already records humanize=False for this
-    # engine, but a flag accepted at the command line and honoured by only one
-    # column is a difference nobody reads back out of the rows.
-    supports_humanize = False
+    # No input synthesis of its own - this is the control and hardening it would
+    # leave nothing to control against - but the model in `nmbench.pointer` is
+    # driven from outside the browser, so "trueman" works here and is in fact
+    # the point of it: a cursor axis that could only be measured on the two
+    # anti-detect engines would confound the pointer with everything else those
+    # binaries change.
+    #
+    # Both entries matter. A missing "off" would make the control unable to run
+    # in a matrix that also names a humanized engine, and the pair is what makes
+    # the axis a comparison.
+    humanize_modes = frozenset({"off", "trueman"})
     runs_script = True
     # This session implements `search`, so it can be entered through the
     # target's own front page. Declared rather than discovered by calling it,
@@ -242,17 +277,68 @@ class ChromiumEngine:
     # put two different clients in one entry column and read as an engine
     # difference. `probe_and_hold.py` refuses an engine that answers False.
     supports_typing = True
-    # Playwright takes proxy credentials directly, so a relay would add a
-    # loopback hop and buy nothing. See `nmbench.relay` for what that hop costs.
+    # Playwright takes proxy credentials directly, so this engine does not need
+    # a relay to reach the pool at all. That is what `needs_relay` means and it
+    # is still False.
+    #
+    # **The comment here said the hop would "buy nothing" until 2026-09-06, and
+    # that was wrong in a way that cost the one column the open question needs.**
+    # It buys two things no other path on this engine can produce: the exit
+    # address of the tunnel the page actually used, read off the CONNECT reply
+    # the relay is holding anyway, and the ClientHello, which is sent before a
+    # byte of script runs and is therefore out of reach of everything
+    # `engine_fingerprint.py` can ask. `base.ROW_FIELDS` had already written the
+    # consequence down - 3815 of 16579 rows relayed, "and not `patchright`,
+    # which is the engine the largest open question in `RESULTS.md` rests on" -
+    # and this line is why.
+    #
+    # What the mistake looked like from the inside: the sentence was measuring
+    # the hop against the columns that already worked. Bytes are counted by
+    # `page.route` here and verdicts do not care how the tunnel was dialled, so
+    # against those two the relay really does add latency and nothing else. The
+    # column it buys was empty on every row of this engine, and an empty column
+    # is not a thing you notice while listing what a change would improve.
+    #
+    # So it is opt-in through `relay_address` rather than a flip of the flag
+    # above. The hop is real - `elapsed_ms` on a relayed row is not comparable
+    # against an unrelayed one, which is what the `relayed` column exists to
+    # say - and every row on disk for this engine was measured without it.
     needs_relay = False
+    # Whether the engine can be pointed at one, which is a different question
+    # from whether it needs one, and the difference is this engine. Declared
+    # rather than discovered by passing `relay_address` and seeing what happens:
+    # every engine's `open` ends in `**ignored`, so an engine that does not
+    # handle it would swallow the address, dial the gateway itself, and write
+    # `relayed=True` beside an exit column nothing filled. A caller reads this
+    # to refuse the run instead.
+    accepts_relay = True
+    # Can be pointed at a browser binary chosen by the caller, so a matrix can
+    # hold the browser fixed across engines instead of letting each bring its
+    # own. Declared rather than discovered, because an engine that accepted the
+    # option and ignored it would produce a cell claiming a control it never
+    # had - the same failure `supports_geo_align` exists to prevent.
+    supports_chrome_binary = True
 
     @classmethod
     def check(cls) -> str:
         try:
             __import__(f"{cls.driver}.sync_api")
         except ImportError:
-            return (f"{cls.driver} is not installed, so this engine cannot "
-                    f"run: pip install {cls.driver}")
+            # The interpreter is named because the old message was misleading in
+            # the common case rather than merely terse. Hit 2026-09-05: the
+            # package was installed the whole time, in the repository's venv,
+            # and the run had been started with the system `python` from a fresh
+            # PowerShell where the venv had not been activated. "pip install
+            # patchright" is then advice that cannot work - it installs into the
+            # interpreter that already has it, or into a second one - and the
+            # one fact that identifies the fault, which interpreter is doing the
+            # asking, was the fact the message left out.
+            return (f"{cls.driver} is not installed for {sys.executable}, so "
+                    f"this engine cannot run. Check the interpreter before "
+                    f"installing anything - if this is not the repository's "
+                    f"venv, re-run with .venv/Scripts/python.exe (or "
+                    f".venv/bin/python) instead. If it is, then "
+                    f"{sys.executable} -m pip install {cls.driver}")
         # An installed driver with no browser is the common failure and the
         # error it produces at launch names a path, not a fix.
         from importlib import import_module
@@ -270,11 +356,41 @@ class ChromiumEngine:
     def version(cls) -> str:
         return f"{cls.driver} {_package_version(cls.driver)}"
 
+    @staticmethod
+    def proxy_config(*, direct: bool, params: dict, provider,
+                     relay_address: str = None):
+        """What Playwright is pointed at: nothing, a relay, or the gateway.
+
+        One function and two callers, because the two `open` methods below held
+        byte-identical copies of this decision and a third destination has now
+        been added to it. A copy that learned about the relay and a copy that
+        did not would be an engine and its own subclass reaching the pool by
+        different routes, with `relayed` recorded the same way on both rows.
+
+        No credentials go to the relay. It authenticates upstream itself - that
+        is the whole of what it is for - and handing Playwright a username here
+        as well would put a `Proxy-Authorization` on the wire to a loopback
+        listener that ignores it.
+
+        `params` builds the username on the gateway path and is deliberately
+        unused on the relay path: there the relay owns the username, and it was
+        built from this same dict by the caller. Two places building one
+        username out of one dict is drift this harness has already paid for, so
+        the caller hands the dict to the relay and the address to this.
+        """
+        if direct:
+            return None
+        if relay_address:
+            return {"server": f"http://{relay_address}"}
+        return proxy.proxy_dict(provider=provider, **params)
+
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,
              preset: str = "light", headless: bool = True,
-             channel: str = None, ready_timeout_ms: int = 8000, store=None,
-             provider=None, **ignored):
+             channel: str = None, chrome_binary: str = None,
+             ready_timeout_ms: int = 8000, store=None,
+             humanize=False, hand_rng=None, provider=None,
+             relay_address: str = None, **ignored):
         unavailable = self.check()
         if unavailable:
             raise EngineUnavailable(unavailable)
@@ -284,24 +400,28 @@ class ChromiumEngine:
 
         params = params or {}
         provider = None if direct else (provider or providers.load())
-        proxy_cfg = None if direct else proxy.proxy_dict(provider=provider,
-                                                        **params)
+        proxy_cfg = self.proxy_config(direct=direct, params=params,
+                                      provider=provider,
+                                      relay_address=relay_address)
 
         with api.sync_playwright() as pw:
             # No args. Playwright's defaults include the automation switches,
             # and stripping them here would quietly turn the control into
             # another anti-detect engine with nothing left to control against.
             browser = pw.chromium.launch(headless=headless, proxy=proxy_cfg,
-                                         channel=channel)
+                                         channel=channel,
+                                         executable_path=chrome_binary)
             try:
                 context = browser.new_context()
                 yield ChromiumSession(
-                    context, label=label_for(self.name, channel), preset=preset,
+                    context,
+                    label=label_for(self.name, channel, chrome_binary),
+                    preset=preset,
                     direct=direct, params=params, headless=headless,
                     version=f"{browser.version} / {self.version()}"
                             f"{' / ' + channel if channel else ''}",
                     ready_timeout_ms=ready_timeout_ms, store=store,
-                    provider=provider)
+                    humanize=humanize, hand_rng=hand_rng, provider=provider)
             finally:
                 browser.close()
 
@@ -333,8 +453,10 @@ class PatchrightEngine(ChromiumEngine):
     @contextmanager
     def open(self, *, direct: bool = False, params: dict = None,
              preset: str = "light", headless: bool = True,
-             channel: str = None, ready_timeout_ms: int = 8000, store=None,
-             timezone_id: str = None, provider=None, **ignored):
+             channel: str = None, chrome_binary: str = None,
+             ready_timeout_ms: int = 8000, store=None,
+             humanize=False, hand_rng=None, timezone_id: str = None,
+             provider=None, relay_address: str = None, **ignored):
         unavailable = self.check()
         if unavailable:
             raise EngineUnavailable(unavailable)
@@ -344,25 +466,29 @@ class PatchrightEngine(ChromiumEngine):
 
         params = params or {}
         provider = None if direct else (provider or providers.load())
-        proxy_cfg = None if direct else proxy.proxy_dict(provider=provider,
-                                                        **params)
+        proxy_cfg = self.proxy_config(direct=direct, params=params,
+                                      provider=provider,
+                                      relay_address=relay_address)
 
         with api.sync_playwright() as pw:
             profile = tempfile.mkdtemp(prefix="patchright-")
             # `locale` is deliberately not set beside it. See `base.ROW_FIELDS`.
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=profile, headless=headless, proxy=proxy_cfg,
-                channel=channel, no_viewport=True, timezone_id=timezone_id)
+                channel=channel, executable_path=chrome_binary,
+                no_viewport=True, timezone_id=timezone_id)
             try:
                 browser = context.browser
                 yield ChromiumSession(
-                    context, label=label_for(self.name, channel), preset=preset,
+                    context,
+                    label=label_for(self.name, channel, chrome_binary),
+                    preset=preset,
                     direct=direct, params=params, headless=headless,
                     version=f"{browser.version if browser else 'unknown'} / "
                             f"{self.version()}"
                             f"{' / ' + channel if channel else ''}",
                     ready_timeout_ms=ready_timeout_ms, store=store,
-                    provider=provider)
+                    humanize=humanize, hand_rng=hand_rng, provider=provider)
             finally:
                 context.close()
                 shutil.rmtree(profile, ignore_errors=True)
