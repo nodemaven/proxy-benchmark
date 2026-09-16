@@ -40,6 +40,9 @@ Findings about the pool:
   and `us = 0%` is the correction this whole file is written in the shadow of
 - [The entry shape is a new axis](#the-entry-shape-is-a-new-axis-and-it-is-what-probe-and-hold-changes) -
   probe, hold, and the three traps that had to be fixed to ask it
+- [The pointer axis, and the half of it `--headless` throws away](#the-pointer-axis-and-the-half-of-it-that---headless-throws-away) -
+  the mover's timing reaches the page headful and not headless, so the flag
+  decides what the arm measures
 
 Findings about the engines:
 
@@ -57,6 +60,8 @@ Findings about the targets:
 
 - [A refused address diverts the request](#a-refused-address-diverts-the-request-and-reading-the-status-alone-got-this-wrong) -
   reading the status alone got this wrong for eight days
+- [Google replaced the result href with `/goto?url=`](#google-replaced-the-result-href-with-gotourl-and-our-own-archives-date-it) -
+  dated to a 29-hour window from our own stored bodies, and no verdict reads it
 - [Which engines have ever passed Google](#which-engines-have-ever-passed-google-and-the-denominator-that-shows-it) ·
   [Amazon answers four different ways](#amazon-answers-four-different-ways-and-two-of-them-are-2-kb) ·
   [Walmart and PerimeterX](#walmart-is-fronted-by-perimeterx-and-the-lock-is-on-the-address)
@@ -66,6 +71,10 @@ Findings about the targets:
   figure above**
 - [The handshake was read](#the-handshake-was-read-and-it-is-not-the-discriminator) -
   and it explains neither target
+- [Every engine's JA4, from a listener on this machine](#every-engines-ja4-from-a-listener-on-this-machine) -
+  no live host needed, and the split it shows is the Chrome build, not the engine
+- [The browser can be held fixed](#the-browser-can-be-held-fixed-and-doing-it-collapses-the-groups) -
+  six engines pinned to one Chrome land on one JA4, three of them after changing build
 - [DuckDuckGo is reading the User-Agent](#duckduckgo-is-reading-the-user-agent-and-the-split-is-total) -
   95 of 95 against 0 of 50, on one substring
 
@@ -73,6 +82,9 @@ Cost:
 
 - [Chrome pays its vendor 43 MB per profile](#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it) -
   the largest single line of the traffic bill, for a request no target sees
+- [The third target is unchosen](#the-third-target-is-unchosen-and-the-first-eight-requests-were-an-accident) -
+  Shopee, Lazada and Google Maps, why the criterion is not "what scrapes best",
+  and the 8 requests sent by accident
 - [What a run costs](#what-a-run-costs-and-why-one-constant-could-not-track-it) -
   and why one constant could not track it
 
@@ -1072,6 +1084,94 @@ Direct, from the operator's own line, so the address is held constant:
   on disk stay struck - they were written blind and no re-read recovers a column
   that was never recorded - but the engine is not the one described above.
 
+### Google replaced the result href with `/goto?url=`, and our own archives date it
+
+`SerpApi` published this on 2026-09-02 as "tested in July, expanded in late
+August" with no date on either end. Our archives carry one, because every served
+body is stored: 90 `google_serp__ok` bodies across 32 run windows, decompressed
+and counted for `/goto?url=` on 2026-09-03.
+
+| date | windows | bodies with `/goto` | engines in those windows |
+|---|---|---|---|
+| 2026-08-13 | 12 | **7 of 36** | patchright, patchright-direct, zendriver, zendriver-direct |
+| 2026-08-14 | 3 | 0 of 18 | patchright, zendriver |
+| 2026-08-26 | 5 | 0 of 15 | patchright, patchright-direct |
+| 2026-08-27 … 09-01 | 7 | **21 of 21** | patchright |
+
+The flip is bounded by two windows and nothing between them: `20260826T152748Z`
+at 0 of 3, `20260827T201123Z` at 3 of 3. **2026-08-26 15:27 UTC to 2026-08-27
+20:11 UTC, about 29 hours**, and every one of the seven windows since is 3 of 3.
+
+**The replacement is total on a page that has it, which is a stronger statement
+than "some links changed" and needed its own control.** Counting `href="http…"`
+to a host outside Google's own properties: 0 such links on 28 of 28 `/goto`
+pages, and at least one on 62 of 62 pages without it - reddit, facebook, quora,
+tiktok. The negative and positive controls disagree, so the zero is a reading
+about the pages and not about the regex. A page either wraps every destination
+or wraps none.
+
+**That is a statement about `href` attributes and it should not be read as one
+about the page. The destination URLs never left.** Measured 2026-09-03 over the
+same archives: **27 of 29** `/goto` pages still carry at least one full
+third-party destination URL - scheme, host and path - in plaintext, a median of
+7 distinct hosts each, inside the inline JSON arrays the page ships beside the
+markup. The `<cite>` line is not the place to look: it holds a prettified
+breadcrumb with `›` separators rather than a path. So anything that wants result
+destinations reads the JSON, and the wrapper costs it nothing.
+
+**The wrapper itself cannot be undone client-side, which is why the JSON matters
+rather than being a convenience.** The `CAES…` token is base64url and its
+protobuf field 2 holds a payload that begins with a version byte and a four-byte
+key id - `01ee47aa4d` on 354 tokens and `01eb3b3015` on 1077, the only two seen
+across 1431 tokens on 29 pages. After those five bytes there is not one printable
+run of six characters, so the destination is encrypted and not merely encoded.
+Decoding it here would need Google's key. Following the redirect instead is a
+second request per link, which on a metered proxy is the whole point of not
+doing it.
+
+**On 2026-08-13 the hits are entirely zendriver, and that date cannot clear the
+engine.** patchright is 0 of 12 and patchright-direct 0 of 6, against zendriver
+4 of 13 and zendriver-direct 3 of 5. Ten of the twelve windows that day ran a
+single engine, so engine and window are almost perfectly confounded; the one
+window that ran both is `185327Z` at zendriver 1 of 3 against patchright 0 of 3,
+which is three attempts a side and settles nothing.
+
+What clears the engine is the later data, not that date: **patchright, the engine
+that never saw `/goto` on 2026-08-13, is 21 of 21 from 2026-08-27 on.** So it is
+not an engine property. Within zendriver the flag also flips between adjacent
+windows minutes apart - `181820Z` 0 of 1 then `181943Z` 3 of 3, same engine, same
+direct arm, **83 seconds apart**; `182540Z` 0 of 2 then `182745Z` 3 of 3, same
+engine, about two minutes. A thing that changes between two sessions of one
+engine two minutes apart is assigned per session, not per client.
+
+Entry shape is clear at the boundary for free: the last window without it and the
+first with it were both `--entry url`, so the shape is held fixed across the flip
+rather than argued about. Direct and proxied are both represented before the flip
+and both read 0, so it is not an artefact of the address either.
+
+**Two limits, both worth more than the table.** The sample is capped at 3 served
+bodies per window by `--sample-ok 3`, so every cell above is a sample and not a
+census - "21 of 21" is 21 bodies, not 21 of the run's served rows. And **every
+window after 2026-08-27 is patchright alone**, so the post-transition engine axis
+is not covered at all: the claim is that patchright sees it universally, not that
+the other engines do.
+
+**No number in this repository moves.** `GoogleSerp.judge` decides on nine
+structural strings - `/sorry/`, `unusual traffic`, `consent.`, `id="rso"`,
+`id="search"`, `<h3`, `consent.google.com`, `enablejs`, `noscript` - and not one
+of them is a destination href. A served page is served whichever form its links
+take. `/goto?url=` is now in `FINGERPRINT_MARKERS` so the next such change is
+datable from the rows rather than by decompressing archives, which is how this
+one had to be done. The looser spellings were checked and rejected: `caes`, the
+protobuf prefix, matches 62 of the 90 bodies including every pre-transition one,
+while `/goto?url=` matches 28 of 90 and 0 of the 616 archived bodies of every
+other target.
+
+The exposure is downstream, in the backlog rather than here: anything that reads
+a result destination off a Google page - the B2B enrichment idea and the Google
+Maps one both do - now gets protobuf ciphertext instead of a URL, and resolving
+it costs a second request per result. Nothing in this harness reads one today.
+
 ### Obscura's two exclusions, re-checked 2026-08-14, and only one survives
 
 Both are now asked by `scripts/probes/obscura_defects.py`, which sends nothing,
@@ -1386,6 +1486,49 @@ rather than re-deriving: **a capability flag moves on a probe result, never on a
 changelog.** The seleniumbase half of the paragraph above is untouched by any of
 this and still rests on the missing status.
 
+### Owed: clear the jar at L3 and probe the same held exit
+
+Agreed with the user 2026-09-15 and not yet run. The warm-up ladder is the only
+axis in this repository with a measured effect on the probe - 11% cold against
+82% at depth 7, replicated at 24%/86% and 19%/84% - and **nothing here says what
+carries it.**
+
+Two readings fit every row on disk equally well:
+
+- the state that changed is in the browser, and cookies are the carrier;
+- the state that changed is on the target's side, keyed to the exit address, and
+  the browser is incidental.
+
+What *is* measured is only that the jar is shared: `launch_persistent_context`
+opens one profile per identity, the warm-up visits and the probe use that same
+context - the same `page` under `entry=home`, a second tab in the same context
+under `entry=url` - so cookies set during the warm-up are present when the query
+is typed. That is a fact about plumbing, not about mechanism, and it is the fact
+that makes the mechanism easy to assume. `session_continuity.py` exists because
+the plumbing was once wrong in exactly this way: until 2026-08-11 Camoufox called
+`browser.new_page()`, which opens a fresh context, so its tenth query came from
+an identity that had been searching for five minutes and had never accepted a
+cookie.
+
+**The separating run is two arms and one night.** Warm to L3, then clear the
+cookie jar, then probe on the same held exit. Cookies-cleared landing near 82%
+puts the state on the target's side; landing near 11% puts it in the jar. Either
+answer is worth more than the third replication of the headline, because the
+headline is already replicated three times and its mechanism is not measured at
+all.
+
+Two design points to get right before it runs, both learned the expensive way in
+this section:
+
+- **Clear the jar, hold everything else.** Same exit, same profile directory,
+  same open browser. A fresh profile would clear the cache and the history too,
+  and the arm would vary three things.
+- **The consent wall is a confounder here and nowhere else.** Dismissing it
+  writes a consent cookie, so the cleared arm will meet the wall again where the
+  intact arm does not. `consent_dismissed` is already on every typed row; read it
+  per arm rather than pooling, or a difference in wall frequency will be read as
+  a difference in warming.
+
 ### Measurement rules
 
 **Verdicts come from content, not HTTP status.** A blocked page usually returns 200
@@ -1601,7 +1744,7 @@ unnoticed for the whole time the warning was there.
 
 **A capability only some engines have must be refused by the runner, not dropped
 quietly - and that now includes blocking.** `supports_headful`,
-`supports_geo_align` and `supports_humanize` were guarded; `supports_blocking`
+`supports_geo_align` and `humanize_modes` were guarded; `supports_blocking`
 was not, and the default is `--preset light`, so the first matrix mixing
 Playwright engines with non-Playwright ones silently blocked resources for two
 columns and not for the other three. Measured 2026-08-13 on one google_serp
@@ -1613,6 +1756,16 @@ require `--preset none`.
 
 Preflight also runs **before** the dry-run return, so `--dry-run` refuses an
 invalid matrix instead of printing a cost estimate for a run that cannot start.
+
+**`supports_chrome_binary` is the fifth, added 2026-09-02, and it is refused for
+the same reason rather than by analogy.** Five of the eleven engines cannot be
+pointed at a browser binary at all - camoufox is Firefox, cloak and obscura are
+their own patched browsers, and http and curlcffi are not browsers. Dropping
+`--chrome-binary` for those would pin the six that take it and leave the rest on
+whatever they bundle, which is precisely the confound the flag exists to remove:
+the engines in the registry spanned Chrome majors 136 to 151, and the JA4
+partitions by major. A half-applied pin looks like a controlled run and is not,
+so a matrix mixing the two is refused.
 
 **One variable per experiment.** Provider, engine and target are three independent
 axes. Changing two at once produces a number nobody can interpret.
@@ -1724,10 +1877,20 @@ gone.
 `--humanize` had exactly that failure until 2026-08-11: it was accepted for any
 matrix, and only Camoufox implements it. A run with the flag compared humanized
 Camoufox against unhumanized everything else and would have read as an engine
-difference. Every engine now declares `supports_humanize` and the runner refuses
+difference. Every engine now declares `humanize_modes` and the runner refuses
 a mixed matrix. Humanized input is measurable as its own axis - same engine, flag
 on and off, in one time window - and that is the only way it produces a number
 anyone can attribute.
+
+**That attribute was a boolean named `supports_humanize` until 2026-09-03, and
+what it could not say is which mover a row got.** A second implementation
+arrived - ours, `nmbench.pointer.trueman` - and the two are alternatives rather
+than degrees: Camoufox's own hand and ours composed together would produce a
+movement neither model describes. So the flag became
+`--humanize off|engine|trueman`, the attribute became a `frozenset`, and the
+row records the mode string beside the older boolean. A capability that widens
+has to widen its column with it, or the run records that something happened
+without recording what.
 
 **Providers must be interleaved, not run in sequence.** Running provider A at 10:00
 and provider B at 14:00 measures the target's mood, not the providers. The runner
@@ -1838,6 +2001,132 @@ a soft refusal after the fact. `data/queries/amazon_1000.txt` is the product
 list, built by the same generator and the same seed as `serp_1000` so neither is
 privileged. `--query-list` still forces one list on the whole matrix when that
 is the question being asked.
+
+### The pointer axis, and the half of it that `--headless` throws away
+
+`--humanize trueman` drives `nmbench.pointer`, a mover fitted to two captured
+human traces. **Read the whole axis with the denominator that model carries:
+two traces of one person on one host, 2026-09-02, the same man twenty minutes
+apart on a laptop touchpad and on a mouse.** A detector built on that can say
+"this reproduces that person"; it cannot say "this looks human". And nothing in
+this repository shows any target reads pointer telemetry at all - that is what
+running the axis on and off against a real target is for, and it has not been
+run yet.
+
+Offline the mover is clean. `lab/probes/trace_compare.py`, 19 metrics, tell
+threshold p < 0.01 with every metric controlled against the *other* human trace
+so anything separating two real hands is excluded as device rather than counted:
+captured 2026-09-03, headful, loopback, seeds 11/23/37.
+
+| arm | tells |
+|---|---|
+| `trueman` touchpad, 3 seeds | 0, 0, 0 |
+| `trueman` mouse, 3 seeds | 0, 1, 0 |
+| `bezier` positive control, same session | 9 TELL + 2 TELL* |
+
+The control is the load-bearing row. A clean sheet only means something beside a
+`bezier` capture from the same session on the same host firing 11 times, which
+says the detector still works.
+
+**Wired into the harness, the geometry is delivered in both display modes and
+the timing is delivered in only one.** Measured 2026-09-03 by
+`lab/probes/humanize_smoke.py` on a local headless and headful Chromium against
+a `data:` URL - no host to reach, so the VPN gateway on the workstation cannot
+distort it - four arms of 18 paced points each:
+
+| arm | delivered interval median | overruns of 18 | on the 15.6 ms tick |
+|---|---|---|---|
+| headful, `fine_timer` | **7.00 ms** | **1** | 0% |
+| headful, no timer | **7.15 ms** | **1** | 11% |
+| headless, `fine_timer` | 16.65 ms | 14 | 44% |
+| headless, no timer | 16.65 ms | 16 | 50% |
+
+The model asks for a median of 7.11 ms (touchpad) and 7.22 (mouse). Headful the
+page receives that. Headless `page.mouse.move()` awaits a CDP reply that is
+frame-bound at 16.6 ms - one frame at 60 Hz - so the pacer overruns 14-16 points
+of 18 and the page receives a metronome instead of a distribution.
+`lab/probes/dispatch_cost.py` measured the same split independently on
+2026-09-02 over eight runs and states it in one line: headless is the worse case
+synchronously, headful is not.
+
+So **a headless `trueman` arm is a geometry experiment.** The positions,
+overshoots, settle chain and press duration are the model's; the intervals are
+the driver's. `intervals on 15.6ms tick` and `interval spread (cv)` are two of
+the detector's 19 metrics, so a headless arm is running a mover with two of its
+metrics knowingly broken, and a headless arm that beat its control would not be
+evidence that the timing model works. Every engine offering `trueman` also
+declares `supports_headful`, so the combination is available and the choice is
+the operator's.
+
+**One thing is unmeasured and matters for a server run.** The headful numbers
+above are from a Windows workstation with a real compositor. On the VPS headful
+means `xvfb-run -a`, and whether a virtual display gives the real frame clock or
+the headless one has not been measured. It is one command on that host -
+`humanize_smoke.py` under `xvfb-run -a`, reading `overruns` - and it should be
+run before a server `trueman` arm is described as carrying the timing.
+
+**What the mistake looked like from the inside.** The first version of that
+probe launched headless in all three of its arms. They agreed at 16.6 ms, and
+the agreement produced an explanation that fits every digit: the transport is
+frame-bound, the model asks for less than a frame, therefore the timing is
+undeliverable and only the geometry is real. That was written into
+`nmbench/humanize.py` as a finding about the tool. Two records already on disk
+contradicted it: `dispatch_cost.py`'s docstring names the headful/headless split
+in a bullet, and the detector captures three paragraphs up are headful and carry
+a delivered interval median of 7.275 ms, which cannot exist if the floor is 16.6.
+Neither was re-read, because the probe's own arms agreed with each other.
+**Internal consistency across arms that share a held-fixed variable is not
+corroboration** - it is the same measurement repeated, and the variable those
+three shared was the one that decided the answer.
+
+A second, smaller thing that arm got wrong and is worth keeping: the "transport
+floor" arm sends 60 back-to-back moves and reports 13.88 ms headful, nearly
+twice what the paced arm achieves in the same process. It measures saturated
+throughput, not per-call latency, and the two are different quantities. The
+direct measurement is `Pacer.overruns`, which counts the points where the call
+cost more than the model asked for.
+
+**That counter is now on the row, as `pointer_overruns` and `pointer_points`
+beside `pointer_device`, and writing this section is what exposed that it was
+not.** `Pacer`'s docstring had said for a day that the caller wrote them to the
+row; `stats()` returned them, `ROW_FIELDS` did not carry them and nothing read
+them. The sentence had been written from the design. It was caught only because
+this section asserted the same thing and the assertion was checked against
+`ROW_FIELDS` before being published - the general lesson being that a docstring
+is not evidence for its own module's behaviour, and the two claims here that
+turned out false in one week were both of that shape.
+
+One reading rule for those columns, measured 2026-09-03: a zero-length walk
+emits zero paced points, so `pointer_points = 0` on a `trueman` row means the
+cursor was already on the target and not that the hand was absent. It is
+reachable in a held series, because `ensure_entry` does not re-navigate while
+the box is still on the results page. Absent is None; zero is a walk with
+nowhere to go.
+
+**The axis takes a comma list since 2026-09-03, and it did not when it was
+built.** `--warm`, `--geo` and `--entry` all take one, and `--humanize` was
+declared with `choices=` and a single value, so `--humanize off,trueman` exited 2
+at the argument parser. The only way to get a control was a second run
+afterwards. That is not a smaller version of the experiment, it is a different
+one: the two windows differ in the hour as well as in the cursor, and on this
+target the hour is the largest effect in this notebook - 69% to 52% between two
+windows of one afternoon, 17 points between two afternoons of the same matrix.
+A sequential pair would have handed back that difference labelled as the
+pointer. The mode now lives on the cell rather than on `args`, cells interleave
+at identity granularity like every other axis, and `/hand-off` or
+`/hand-trueman` joins the key only when more than one is asked for - the
+provider precedent, which keeps a single-mode run's keys matching every file
+taken before the axis existed.
+
+Worth naming because it is a third failure shape in one week, and unlike the
+other two nothing on disk contradicted it. The headless conclusion was refuted
+by a number in a neighbouring file and `pointer_overruns` was refuted by
+`ROW_FIELDS`; this one was consistent with everything, including its own tests,
+which asserted the refusals fired and never asked whether two modes could be
+named at once. **It surfaced only when the run's command line was written out
+to be handed to someone else.** Tests check what a flag does with the values it
+accepts, not which values it accepts, and an axis that cannot be interleaved
+still passes every test written about its behaviour.
 
 ### Amazon answers four different ways, and two of them are 2 KB
 
@@ -2147,6 +2436,209 @@ Two cautions for anyone re-running this:
 So the handshake is measured, it is shared by engines whose pass rates differ by
 44 to nothing, and it explains neither target.
 
+### Every engine's JA4, from a listener on this machine
+
+Measured 2026-09-02 by `scripts/probes/tls_clienthello.py`, run
+`tls_clienthello_20260902T180555Z.jsonl`. The table above needed `tls.peet.ws`,
+which costs two things this one does not: a live host, so it cannot be run from
+behind the gateway, and an out-of-band connection nobody benchmarked. This probe
+opens a socket to itself, accepts, reads the first TLS record and answers
+nothing. The handshake then fails, which is expected and is not a result.
+
+| JA4 | engines |
+|---|---|
+| `t13d1516h2_8daaf6152771_d8a2da3f94cd` | botasaurus, cloak, curlcffi, rebrowser, seleniumbase, zendriver |
+| `t13d1516h2_8daaf6152771_806a8c22fdea` | chromium, patchright |
+| `t13d1617h2_86a278354501_3cbfd9057e0d` | camoufox |
+| `t13d1812h1_85036bcba153_b26ce05bbdd6` | http |
+
+**The target must be `localhost` and not `127.0.0.1`.** A client sends no
+`server_name` to a bare address, which flips the JA4 SNI character to `i` and
+drops the extension count by one. Measured the same day on `chromium`:
+`t13d1516h2_...` against `t13i1515h2_...`, extension hash unchanged, the
+difference exactly `0x0000`. The first of those is character for character what
+`tls.peet.ws` computed for `patchright` over the real network on 2026-09-01, and
+that is the check that makes a loopback listener a replacement for the echo
+rather than a different measurement.
+
+**The two Chromium groups are one browser difference, not two engines.** Run
+with the `chromium` engine twice and nothing varied but the binary: Playwright's
+bundled Chromium 151.0.7922.34 gives `..._806a8c22fdea`, and the installed
+Chrome 149.0.7827.201, reached with `--channel chrome`, gives
+`..._d8a2da3f94cd`. Extension lists byte identical, cipher hash identical; the
+whole difference is three signature algorithms `0904,0905,0906` that the newer
+build offers. **This also dates the table above**: on 2026-08-12 `chromium` was
+recorded as `d8a2da3f94cd`, which is now the Chrome 149 value, so that row is
+not wrong - the browser under it was upgraded. Compare `engine_version` before
+reading any split in this column as a property of the engine.
+
+Three things the probe got wrong first, all corrected the same day:
+
+- **It recorded `requests`' fingerprint as `seleniumbase`'s.** 19 hellos
+  arrived, two of them distinct, and the earliest was
+  `t13d1812h1_85036bcba153_b26ce05bbdd6` - the `http` engine's, OpenSSL's. It is
+  not a leak from the probe. SeleniumBase in UC mode replaces `driver.get` with
+  `uc_special_open_if_cf` (`seleniumbase/core/browser_launcher.py:5897`), which
+  calls `requests_get` at `:496` before the browser navigates, to decide whether
+  the page is Cloudflare-protected. Ordering cannot exclude it because it goes
+  first, and the fingerprint cannot either because it is exactly what `http` is
+  supposed to report. Only ownership of the socket separates them, so the probe
+  now asks whether this process opened the connection and drops it if so - for
+  browser engines only, since for `http` and `curl_cffi` the client *is* this
+  process. `http` is the control that the scoping is right.
+- **It would have recorded a fallback as camoufox's handshake.** 10 hellos, the
+  first carrying extension `0x001b` (`compress_certificate`) and the nine after
+  it dropping exactly that one and nothing else. They are retries, and they
+  exist only because this probe refuses to answer, so a majority rule records an
+  artefact of the measurement. The first is confirmed from outside: it is what
+  `tls.peet.ws` computed for camoufox over a real network, where the handshake
+  completed and no fallback was ever triggered.
+- **What the mistake looked like from the inside.** The first hypothesis was
+  that a browser still retrying the previous engine's handshake was landing in
+  the next engine's window, because one listener served the whole run. That
+  fitted every observation - it explained the extra hellos, the two distinct
+  values and why only the slow engines showed it - and it was wrong. Giving each
+  engine its own port did not change the result, which is what said so. The
+  per-port listener was kept anyway, because it removes the confound whether or
+  not it was the cause, but the cause was a second client and only a
+  socket-ownership check could see it.
+
+**`obscura` cannot be measured this way at all**, and that is its own guard
+rather than a defect here: `Access to localhost domain 'localhost' is not
+allowed`, which applies to the name as well as the address, so no loopback URL
+reaches it. For that engine, and for everything the echo derives that is not in
+the ClientHello - the HTTP/2 SETTINGS hash, the header order - `tls_echo.py` on
+a host that is not behind the gateway is still the tool. It was run the same
+day and reads `t13d1516h2_8daaf6152771_d8a2da3f94cd`, so `obscura` belongs to
+the six-engine group in the table and the table understates that group by one.
+
+QUIC is out of scope: the listener is TCP, so every fingerprint here begins `t`,
+and no row is evidence about what an engine sends over HTTP/3.
+
+**The cross-check against the echo was run, and it agrees on every engine both
+probes can reach.** 2026-09-02, off the gateway, `tls_echo_20260902T180455Z.jsonl`
+next to `tls_clienthello_20260902T180555Z.jsonl`: eight engines are in both -
+`http`, `chromium`, `camoufox`, `patchright`, `cloak`, `seleniumbase`,
+`rebrowser`, `botasaurus` - and **8 of 8 match character for character**,
+camoufox included on its first hello. So the listener is not measuring an
+artefact of answering nothing: what an engine sends to a socket on this machine
+is what it sends to a host on the internet.
+
+The two probes have complementary blind spots, and this run showed both at once.
+`obscura` refuses to navigate to `localhost` and has no value from the listener;
+the echo read it as `t13d1516h2_8daaf6152771_d8a2da3f94cd`, so it belongs to the
+six-engine group and this is the first measurement of it. `zendriver` failed on
+the echo - `JSONDecodeError` on the reply body, not a handshake failure - and the
+listener read it as the same value. Neither probe supersedes the other; run both.
+
+**The 01.09 echo pair is half explained, and the half that explains it was
+recorded in the file the whole time.** `patchright` reads
+`..._806a8c22fdea` in `tls_echo_20260901T112110Z.jsonl` and `..._d8a2da3f94cd` in
+`tls_echo_20260901T113512Z.jsonl` 14 minutes later, and `engine_version` on those
+two rows reads `151.0.7922.34 / patchright 1.62.2` against
+`149.0.7827.55 / patchright 1.61.2`. That is the browser-build split measured
+above, in the same two directions, on the same two Chrome versions. Nothing about
+it is unexplained.
+
+What the mistake looked like from the inside: this paragraph previously said
+"nothing recorded with those runs says what else differed", and the column that
+said so was in the row, two keys away from the one being quoted. The reasoning
+that produced it was "two engines moved at once, so it cannot be a browser
+upgrade" - which is sound as far as it goes and was allowed to stand in for
+opening the file. A joint anomaly does not have to have a joint cause, and
+ruling out one explanation for the pair is not the same as checking either half.
+The check was `json.loads` over five lines.
+
+`http` is the half that is still open. Both 01.09 rows carry `engine_version`
+`2.34.2` and the fingerprint moved from 18 ciphers to 31 with the extension hash
+unchanged, and 2026-09-02 reads 18 again, so the middle run is the outlier rather
+than the first. `2.34.2` is `requests.__version__` and `requests` does not choose
+the cipher list: this machine reads `urllib3 2.7.0` on `OpenSSL 1.1.1q`, and it
+is the TLS stack under urllib3 that decides. **No row records it**, which is the
+same gap `nmbench/engines/http.py:86` already names for the pinned Chrome string
+on this arm. A plausible story is a `pip` operation between the two runs - the
+patchright downgrade in the same pair is direct evidence that one happened - but
+that is inference and nothing here measured it. Recording `urllib3.__version__`
+and `ssl.OPENSSL_VERSION` on the `http` arm is what would close it, and it is not
+built.
+
+**The sweep now measures the browser on this machine in the same run, and the
+grouping is not what a reader wants to know.** The table above answers "how do
+these engines differ from each other". A developer arrives with a different
+question - "do I look like a browser" - and no arrangement of the groups answers
+it, because none of them is the browser. `capture_reference` launches the
+installed Chrome through the same listener, first, before the sweep, and the
+engines are split against it. Re-run 2026-09-02 as
+`tls_clienthello_20260902T193110Z.jsonl`, which reproduces the four groups above
+and adds the reference:
+
+- Chrome 149.0.7827.201 as installed here sends `..._d8a2da3f94cd`.
+- Matching it: `botasaurus`, `cloak`, `curlcffi`, `rebrowser`, `seleniumbase`,
+  `zendriver`.
+- Not matching, and therefore separable before a request is sent: `camoufox`,
+  `chromium`, `http`, `patchright`.
+
+**The two Chrome-family engines that miss are the unmodified control and
+Patchright, and they miss for a reason that is about this host.** Both run
+Playwright's bundled Chromium 151 against an installed Chrome 149, so the miss is
+the browser-build split measured above and not anything either library does. On a
+machine whose Chrome were 151 they would match and the six that match here would
+not. That is why the reference is measured in the sweep and never shipped as a
+literal in the source: a baked-in value would still print, would still look like
+a comparison, and would go wrong on a browser release.
+
+**The comparison is a comparison of automation stacks, not of automation against
+a hand-started browser.** The reference is the `chromium` engine with
+`--channel chrome`, so it is Playwright launching the installed Chrome. At this
+layer the launcher has no obvious route to the ClientHello - it comes out of the
+BoringSSL compiled into the binary - and five stacks landing exactly where their
+Chrome major predicts is evidence for that. It is not the control that would
+settle it. No run here has started the same binary by hand and compared.
+
+**The build is now on the row for every engine that has one.** `zendriver` and
+`botasaurus` expose no `browser.version`, so both took the User-Agent and sliced
+it to 40 characters - which keeps `Mozilla/5.0 (Windows NT 10.0; Win64; x64` and
+throws away the only token anyone would want. Eight engines in this section are
+grouped by a value the Chrome build decides, and those two were the only ones
+whose rows could not say which build they ran: the variable the whole finding
+turns on had been cut off by a slice. `engines/base.py::browser_build` reads the
+build out of the User-Agent instead, and both now record `149.0.0.0`.
+
+### The browser can be held fixed, and doing it collapses the groups
+
+`--chrome-binary` points every engine that can take one at a single browser, so
+the engine is the variable instead of the build it happens to bundle. Six of the
+eleven can: `chromium`, `patchright` and `rebrowser` through Playwright's
+`executable_path`, `zendriver` through `browser_executable_path`, `botasaurus`
+through `chrome_executable_path`, `seleniumbase` through `binary_location`.
+`camoufox` runs Firefox, `cloak` and `obscura` are their own browsers, and `http`
+and `curlcffi` are not browsers at all - all five declare
+`supports_chrome_binary = False` and the runner refuses a matrix that mixes them
+with a pin, rather than running them unpinned in the same table.
+
+Measured 2026-09-02, `tls_clienthello_20260902T192853Z.jsonl`, pinned to the
+installed Chrome: **all six land on `..._d8a2da3f94cd`, and three changed build
+to get there** - `chromium` and `patchright` from 151, `rebrowser` from 136. So
+the spread in the table above is the browser and not the library, shown by
+removing it rather than argued for.
+
+**It is off by default and that is a decision, not an oversight.** Every row in
+`data/runs/` was measured with each engine on its own bundled browser. A pin
+applied silently would make new rows incomparable with the 10511 already there -
+counted 2026-09-02 over `data/runs/benchmark_*.jsonl` - without any column saying
+so, which is the failure `--humanize` produced for real. The same
+reasoning is already written into `engines/http.py`: the version is a treatment,
+so the answer is an axis and not a new constant. A pinned run is labelled
+`-pinned` and `engine_version` carries the build that actually launched - intent
+in one column, outcome in the other, and the pin is only worth anything if the
+two agree, which is checkable precisely because they are separate.
+
+**The RESULTS.md section refuses to read a pinned run.** It picks the newest
+sweep with no `chrome_binary` on any row. A pinned run has every engine on one
+value by construction, so taking the newest file blindly would let one control
+overwrite the finding - silently, because the table would still print, with one
+group in it.
+
 ### DuckDuckGo is reading the User-Agent, and the split is total
 
 The next candidate was the driver: Playwright-driven Chromium loses on both
@@ -2306,6 +2798,65 @@ filed a working search as a refusal.
 measurement: no scriptless client has ever got past the handshake, so whether
 the markup survives without JavaScript is unknown, and the wrong guess would let
 our own preset masquerade as the target's refusal.
+
+### The third target is unchosen, and the first eight requests were an accident
+
+The candidates are Shopee, Lazada and Google Maps, and the criterion is not "what
+scrapes best" read literally. Google runs 1-22% here and Amazon 63-96%, so the
+two we have bracket the range; a third that everything passes carries as little
+information as one that refuses everything. The useful one sits between them
+**and** is not driven by the same thing as either, which is a problem for Google
+Maps specifically: it is the same origin family, the same `/sorry/` diversion and
+the same address history as `google_serp`, so whatever it scores will correlate
+with a column already on disk. That correlation is worth measuring rather than
+assuming, and nobody has counted it.
+
+**Shopee and Lazada have no global storefront, and that is the whole
+difficulty.** Both are per-country, so the target is a country storefront and
+reaching one from the wrong country is refused for a reason that is not a bot
+defence. The VPS egresses in Brazil, so its direct arm on a Singapore storefront
+confounds geo with defence and cannot be read alone. It is still the control that
+makes a country-aligned arm mean something, the same way the direct arm brackets
+the gateway everywhere else in this file. Whether the pool even offers `sg` is
+unmeasured; a bad country answers 406 on the CONNECT, so `gateway-health` settles
+it for a handful of handshakes and no target traffic, and it is the first thing
+to run.
+
+**8 requests and 1.49 MB were sent by accident on 2026-09-03**, run
+`marketplace_recon_20260903T182409Z`, from this workstation - which is behind the
+Happ gateway and is the one host whose readings this file does not accept. Only
+the `http` arm ran, because the interpreter that happened to be on the command
+line has no browser installed. Two things came back anyway and both are about
+structure rather than rates, which is the one kind of reading that survives the
+bad host:
+
+- **Shopee's four bodies are byte-identical**, one sha256 across four different
+  queries, 162,043 bytes each, no `<title>`. A response that does not vary with
+  the query is not a result page for it. The body does contain `captcha` and
+  `verify`, and that is **not** quoted as a challenge: Walmart ships its entire
+  PerimeterX modal inline and hidden on pages it served, which is the case this
+  repository already got wrong once, so a substring is a place to look and not a
+  verdict.
+- **Google Maps returns four distinct bodies with the query echoed in each**, and
+  every one carries `enable javascript` and `noscript` at about 210 KB. That is
+  the no-JS scaffold `GoogleSerp` already documents, so `needs_script` would be
+  True here too - but the document is query-dependent even for a scriptless
+  client, which Shopee's is not.
+
+Neither decides anything. n=4 per site, one window, one host, one arm, and the
+arm that matters - a real browser - is exactly the one that did not run.
+
+What the mistake looked like from the inside: the script was invoked to look at
+its plan output, and it had no way to print a plan without sending. Every other
+sending entry point here has one, `benchmark.py --dry-run` is in CONTRIBUTING as
+the thing to run before spending traffic, and a new probe simply did not inherit
+it. `--dry-run` now exists and the plan is printed by one function with two
+callers, because a dry run that prints a plan the real run does not follow is
+worse than no dry run - it is trusted. The same invocation also exposed a second
+defect: `--geo sg --sites shopee,google_maps` pinned an exit for one site, left
+the other on whatever the pool gave, and wrote `geo=sg` on every row. A mixed
+matrix is refused now rather than dropped, which is the rule the engine
+capabilities already follow.
 
 ### What a run costs, and why one constant could not track it
 

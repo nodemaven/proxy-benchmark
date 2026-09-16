@@ -169,10 +169,26 @@ separate.
 |---|---|---|
 | IP reputation | datacenter range, a burnt residential exit, a country the target treats harshly | `--countries`, `probe-and-hold`, `gateway-health` |
 | Browser signals | `navigator.webdriver`, empty plugin list, a SwiftShader renderer, a `HeadlessChrome` User-Agent | `engine-fingerprint`, `detect-page` |
-| TLS handshake | ClientHello shape: cipher and extension counts, absence of GREASE | `tls-echo` |
+| TLS handshake | ClientHello shape: cipher and extension counts, absence of GREASE | `tls_ja4` on the row, `tls-clienthello`, `tls-echo` |
 
 A different handshake does not by itself explain a different pass rate. Measure
 the two together - [here they did not agree](#research-findings).
+
+The handshake row has three entries because there are three routes to a JA4 and
+they answer different questions. Pick by what you are asking:
+
+| Route | Covers | Costs | What the value is |
+|---|---|---|---|
+| `tls_ja4` column | the 3 engines that need the relay | nothing, it comes with the matrix | the handshake on the connection that produced *this row's verdict* |
+| `tls-clienthello` | 9 of 10 engines, not `obscura` | nothing: a listener on this machine, no live host, no traffic | what the engine's handshake *is*, off the run |
+| `tls-echo` | all 10, `obscura` included | a live host, one request per engine | the same, plus what only a server that answers can derive |
+
+Only the first is per-attempt; the other two are per-engine and are the ones to
+re-run after a browser upgrade. `tls-echo` is the only route to `obscura`, which
+refuses to navigate to `localhost` at all, and the only route to the HTTP/2
+SETTINGS hash and header order, which a listener that answers nothing cannot
+provoke. Cross-checked 2026-09-02 on this host: the eight engines both probes
+reach agree character for character.
 
 ## How the experiment is structured
 
@@ -230,11 +246,11 @@ to prove the path works before anything is concluded from a refusal.
 
 Every attempt writes one JSONL row: engine and engine version, target, provider
 and gateway parameters, country, preset, headful, geo, entry shape, warm-up rung,
-session and query, the verdict and the marker counts behind it, the failure
-reason, timing, and bytes. `ROW_FIELDS` in `nmbench/engines/base.py` is the
-schema. Those files are the source of truth, and the tables in this README and in
-`RESULTS.md` are generated from them - a number nobody has to remember to update
-is a number that cannot drift.
+session and query, the machine it ran on, the verdict and the marker counts
+behind it, the failure reason, timing, and bytes. `ROW_FIELDS` in
+`nmbench/engines/base.py` is the schema. Those files are the source of truth, and
+the tables in this README and in `RESULTS.md` are generated from them - a number
+nobody has to remember to update is a number that cannot drift.
 
 **Verdicts come from page content, not HTTP status.** The same Google reCAPTCHA
 page arrived once as 429 and once as 200, so a run judged by status
@@ -260,7 +276,50 @@ The last two are the ones that decide whether a benchmark measures anything:
   verdict. A harness that counts its own crashes as target refusals can
   manufacture a very convincing result while measuring almost nothing.
 
-Four more columns are easy to misread:
+Seven more columns are easy to misread:
+
+- **`host` was added on 2026-09-02, so an absent one means "nobody wrote it
+  down", not "the machine was unknown".** Every row before that date is
+  attributed to a machine by its timestamp, which works only because the two
+  machines here happened to run at different times - host and date are one
+  variable under two names in every table built from those rows. This matters
+  more than a provenance column usually would: the largest unexplained result in
+  this repository is a difference between two computers, 39% (24/61) against 0%
+  (0/84) at p = 3.7e-11 on the same target, engine, entry shape and gateway
+  parameters, and nothing on disk could name which computer. `host_os` and
+  `host_cpus` sit beside it because a label groups rows and does not explain
+  them. Set `NMBENCH_HOST` to the machine's name in the notes; unset, the column
+  holds a hash of the hostname, because these files are public and a hostname
+  names somebody's infrastructure.
+- **`tls_ja4` is empty on most rows for a structural reason, not a missing
+  one.** It is the engine's JA4, read off the ClientHello as it passes through
+  the local CONNECT relay, so only the engines that need that relay have one -
+  `zendriver`, `seleniumbase` and `botasaurus`. The Playwright-driven engines
+  take proxy credentials directly and never send a handshake through this
+  process, so their rows carry `null` and the `relayed` column beside it says
+  why. Measured 2026-09-02 over `data/runs/`, that is 3815 of 16579 attempt
+  rows. The fingerprint is computed in `nmbench/tlsfp.py` rather than asked of
+  an echo service, and it was checked against one: on the same client,
+  `tls.peet.ws` and this repository agree character for character.
+
+  Every engine can still be fingerprinted, off the run, with
+  `python scripts/probes/tls_clienthello.py`. It points each engine in turn at
+  a listener on this machine that answers nothing, so it needs no live host and
+  spends no traffic, and it reaches the Playwright-driven engines the relay
+  route cannot.
+- **A JA4 is a property of the browser build at least as much as of the
+  engine.** Measured 2026-09-02 with the `chromium` engine and nothing varied
+  but the binary: Playwright's bundled Chromium 151.0.7922.34 gives
+  `t13d1516h2_8daaf6152771_806a8c22fdea`, and the installed Chrome
+  149.0.7827.201, reached with `--channel chrome`, gives
+  `t13d1516h2_8daaf6152771_d8a2da3f94cd`. The extension lists are byte for byte
+  the same and so is the cipher hash; the whole difference is three signature
+  algorithms, `0904,0905,0906`, that the newer build offers and the older one
+  does not. That is why the same probe puts `chromium` and `patchright` in one
+  group and `zendriver`, `seleniumbase`, `botasaurus`, `cloak` and `curl_cffi`
+  in another - it is the Chrome version each happened to launch, not anything
+  the libraries do differently. Read `engine_version` beside this column before
+  treating a split as a property of the engine.
 
 - **A refused address diverts the request, and the status does not say so.**
   Google answers a refusal by sending the request to `/sorry/`, with a 200 about
@@ -369,6 +428,17 @@ section each line links to along with the date it stopped being true.
   44 points. If you do compare, compare JA4 - Chrome shuffles extension order
   per connection, so a JA3 difference between two Chromium engines is noise.
   [What was read](NOTEBOOK.md#the-handshake-was-read-and-it-is-not-the-discriminator)
+- **None of the Chromium-driving engines changes its TLS fingerprint, and the
+  fingerprint tracks the Chrome version instead.** Measured 2026-09-02 over nine
+  engines on one host: `rebrowser` on Chrome 136, `cloak` on 146 and
+  `seleniumbase` on 149 emit one identical JA4, `chromium` and `patchright` on
+  151 emit a different one, and the split follows the browser version with
+  nothing left over for the library. Their HTTP/2 fingerprint is identical too.
+  So a JA4 being compared between these tools is a stock Chrome's, because
+  underneath it there is one - and if a target is refusing you, the handshake is
+  not what told it. `curl_cffi` is the exception that shows the rule: it is the
+  only engine here that picks a fingerprint deliberately, and it picked Chrome's.
+  [The groups](NOTEBOOK.md#every-engines-ja4-from-a-listener-on-this-machine)
 - **Timezone and locale alignment did not pay off in either arm we ran.** Flat
   on Patchright (34% against 35%), and zendriver lost six sevenths of its yield,
   57% down to 9%, p = 0.0008. Two engines is a thin basis for a rule, but
@@ -385,21 +455,30 @@ section each line links to along with the date it stopped being true.
   denominator behind it. What our arm rules out is one page, which is what the
   ladder now goes past.
   [The ladder](#the-warm-up-ladder)
-- **Six pages of warm-up moved a great deal.** Four rungs interleaved in one
-  run, because the hour is the largest confound here: **11%, 19%, 33% and 82%**
-  at warm depths 0, 2, 4 and 7, over 35, 48, 33 and 33 judged attempts. Cold
-  against deepest is z = 5.82. It is one run on one host, Chrome 151.0.7922.34
-  headful through Patchright, and it does not yet say what the depth is doing -
-  four of the six pages are Google's own, so "Google's infrastructure was told
-  about this exit" and "the browser lived through six navigations" both fit
-  every row of it. A neutral rung at the same depth is what separates them, and
-  it is the next run rather than a conclusion here.
-  `data/runs/probehold_20260831T222129Z.jsonl`
+- **Six pages of warm-up moved a great deal, and it held on three separate
+  days.** Four rungs interleaved inside one run, because the hour is the largest
+  confound here: **11%, 24%, 33% and 82%** at warm depths 0, 2, 4 and 7, over
+  35, 34, 33 and 33 judged attempts, cold against deepest z = 5.82. Two later
+  runs carried the cold rung and the deepest rung alone and read 24% against 86%
+  over 88 and 86 attempts, and 19% against 84% over 42 and 61. Pooled over the
+  three days, **20.0% (33/165) cold against 84.4% (152/180) at depth 7**,
+  z = 12.0. Every attempt is Chrome 151.0.7922.34, headful, through Patchright,
+  on one host, and every figure is the probe phase judged as served against
+  challenged. What the depth is *doing* is not in these rows: four of the six
+  pages are Google's own, so "Google's infrastructure was told about this exit"
+  and "the browser lived through six navigations" both fit every row. The rung
+  that separates them holds the depth at six and swaps the four Google surfaces
+  for third-party pages carrying the same tags; it is declared in the target and
+  has no rows on disk, so what is published here is an effect without a
+  mechanism.
+  `data/runs/probehold_20260831T222129Z.jsonl`,
+  `data/runs/probehold_20260901T210934Z.jsonl`,
+  `data/runs/probehold_20260904T000605Z.jsonl`
 
 Nothing here is a NodeMaven sales number. Where the pool loses, the run file
 saying so is in `data/runs/` with everything else.
 
-**Five of these ten replaced an earlier claim of ours, and both versions are
+**Five of these eleven replaced an earlier claim of ours, and both versions are
 still in the notebook** - Amazon, the warm-up, the Google levels, the idle
 traffic and the ban. The Amazon one reversed outright: on a workstation in early
 August, Camoufox was served 90% while every Chromium engine met the throttle,
@@ -678,11 +757,72 @@ what it supports and the runner refuses a mixed matrix outright.
 | `--preset` | `supports_blocking` | the Playwright-driven ones plus obscura - `page.route` is a Playwright API and obscura has its own |
 | `--headful` | `supports_headful` | everything with a window, so everything except the two scriptless clients and obscura, whose `serve` has no such flag |
 | `--geo align` | `supports_geo_align` | camoufox, patchright, rebrowser, cloak, zendriver, botasaurus |
-| `--humanize` | `supports_humanize` | camoufox, cloak |
+| `--humanize engine` | `humanize_modes` | camoufox, cloak |
+| `--humanize trueman` | `humanize_modes` | chromium, patchright, rebrowser, cloak, camoufox |
+| `--chrome-binary` | `supports_chrome_binary` | chromium, patchright, rebrowser, zendriver, botasaurus, seleniumbase |
 | typed entry | `supports_typing` | camoufox, chromium, patchright, rebrowser, cloak, zendriver |
 
 The table is a summary and the code is the authority: `--dry-run` refuses a matrix
 before it starts, rather than leaving a reader to check a list that has rotted.
+
+**`--humanize` has three values and two of them are different clients, not two
+settings of one.** `engine` is the browser synthesising its own input - Camoufox
+and cloak do this inside the binary and nothing outside can see how. `trueman` is
+a pointer model in `nmbench/pointer.py` driven from outside through `page.mouse`,
+so it works on any Playwright-driven engine including the unmodified control,
+which is the point: a cursor axis measurable only on the two anti-detect engines
+would confound the pointer with everything else those binaries change. They are
+alternatives and never stacked - running both would compose two hands into one
+path and produce a movement neither model describes - and `camoufox` and `cloak`
+launch with their own humanization off under `trueman`.
+
+**`trueman` runs only in `scripts/probes/probe_and_hold.py --entry home`**, and
+both runners refuse it elsewhere rather than accepting it. A pointer exists only
+where something is clicked: `benchmark.py` navigates to a search URL and clicks
+nothing, and so does `--entry url`. Accepting the flag there would write
+`humanize_mode=trueman` on rows whose cursor never moved, which is the failure
+this whole section is built against.
+
+**Pass both arms at once - `--humanize off,trueman` - rather than running two
+commands.** It takes a comma list there the way `--warm`, `--geo` and `--entry`
+do, and the arms interleave at identity granularity inside one window. It was a
+single value until 2026-09-03, which meant the only way to get a control was to
+run it again afterwards, and on this target the hour between two runs moves the
+yield further than any flag in this table has: 69% to 52% between two windows of
+one afternoon. A sequential pair would have measured that and called it the
+cursor. The mode joins the cell key as `/hand-off` or `/hand-trueman` only when
+more than one is asked for, so a run with a single mode still matches `--resume`
+against every file taken before the axis existed.
+
+Rows carry five columns for it. `humanize_mode` is the string, beside the older
+boolean `humanize` which stays for the runs already on disk. `pointer_ms` is how
+much of `elapsed_ms` was spent walking - a deliberate walk to a search box is on
+the order of a second - so `elapsed_ms - pointer_ms` is the number comparable
+against an unhumanized arm. `pointer_device` is which of the two fitted device
+profiles the session drew, without which two rows of one arm are not comparable
+on any timing metric. `pointer_overruns` against `pointer_points` says whether
+the intervals the page saw were the model's or this host's driver's, which is
+the headless question below in a column.
+
+All four are null, not zero, when no pointer was driven. Zero is a different
+statement and a reachable one: a walk of zero length emits no paced points, so
+`pointer_points = 0` means the cursor was already on the target.
+
+**Pair it with `--headful`, or half the model does not reach the page.**
+Measured 2026-09-03 on a local Chromium and a `data:` URL, four arms of 18 paced
+points: headful the delivered interval median is 7.00-7.15 ms against a model
+asking 7.11-7.22, with 1 overrun of 18; headless it is 16.65 ms with 14-16
+overruns, because `page.mouse.move()` awaits a CDP reply that is frame-bound at
+one 60 Hz frame with no window. The positions are the model's either way. The
+intervals are the driver's when headless, and two of the detector's 19 metrics
+are about intervals - so a headless `trueman` arm is a geometry experiment and
+has to be reported as one. On a server `--headful` means `xvfb-run -a`, and
+whether a virtual display gives the real frame clock is not yet measured.
+
+**Nothing here shows any target reads any of it.** The model was fitted against
+one person's captured traces and scored by a 19-metric detector in
+`lab/probes/trace_compare.py`; that says it is hard to tell apart from that one
+person, not that it changes a verdict. The axis exists to find out.
 
 **A mixed matrix needs `--preset none`.** The default is `light`, and blocking for
 some columns and not others measured 4 KB against 9.9 MB on the same Google
@@ -704,6 +844,21 @@ emulation rather than by patching a JavaScript property, which reads back
 unpatched from an iframe and from a Web Worker. The unmodified control stays at
 `False`: the axis is read within one engine, aligned against unaligned, in one
 window. Whichever was used is on every row.
+
+**`--chrome-binary` holds the browser fixed** across the six engines that can be
+pointed at one, so the engine is the variable rather than the build it happens to
+bundle. It is off by default and that is deliberate: every row already on disk was
+measured with each engine on its own browser, and a silent default would make new
+rows incomparable with the old ones without any column saying so. A pinned run is
+labelled `-pinned` and `engine_version` carries the build that actually launched,
+so the intent and the outcome are separate columns and can be checked against each
+other.
+
+The size of what it controls, measured 2026-09-02 by `probes/tls_clienthello.py`:
+unpinned, the engines run Chrome majors 136 to 151 and their TLS fingerprints
+split by major and not by library. Pinned to one Chrome, all six land on one
+value, and three of them changed build to get there. See "The TLS handshake,
+engine by engine" in [RESULTS.md](RESULTS.md).
 
 **Each target draws from its own committed query list.** A shop and a search
 engine have to run in one window and cannot take the same strings: asked
@@ -752,9 +907,10 @@ and two of them are worth knowing before a first run.
 | `--preset` | `none`, `light`, `aggressive` | `light` | resource blocking. **A mixed matrix needs `none`** and the runner refuses it otherwise |
 | `--geo` | `off`, `align` | `off` | hands the browser the exit's own timezone. Measured: buys nothing and costs zendriver most of its yield |
 | `--headful` | flag | off | a real window. Changes `HeadlessChrome` to `Chrome` in the User-Agent, which is the whole of one target's answer |
-| `--humanize` | flag | off | humanized cursor, where the engine has it. Refused for a matrix holding one that does not |
+| `--humanize` | `off`, `engine` | `off` | humanized cursor, where the engine has it. Refused for a matrix holding one that does not. `trueman` is a third value and this runner refuses it: it only ever fetches a URL and clicks nothing, so no cursor would move. See below |
 | `--direct` | flag | off | no proxy at all. A control, not a normal mode |
 | `--channel` | e.g. `chrome` | bundled build | which Chromium build. It reaches the cell key, so two builds stay separable |
+| `--chrome-binary` | a path | each engine's own | one browser for every engine that can take one. Refused for a matrix holding one that cannot, and mutually exclusive with `--channel` |
 | `--param` | `KEY=VALUE`, repeatable | none | an extra gateway parameter. Every recognised one joins the sticky session key, so adding one moves you to a different exit |
 | `--breaker` | a number | `10` | consecutive failures that stop a cell. A pool-safety setting, not a patience one |
 | `--pause` | seconds | `5.0` | between attempts. This is a shared production pool |

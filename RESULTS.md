@@ -329,3 +329,38 @@ What was actually run, with the version the rows recorded. An engine is listed o
 | `seleniumbase` | `151.0.7922.137 / seleniumbase 4.51.12`; `149.0.7827.201 / seleniumbase 4.51.12` |
 | `zendriver` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / zendriver 0.16.0`; `Mozilla/5.0 (Windows NT 10.0; Win64; x64 / zendriver 0.15.5` |
 
+## The TLS handshake, engine by engine
+
+From `tls_clienthello_20260902T193110Z`, 2026-09-02, on the workstation. Not from the matrix: `tls_ja4` is on a matrix row only for the three engines that need the relay, and this probe covers the rest by pointing each engine at a listener on the same machine that answers nothing and reads the first record. Nothing left the machine to produce this table. See `scripts/probes/tls_clienthello.py`.
+
+The JA4 is what a target sees before it has been sent a request - before any JavaScript runs, before a single header. An engine that is distinguishable here cannot be rescued by anything done afterwards.
+
+| engine | JA4 | Chrome major | build as the row records it |
+|---|---|---|---|
+| `chromium` | `t13d1516h2_8daaf6152771_806a8c22fdea` | 151 | `151.0.7922.34 / playwright 1.62.0` |
+| `patchright` | `t13d1516h2_8daaf6152771_806a8c22fdea` | 151 | `151.0.7922.34 / patchright 1.62.2` |
+| `botasaurus` | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | 149 | `149.0.0.0 / botasaurus-driver 4.0.101` |
+| `cloak` | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | 146 | `146.0.7680.177 / cloakbrowser 0.5.7 / chromium 146.0.7680.17` |
+| `curlcffi` | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | 146 | `curl_cffi 0.16.2 / chrome146` |
+| `rebrowser` | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | 136 | `136.0.7103.25 / rebrowser_playwright 1.52.0` |
+| `seleniumbase` | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | 149 | `149.0.7827.201 / seleniumbase 4.51.12` |
+| `zendriver` | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | 149 | `149.0.0.0 / zendriver 0.15.5` |
+| `camoufox` | `t13d1617h2_86a278354501_3cbfd9057e0d` | - | `0.5.4` |
+| `http` | `t13d1812h1_85036bcba153_b26ce05bbdd6` | - | `(unrecorded)` |
+
+**6 of the 10 engines send a handshake that is identical character for character.** 5 of them are browsers driven through 5 unrelated automation stacks, and what they have in common is not the stack: it is that each launched a Chrome. Every group in this table is a set of Chrome builds rather than a set of libraries - the largest covers majors 136, 146, 149 - so an engine outside it is running a different browser, not a different kind of engine.
+
+Two consequences a reader can act on. **If a target is refusing one of these engines and serving another in the same group, the handshake is not what told it apart** - look at the JavaScript surface, the header order or the HTTP/2 SETTINGS instead. And **an engine's anti-detect work does not reach this layer at all**: the unmodified control and the patched engines built on the same Chrome are indistinguishable here.
+
+**The exception that shows the rule is `curlcffi`.** It is the one client here that chooses a fingerprint on purpose, and `curl_cffi 0.16.2 / chrome146` lands it on the same value as `botasaurus`, `cloak`, `rebrowser`, `seleniumbase`, `zendriver` - real browsers, measured in the same sweep. The impersonation is doing what it says.
+
+**Against the browser on the machine.** The same sweep launched the installed Chrome (`149.0.7827.201 / playwright 1.62.0 / chrome`) through the same listener, and it sends `t13d1516h2_8daaf6152771_d8a2da3f94cd`. Matching it: `botasaurus`, `cloak`, `curlcffi`, `rebrowser`, `seleniumbase`, `zendriver`. Not matching, and therefore separable before the request: `camoufox`, `chromium`, `http`, `patchright`.
+
+Matching is not the same as being undetectable. This is one record on the wire and says nothing about the JavaScript surface or the HTTP/2 layer. The sound direction to read it is the negative one: an engine that does not match is distinguishable before it has sent a request.
+
+**The misses here are build differences, not library differences.** `chromium` on 151, `patchright` on 151, against a reference on 149. That is a fact about this machine as much as about these engines: the same engines would match on a host whose installed Chrome were their build, and would miss again the day either side updates. It is a reason to treat the row as dated rather than as a ranking, and it is the reason `--chrome-binary` exists.
+
+**It has been run, and the pin holds.** From `tls_clienthello_20260902T192853Z`, 2026-09-02, `--chrome-binary` pointed the 6 engines that can take one - `botasaurus`, `chromium`, `patchright`, `rebrowser`, `seleniumbase`, `zendriver` - at a single Chrome. They land on one value, `t13d1516h2_8daaf6152771_d8a2da3f94cd`.
+3 of the 6 whose build is recorded on both sides moved to get there: `chromium` 151 to 149, `patchright` 151 to 149, `rebrowser` 136 to 149. So the spread in the table above is the browser and not the library, shown by removing it rather than by argument.
+The engines that cannot be pointed at a binary are skipped rather than measured unpinned beside the rest: a row on a different browser, in a table whose subject is the browser, would read as a property of the library.
+

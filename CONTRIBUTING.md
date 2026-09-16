@@ -84,17 +84,37 @@ Adding a provider is a `.toml` in `data/providers/` and no code at all.
 **A capability only some engines have is refused, not dropped.** `--humanize` was
 accepted for any matrix when only Camoufox implemented it, so a run with the flag
 compared a humanized Camoufox against an unhumanized everything else and would
-have read as an engine difference. Every engine now declares
-`supports_humanize`, `supports_geo_align`, `supports_headful`,
-`supports_blocking` and `supports_typing`, and the runner refuses a mixed matrix
-outright. If you add an option that not every engine can honour, it gets an
-attribute and a refusal, never a silent skip.
+have read as an engine difference. Every engine now declares `humanize_modes`,
+`supports_geo_align`, `supports_headful`, `supports_blocking` and
+`supports_typing`, and the runner refuses a mixed matrix outright. If you add an
+option that not every engine can honour, it gets an attribute and a refusal,
+never a silent skip.
+
+`humanize_modes` is a `frozenset` and the others are booleans, which is worth a
+sentence because the first one to stop being a boolean will not be the last.
+`supports_humanize` was a bool until 2026-09-03, when a second and unrelated
+mover arrived: an option with two implementations that are alternatives rather
+than degrees needs a set, and the boolean could not say which one a row got.
+When you widen a capability this way, widen the column with it - a mode string
+in the row and not just a flag - or the run records that something happened
+without recording what.
 
 **One variable per experiment, interleaved in one time window.** Provider, engine
 and target are independent axes. Provider A at 10:00 against provider B at 14:00
 measures the afternoon. The scheduler goes round-robin at batch granularity, and
 a matrix with exactly one batch per cell defeats that because round-robin has
 nothing to alternate.
+
+**Which means a new option is an axis, not a setting: it takes a comma list and
+it reaches the cell key.** `--humanize` shipped on 2026-09-03 as a single value
+with `choices=`, and the defect is not that it was inconvenient - it is that the
+only available control was a second run, and a second run differs in the hour,
+which here is the largest effect in the notebook. The option had tests, they
+passed, and they were all about what the flag does with one value rather than
+about how many it takes. When you add one: take the list through `parse_flags`,
+put the value on the `Cell`, and append it to the key **only when it varies**, so
+that a single-value run stays `--resume`-comparable with the files taken before
+the option existed.
 
 ## Data
 
