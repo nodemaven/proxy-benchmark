@@ -107,9 +107,11 @@ class TestWhatIsRefused:
             probe_and_hold.parse_param_sets(" , ", {}, parser)
 
 
-def cell(engine="patchright", geo="off", level="L0", target="google_serp"):
+def cell(engine="patchright", geo="off", level="L0", target="google_serp",
+         entry="home", hand="off", interact="off"):
     return probe_and_hold.Cell(engine, target, "any",
-                               ("params-none", {}), level, "home", geo)
+                               ("params-none", {}), level, entry, geo, hand,
+                               interact)
 
 
 class Args:
@@ -117,6 +119,49 @@ class Args:
 
     def __init__(self, warm_urls=None):
         self.warm_urls = warm_urls
+
+
+class TestWhichTargetsCanBeEnteredHow:
+    """`check_entry` refuses a front door the target has not declared - and only
+    for the cells that would walk through one.
+
+    The second half is what these pin, because the first half was written
+    without it and refused **7 of the 9 targets** on `--entry url` from the
+    first commit until 2026-09-05. `--entry url` reads neither `home_url` nor
+    `search_box`; it navigates to `target.url(query)`. Requiring them anyway
+    made the two marketplace targets unrunnable in the one shape they support,
+    which is the shape that archives the bodies an `ok` rule would have to be
+    written from.
+
+    Nothing caught it because the runs being made all used google_serp and
+    amazon_search, the only two targets that declare a front door. A guard that
+    is never exercised on the inputs it is wrong about looks exactly like a
+    guard that works.
+    """
+
+    def test_the_url_shape_needs_no_front_door(self, parser):
+        for name in ("lazada_search", "shopee_search", "ddg_serp", "bing_serp",
+                     "google_maps", "walmart_search", "ipinfo"):
+            probe_and_hold.check_entry(parser, [cell(target=name, entry="url")])
+
+    def test_the_home_shape_still_needs_one(self, parser):
+        with pytest.raises(ValueError, match="--entry home"):
+            probe_and_hold.check_entry(
+                parser, [cell(target="lazada_search", entry="home")])
+
+    def test_a_mixed_matrix_is_refused_on_the_home_half(self, parser):
+        """`--entry home,url` on a target with no front door is half runnable,
+        and running the half would produce a one-armed matrix labelled as two."""
+        with pytest.raises(ValueError, match="--entry home"):
+            probe_and_hold.check_entry(
+                parser, [cell(target="lazada_search", entry="url"),
+                         cell(target="lazada_search", entry="home")])
+
+    def test_the_two_targets_with_a_front_door_pass_both_shapes(self, parser):
+        for entry in ("home", "url"):
+            for name in ("google_serp", "amazon_search"):
+                probe_and_hold.check_entry(parser,
+                                           [cell(target=name, entry=entry)])
 
 
 class TestTheWarmUpLadder:
@@ -395,6 +440,372 @@ class TestTheGeoAxis:
         source = (ROOT / "scripts" / "probes" / "probe_and_hold.py").read_text(
             encoding="utf-8")
         assert 'args.direct and "align" in geos' in source
+
+
+class TestTheHumanizeAxis:
+    """That a row cannot claim a cursor that never moved.
+
+    Wired 2026-09-03. The mode is a string with three values rather than a
+    boolean because `engine` and `trueman` are two different clients - the
+    browser synthesising its own input against `nmbench.pointer` driven from
+    outside it - and running both would compose two models into one path.
+
+    The mode lives on the cell and not on `args`, since 2026-09-03. It was a
+    single-valued flag for most of a day, which meant a humanized arm and its
+    control could only be run one after the other - and on this target the hour
+    between them moves the yield further than any flag in this file has. Every
+    test below therefore says `hand=` on a cell rather than `humanize=` on the
+    run.
+    """
+
+    def args(self, **overrides):
+        """The attributes preflight reads on the way past the humanize check.
+
+        `warm_urls` is here because preflight ends in `check_warm`, so the tests
+        that expect no refusal run the whole function and not just the part
+        under test. Left at None, which is what a run that did not name its own
+        warm pages gets.
+
+        No `humanize` key: preflight reads the mode off the cells now, and
+        leaving a stale one here would let a test that had stopped setting the
+        cell still look like it was exercising the axis.
+        """
+        settings = {"headless": True, "preset": "none", "direct": True,
+                    "geo": "off", "warm_urls": None}
+        settings.update(overrides)
+        return argparse.Namespace(**settings)
+
+    @pytest.fixture(autouse=True)
+    def _everything_installed(self, monkeypatch):
+        """Availability is checked first, so on a host missing an engine every
+        test below would pass by reporting the wrong refusal."""
+        monkeypatch.setattr(probe_and_hold.engines, "report_availability",
+                            lambda: {})
+
+    def test_an_engine_without_the_mode_is_refused(self, parser):
+        with pytest.raises(ValueError, match="has no \\['engine'\\] humani"):
+            probe_and_hold.preflight(parser, self.args(),
+                                     [cell("chromium", hand="engine")])
+
+    def test_the_refusal_names_what_the_engine_does_offer(self, parser):
+        """A refusal that only says no makes the operator read the registry."""
+        with pytest.raises(ValueError, match=r"\['off', 'trueman'\]"):
+            probe_and_hold.preflight(parser, self.args(),
+                                     [cell("chromium", hand="engine")])
+
+    def test_a_mode_the_engine_has_is_allowed(self, parser):
+        probe_and_hold.preflight(parser, self.args(),
+                                 [cell("chromium", hand="trueman")])
+        probe_and_hold.preflight(parser, self.args(),
+                                 [cell("camoufox", hand="engine")])
+
+    def test_off_asks_nothing_of_anyone(self, parser):
+        for name in probe_and_hold.engines.REGISTRY:
+            if not probe_and_hold.engines.REGISTRY[name].supports_typing:
+                continue
+            probe_and_hold.preflight(parser, self.args(), [cell(name)])
+
+    def test_the_two_arms_of_the_axis_run_in_one_window(self, parser):
+        """The property the whole conversion was for.
+
+        A cell list carrying both modes has to pass preflight as one run, since
+        the alternative - two runs - measures the hour between them. Named on
+        the key only because it varies here: `--geo`'s precedent, and it keeps
+        a one-mode run's keys comparable with every file taken before the axis
+        existed.
+        """
+        cells = [cell("chromium", hand="off"),
+                 cell("chromium", hand="trueman")]
+        probe_and_hold.preflight(parser, self.args(), cells)
+        assert cells[0].key == cells[1].key
+        named = [probe_and_hold.Cell("chromium", "google_serp", "any",
+                                     ("params-none", {}), "L0", "home", "off",
+                                     hand, name_hand=True)
+                 for hand in ("off", "trueman")]
+        assert named[0].key.endswith("/hand-off")
+        assert named[1].key.endswith("/hand-trueman")
+
+    def test_trueman_on_a_url_arm_is_refused(self, parser):
+        """The label-without-the-treatment failure: `url` navigates straight to
+        the search URL and clicks nothing, so the hand would never move while
+        every row still said `humanize_mode=trueman`."""
+        with pytest.raises(ValueError, match="clicks nothing"):
+            probe_and_hold.preflight(
+                parser, self.args(),
+                [cell("chromium", entry="url", hand="trueman")])
+
+    def test_a_mixed_entry_matrix_is_refused_too(self, parser):
+        """Not softened to "only the url cells are unhumanized": one file would
+        then hold two meanings of one label, and every analysis in this
+        repository groups on the label. The cursor becoming an interleaved axis
+        did not soften it either - see the refusal's own comment.
+        """
+        with pytest.raises(ValueError, match="clicks nothing"):
+            probe_and_hold.preflight(
+                parser, self.args(),
+                [cell("chromium", entry="home", hand="trueman"),
+                 cell("chromium", entry="url", hand="trueman")])
+
+    def test_a_url_cell_beside_an_unhumanized_one_is_fine(self, parser):
+        """The refusal is about the pair `url` + `trueman` on one cell, not
+        about `url` appearing anywhere in a humanized run. An `off,trueman` by
+        `home,url` matrix would be refused on its two `url,trueman` cells; this
+        checks the other three shapes are not caught with them."""
+        probe_and_hold.preflight(parser, self.args(),
+                                 [cell("chromium", entry="url", hand="off"),
+                                  cell("chromium", entry="home",
+                                       hand="trueman")])
+
+    def test_a_url_arm_is_fine_unhumanized(self, parser):
+        probe_and_hold.preflight(parser, self.args(),
+                                 [cell("chromium", entry="url")])
+
+
+class TestTheInteractionAxis:
+    """That `--warm-interact on` cannot be the inert warm-up under a second name.
+
+    Wired 2026-09-04, and the reason it is an axis rather than a deeper rung is
+    on `nmbench.warm`: every L3 row on disk was taken with the warm-up inert, so
+    folding interaction into L3 would make depth and interaction one treatment
+    and silently change what every comparison already computed is a comparison
+    of.
+
+    Every test here guards one shape of the same failure, which this repository
+    has now recorded five times in five costumes - `norotate` answered with 200
+    and dropped, `OptimizationHints` never reaching the command line because a
+    second `--disable-features` discarded the first, a feature name that was not
+    in the binary at all, a scan that read an empty file list, and a rung
+    labelled deeper than it ran. In all five an arm ran the baseline under a
+    label saying otherwise, and in none of them did anything in the output say
+    so. The run costs a night of fresh exits before the rows can be read.
+
+    What no test here can reach is the only thing that decides the run: whether
+    the declared selector matches the live page. This host is behind a VPN
+    gateway and may not touch a Google surface, so that check is `InteractWatch`
+    at runtime and `interact_detail` in the output.
+    """
+
+    def test_an_engine_with_no_playwright_page_is_refused(self, parser):
+        """And refused whatever the entry shape, unlike the same engine test on
+        `--entry`: the warm-up runs before the entry and does not depend on it,
+        so `--entry url` does not rescue this the way it rescues that.
+
+        The refusal used to say "cannot type into a page" and read
+        `supports_typing`. Both were replaced on 2026-09-04, when `scroll` was
+        added: `page.mouse.wheel` is as much a Playwright page as
+        `wait_for_selector` is, so the scroll arm needs exactly what the typing
+        arm needs and a refusal worded around typing would have let it through
+        on a target that declares scrolls only.
+        """
+        cells = [cell("botasaurus", level="L3", entry="url", interact="on")]
+        with pytest.raises(ValueError, match="no Playwright page"):
+            probe_and_hold.check_interact(parser, Args(), cells)
+
+    def test_it_is_refused_for_the_scroll_arm_too(self, parser):
+        """The half that names no selector still needs a mouse. Separate from
+        the test above because `scroll` is the arm that looks like it needs
+        nothing from the engine, and that is exactly the reasoning that would
+        reintroduce the `supports_typing` check."""
+        cells = [cell("botasaurus", level="L3", interact="scroll")]
+        with pytest.raises(ValueError, match="no Playwright page"):
+            probe_and_hold.check_interact(parser, Args(), cells)
+
+    def test_the_cold_rung_is_refused(self, parser):
+        """L0 visits nothing, so there is no page to act on and the cell is the
+        cold arm twice. The refusal names the shape that answers the question
+        instead, because a refusal that only says no makes the operator guess."""
+        cells = [cell(level="L0", interact="on")]
+        with pytest.raises(ValueError, match="cold rung visits no page"):
+            probe_and_hold.check_interact(parser, Args(), cells)
+
+    def test_the_refusal_names_the_run_that_would_work(self, parser):
+        with pytest.raises(ValueError, match="--warm L3 --warm-interact off,on"):
+            probe_and_hold.check_interact(parser, Args(),
+                                          [cell(level="L0", interact="on")])
+
+    def test_a_rung_that_declares_nothing_for_the_selected_kind_is_refused(
+            self, parser):
+        """The check that the kind filter made load-bearing.
+
+        `google_serp` L1 is `imghp` alone, which declares typing and no scroll,
+        so `--warm-interact scroll` there would load the same page as `off` and
+        do nothing on it. This is the check that catches a rung and a kind
+        chosen by hand; a typo in the target is caught in `test_targets.py`,
+        against the whole ladder.
+
+        It used to be written as L1 with `on` and the docstring said translate
+        was in neither rung - true until 2026-09-04, when the scroll axis put
+        actions on enough pages that no rung is inert under `on` any more.
+        Rewritten rather than deleted: the failure it guards is unchanged and
+        only the arm that can still reach it has moved.
+        """
+        cells = [cell(level="L1", interact="scroll")]
+        with pytest.raises(ValueError, match="declares no scroll action"):
+            probe_and_hold.check_interact(parser, Args(), cells)
+
+    def test_the_refusal_names_both_what_the_kind_and_the_target_declare(
+            self, parser):
+        """A refusal that only says no makes the operator go and write a
+        selector for a page this host cannot load. Naming the pages the target
+        declares under *any* kind is what turns it into an instruction."""
+        with pytest.raises(ValueError, match="across every kind it declares"):
+            probe_and_hold.check_interact(parser, Args(),
+                                          [cell(level="L1", interact="scroll")])
+
+    def test_the_amazon_rung_is_refused_for_typing_and_allowed_for_scrolling(
+            self, parser):
+        """The mirror image, and the reason the message names the alternative:
+        `amazon_search` declares a scroll on its one warm page and no box at
+        all, so the two kinds fail on opposite targets."""
+        with pytest.raises(ValueError, match="declares no type action"):
+            probe_and_hold.check_interact(
+                parser, Args(), [cell(target="amazon_search", level="L1",
+                                      interact="type")])
+        probe_and_hold.check_interact(
+            parser, Args(), [cell(target="amazon_search", level="L1",
+                                  interact="scroll")])
+
+    @pytest.mark.parametrize("actions,fault", [
+        ((), "empty action list"),
+        ((("hover", "body", 3),), "known"),
+        ((("type", "textarea", ()),), "phrases in it"),
+        ((("settle", 2600, 1200),), "low under high"),
+        ((("scroll", 3500, 1500),), "low under high"),
+    ])
+    def test_a_target_whose_actions_cannot_run_is_refused(
+            self, parser, monkeypatch, actions, fault):
+        """`warm.problems` is reached through preflight rather than at runtime,
+        because every fault below produces an `on` arm that behaves exactly like
+        `off` for a whole night with nothing in the output saying so.
+
+        The unknown kind was `scroll` until 2026-09-04, on the reasoning that it
+        was the obvious next action and not implemented. It is implemented now,
+        so the case is carried by a kind that is not - which is the whole point
+        of the parametrisation rather than a hardcoded name.
+        """
+        broken = type("Broken", (), {
+            "home_url": "https://example.com/",
+            "warm_ladder": (("L1", ("https://example.com/a",)),),
+            "warm_actions": (("https://example.com/a", actions),)})
+        monkeypatch.setitem(probe_and_hold.TARGETS, "google_serp", broken)
+        with pytest.raises(ValueError, match="cannot run"):
+            probe_and_hold.check_interact(parser, Args(),
+                                          [cell(level="L1", interact="on")])
+        assert fault in str(probe_and_hold.warm.problems(broken))
+
+    def test_a_rung_that_does_visit_a_declared_page_is_allowed(self, parser):
+        probe_and_hold.check_interact(parser, Args(),
+                                      [cell(level="L3", interact="on")])
+
+    def test_the_off_arm_is_asked_nothing(self, parser):
+        """Not a loosening: `off` is the warm-up every row on disk was taken
+        with, so a check that refused it would refuse the control. Every
+        condition above holds on the same cell with `interact='off'`."""
+        probe_and_hold.check_interact(
+            parser, Args(), [cell("botasaurus", level="L0", interact="off")])
+
+    def test_both_arms_run_in_one_window(self, parser):
+        """The property the axis exists for. The alternative - one run each -
+        measures the hour between them, which on this target moves the yield
+        further than any flag in this file has.
+        """
+        cells = [cell(level="L3", interact="off"),
+                 cell(level="L3", interact="on")]
+        probe_and_hold.check_interact(parser, Args(), cells)
+
+    def test_the_key_is_silent_until_the_axis_is_varied(self, parser):
+        """A one-arm run keeps the key every probehold file on disk uses, so the
+        ladder stays comparable with the nights before this axis existed. Safe
+        only because `interact` is on every row regardless, and the warm rows
+        carry what was delivered rather than what was asked for.
+        """
+        assert "/warm-interact" not in cell(level="L3", interact="on").key
+        named = [probe_and_hold.Cell("patchright", "google_serp", "any",
+                                     ("params-none", {}), "L3", "home", "off",
+                                     "off", interact, name_interact=True)
+                 for interact in ("off", "on")]
+        assert named[0].key.endswith("/warm-interact-off")
+        assert named[1].key.endswith("/warm-interact-on")
+
+
+class TestTheWatchOnAnInertArm:
+    """`InteractWatch`: three blank pages and the run stops itself.
+
+    It exists because the selector cannot be verified from this host, so the
+    only remaining check is the run's own output. Three pages is the price of a
+    wrong selector; without it the price is a night.
+    """
+
+    def test_three_blanks_trip_it(self):
+        watch = probe_and_hold.InteractWatch()
+        for _ in range(2):
+            watch.record(4, 0)
+            assert not watch.tripped
+        watch.record(4, 0)
+        assert watch.tripped
+        assert "type:miss" in watch.reason
+
+    def test_one_landing_disarms_it_for_good(self):
+        """A blank after a success is a page varying, which is data. The rule:
+        a probe whose negative and positive arms agree is reporting on itself
+        rather than on its subject - so the watch must only fire while the arm
+        has never been observed to work at all."""
+        watch = probe_and_hold.InteractWatch()
+        watch.record(4, 4)
+        for _ in range(20):
+            watch.record(4, 0)
+        assert not watch.tripped
+
+    def test_a_page_with_nothing_planned_is_not_a_blank(self):
+        """Six of google_serp's seven L3 pages declare no action, so counting
+        them would trip the watch on the first identity of a correct run."""
+        watch = probe_and_hold.InteractWatch()
+        for _ in range(50):
+            watch.record(0, 0)
+        assert not watch.tripped
+
+
+class TestWhatTheCursorCostAWarmVisit:
+    """`hand_delta`, which is `counter_delta`'s rule applied to the pointer.
+
+    Needed because `run_search` reads `hand.walk_ms` at its own start, so any
+    walking done during an interactive warm-up lands in no column at all. The
+    names match what `run_search` writes, so a warm row and a probe row are the
+    same quantity and add up over a session.
+    """
+
+    class Hand:
+        def __init__(self, walk_ms, overruns, points):
+            self.walk_ms = walk_ms
+            self._stats = {"device": "mouse", "overruns": overruns,
+                           "paced_points": points}
+
+        def stats(self):
+            return dict(self._stats)
+
+    def test_no_hand_reports_absent_and_not_zero(self):
+        """A zero would read as a cursor that walked instantly, which is the one
+        wrong answer this column can give - the same absent-versus-zero rule
+        `counter_delta` keeps for an engine with no byte counter."""
+        assert probe_and_hold.hand_delta(None, 0, {}) == {
+            "pointer_ms": None, "pointer_device": None,
+            "pointer_overruns": None, "pointer_points": None}
+
+    def test_it_prices_this_visit_and_not_the_session(self):
+        hand = self.Hand(1800.0, 5, 400)
+        got = probe_and_hold.hand_delta(hand, 1500.0,
+                                        {"overruns": 4, "paced_points": 350})
+        assert got == {"pointer_ms": 300, "pointer_device": "mouse",
+                       "pointer_overruns": 1, "pointer_points": 50}
+
+    def test_a_hand_that_did_not_move_reports_zero(self):
+        """Absent and zero are different findings and both have to be reachable:
+        this is a cursor that was there and stood still."""
+        hand = self.Hand(1500.0, 4, 350)
+        got = probe_and_hold.hand_delta(hand, 1500.0,
+                                        {"overruns": 4, "paced_points": 350})
+        assert got["pointer_ms"] == 0
+        assert got["pointer_device"] == "mouse"
 
 
 class TestARedrawIsOnlyEverForTheProbe:

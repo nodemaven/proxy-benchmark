@@ -126,6 +126,43 @@ MIN_IDENTITIES = 40
 # identities. Note that run stopped after 3h25m because three of its four rungs
 # tripped the breaker, so the per-identity spans are real and the totals are
 # extrapolations from them.
+#
+# Printed rather than left in this comment since 2026-09-03, and the cursor axis
+# is why. `--identities` is per *cell*, not per rung, which was the same thing
+# until an axis crossed the ladder: `--humanize off,trueman` doubles the cells
+# and therefore the hours, silently, with no flag in the command looking like it
+# costs anything. A number nobody sees before launching a thirteen-hour run is
+# not a warning.
+#
+# Everything here is `google_serp` at `--dwell 20,45`, so it is an estimate for
+# the shape the ladder is normally run in and not a general model. It ignores
+# `--series`, which the source run held at 3, and it prices the probe at the
+# rung's span rather than separately. `trueman` adds a walk of about a second
+# per query, which is inside the noise of these spans and is not modelled.
+SPAN_S = {"L0": 15.3, "L1": 102.2, "N1": 102.2, "L2": 172.8, "N3": 242.6,
+          "L3": 242.6}
+SETUP_OVERHEAD = 1.22
+# Mirrored from `probe_and_hold.WARM_LEVELS`, which is not importable from here -
+# it lives in `scripts/probes/` and is a script rather than a module. Two entries
+# is a cheap enough duplicate; the guard against it drifting is the fallback in
+# `estimate_hours`, which prices an unrecognised spelling at the deepest rung, so
+# a mapping that has gone stale makes the estimate pessimistic and never
+# flattering.
+WARM_ALIASES = {"off": "L0", "on": "L1"}
+
+
+def estimate_hours(args) -> float:
+    """Wall clock for the plan, from the spans measured above.
+
+    Multiplied by the number of cursor modes, because `--identities` is per cell
+    and a second mode is a second full pass over the ladder.
+    """
+    deepest = max(SPAN_S.values())
+    rungs = [r.strip() for r in args.warm.split(",") if r.strip()]
+    hands = [h.strip() for h in args.humanize.split(",") if h.strip()]
+    seconds = sum(SPAN_S.get(WARM_ALIASES.get(r, r).upper(), deepest)
+                  for r in rungs) * args.identities * max(len(hands), 1)
+    return seconds * SETUP_OVERHEAD / 3600
 
 
 # Why `--entry` defaults to `home` here and why it used to say `url`.
@@ -180,6 +217,12 @@ def build_command(args) -> list:
         "--entry", args.entry,
         "--warm", args.warm,
         "--geo", args.geo,
+        # Forwarded rather than defaulted here. The `--entry` note above is the
+        # standing reason: a supervisor holding its own default for an axis the
+        # probe also defaults silently overrode the probe for a whole eleven-hour
+        # run, so every axis this script knows about is passed through and none
+        # of them is decided here.
+        "--humanize", args.humanize,
         "--identities", str(args.identities),
         "--series", str(args.series),
         "--gap", args.gap,
@@ -233,6 +276,14 @@ def preflight(args) -> str:
     if done.returncode != 0:
         detail = (done.stderr or done.stdout or "").strip()
         return f"the plan was refused by probe_and_hold.py --dry-run:\n{detail}"
+
+    hands = [h.strip() for h in args.humanize.split(",") if h.strip()]
+    print(f"preflight : about {estimate_hours(args):.1f}h, extrapolated from "
+          f"per-identity spans measured 2026-08-28 - see SPAN_S. Not a "
+          f"promise: it assumes no rung trips the breaker"
+          + (f", and it is {len(hands)}x the one-mode figure because "
+             f"--identities is per cell and --humanize names {len(hands)}"
+             if len(hands) > 1 else ""))
 
     if not args.direct_ok:
         try:
@@ -288,12 +339,26 @@ def main() -> int:
                              "Without it every pair on the ladder differs in "
                              "depth and in composition at once")
     parser.add_argument("--geo", default="off")
+    parser.add_argument("--humanize", default="off",
+                        help="off, engine, trueman, or a comma list. Passed "
+                             "straight through and interleaved by the probe "
+                             "like every other axis. Pair `off,trueman` with "
+                             "no --headless: headless delivers the mover's "
+                             "geometry and not its intervals, so the arm is "
+                             "worth running and is a different experiment "
+                             "from the one the name suggests. On a server "
+                             "headful means running this whole script under "
+                             "`xvfb-run -a`")
     parser.add_argument("--identities", type=int, default=60,
-                        help="per rung. On the five-rung default ladder, 40 is "
-                             "roughly 9h and 60 roughly 13h. The old figures - "
-                             "12/2h, 24/4.5h, 60/11h - were for four rungs and "
-                             "N1 adds about a fifth. See MIN_IDENTITIES for why "
-                             "the default moved off 12 on 2026-08-26")
+                        help="per cell. On the five-rung default ladder with "
+                             "one cursor mode that is per rung, and 40 is "
+                             "roughly 9h, 60 roughly 13h. A second --humanize "
+                             "mode doubles both, because it doubles the cells. "
+                             "The preflight prints the estimate for the plan "
+                             "you actually typed. The old figures - 12/2h, "
+                             "24/4.5h, 60/11h - were for four rungs and N1 adds "
+                             "about a fifth. See MIN_IDENTITIES for why the "
+                             "default moved off 12 on 2026-08-26")
     parser.add_argument("--series", type=int, default=3)
     parser.add_argument("--gap", default="8,20")
     parser.add_argument("--dwell", default="20,45",

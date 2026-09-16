@@ -7,6 +7,7 @@ below are built from bodies actually observed on 2026-08-10 and 2026-08-11.
 """
 import pytest
 
+from nmbench import warm
 from nmbench.targets import NEEDS_SCRIPT, TARGETS, VERDICTS, fingerprint
 
 GOOGLE = TARGETS["google_serp"]
@@ -15,6 +16,122 @@ DDG = TARGETS["ddg_serp"]
 IPINFO = TARGETS["ipinfo"]
 AMAZON = TARGETS["amazon_search"]
 WALMART = TARGETS["walmart_search"]
+MAPS = TARGETS["google_maps"]
+LAZADA = TARGETS["lazada_search"]
+SHOPEE = TARGETS["shopee_search"]
+
+# Trimmed from `marketplace_recon_20260903T234200Z`, 2 of 2 served Maps bodies,
+# 451-452 KB each. The `noscript` pair is kept verbatim because it is the whole
+# point of the fixture: `google_serp`'s classifier would read this rendered feed
+# as `empty`, and `GoogleMapsSearch` must not.
+MAPS_FEED = """<!doctype html><html><head>
+<title>dentist in Austin Texas - Google Maps</title></head><body>
+<noscript>Google Maps can't load properly because JavaScript is turned off.
+</noscript><noscript><style>.gb_P{display:none}</style></noscript>
+<div class="m6QErb WNBkOb XiKgde" role="main">
+<div class="m6QErb DxyBCb kA9KIf dS8AEf XiKgde ecceSd"
+     aria-label="Results for dentist in Austin Texas" role="feed" tabindex="-1">
+<div class="Nv2PK"><a class="hfpxzc" href="https://www.google.com/maps/place/
+Austin+Dental/data=!3m1!4b1"></a></div>
+</div></div></body></html>"""
+
+# The `sufei-punish` wall, trimmed from both Lazada bodies. 10 187 and 10 143
+# bytes, HTTP **200**, empty title, and nothing in it but the iframe.
+LAZADA_PUNISH = """<html><head><meta charset="utf-8">
+<script charset="utf-8" async=""
+ src="//g.alicdn.com/bsop-static/sufei-punish/0.1.127/build/htmltocanvas.min.js"
+ crossorigin=""></script></head><body>
+<iframe src="//www.lazada.sg:443/catalog/_____tmd_____/punish?recaptcha=1&amp;
+iframe=1&amp;x5step=2&amp;x5secdata=xgec2b2723daa5851d" style="border:none;"
+ width="100%" height="100%"></iframe>
+<div id="bx-pu-qrcode-wrap"><div id="qrcode"></div></div></body></html>"""
+LAZADA_PUNISH_URL = ("https://www.lazada.sg//catalog//_____tmd_____/punish"
+                     "?x5secdata=xfwRR3EaQYaIAJusu40KluK54h-Q5pSfh3M3O9z7KuRn")
+
+# Trimmed from the first two cards of the 1.78 MB body archived on 2026-09-05 by
+# `probehold_20260905T092634Z`, SG exit, HTTP 200. 40 cards were in it. The
+# container attribute is kept because it is the near miss: it is present on a
+# served page and must not be what the rule reads, or a grid that renders its
+# frame and no cards would score as a pass.
+LAZADA_SERVED = """<html><head><title>Accurate Spirit Level Tools for Home &amp;
+Construction | Lazada Singapore</title></head><body><div id="root">
+<div class="_17mcb" data-qa-locator="general-products" data-spm="list">
+<div class="Bm3ON" data-qa-locator="product-item" data-tracking="product-card"
+ data-item-id="1973401010"><a href="//www.lazada.sg/products/pdp-i1973401010.html"
+ >INGCO Spirit Level With Powerful Magnets</a><span>$12.90</span></div>
+<div class="Bm3ON" data-qa-locator="product-item" data-tracking="product-card"
+ data-item-id="1973401011"><a href="//www.lazada.sg/products/pdp-i1973401011.html"
+ >Stanley 600mm Box Beam Level</a><span>$41.00</span></div>
+</div></div></body></html>"""
+LAZADA_SERVED_URL = ("https://www.lazada.sg/tag/spirit-level/?q=spirit+level"
+                     "&catalog_redirect_tag=true")
+
+# The same page snapshotted before the grid rendered: same redirect, same title
+# shape, `#root` empty. 62 KB of header and footer, 1.43 MB across the wire,
+# 5 774 ms. Lazada served this; the harness read it early.
+LAZADA_UNHYDRATED = ("<html><head><title>Shop Mechanical Keyboard Compact at "
+                     "Better Price Online | Lazada Singapore</title></head>"
+                     "<body><div id=\"root\"></div><div>CUSTOMER CARE Lazada "
+                     "Help Center Track my order</div></body></html>")
+
+# All 144 bytes of it, both attempts, byte-identical. There is no Shopee in it.
+SHOPEE_403 = ("<html><head><title>403 Forbidden</title></head>\n<body>\n"
+              "<center><h1>403 Forbidden</h1></center>\n"
+              "<hr><center>nginx</center>\n\n\n\n\n\n\n\n\n</body></html>")
+
+# The other thing Shopee does, and the reason the docstring's old heading was
+# wrong: 269 KB of ordinary shell over HTTP 200, whose entire visible text is
+# "Skip to main content". `probehold_20260905T092634Z`, 2 of 2 SG exits, the two
+# bodies 269 573 and 269 569 bytes for two different queries.
+SHOPEE_SHELL = ("<html><head><title>Shopee Singapore | Cheaper, Faster On "
+                "Shopee</title></head><body><div id=\"main\">"
+                "<a href=\"#main\">Skip to main content</a>"
+                "<style id=\"nebula-style\">:root{--nc-primary:#ee4d2d}</style>"
+                "<script>window.__ASSETS__={\"pcmall-captcha\":\"https://"
+                "deo.shopeemobile.com/shopee/stm-sg-live/51944/a.json\","
+                "\"msg_captcha_empty_error\":\"Captcha cannot be empty\"};"
+                "</script></div></body></html>")
+
+# Shopee's traffic check, trimmed from `marketplace_recon_20260905T104017Z`,
+# 2 of 3 queries on one SG exit. It renders *inside* the same shell, so the
+# "Skip to main content" line is here too - which is the whole reason the wall
+# rule has to be tested before the shell rule, and the reason this fixture keeps
+# that line rather than trimming it away as noise.
+SHOPEE_TRAFFIC_WALL = SHOPEE_SHELL.replace(
+    "</div></body></html>",
+    "<div class=\"BsK01h\">Login Required</div>"
+    "<div class=\"ldaYrn\">Looks like you’re not logged in yet. Log in to "
+    "continue or head back to the homepage.</div>"
+    "<div><button class=\"O1y698\">Log In</button>"
+    "<button class=\"a6sTP7\">Back to Home Page</button></div>"
+    "<div>ID: 799afa71194-3de8-451d-ba01-b21c4909b64c</div>"
+    "</div></body></html>")
+SHOPEE_TRAFFIC_WALL_URL = ("https://shopee.sg/verify/traffic/error?home_url="
+                           "https%3A%2F%2Fshopee.sg&is_logged_in=false&next="
+                           "https%3A%2F%2Fshopee.sg%2Fsearch%3Fkeyword%3D"
+                           "wireless%2Bearbuds&tracking_id=799afa71194")
+
+# The first Shopee page that has ever rendered here, trimmed from
+# `marketplace_recon_20260905T113703Z` position 00002: the front page, 659 029
+# bytes, 12 787 visible characters, and the only one of that run's six that
+# stayed on `/` rather than being sent to `/verify/traffic/error`. It is built
+# off `SHOPEE_SHELL` for the same reason the wall is - it carries "Skip to main
+# content" too, and that is exactly what made the shell rule call it a shell.
+#
+# The `<form>` and the `<input>` are copied from the archived body rather than
+# written to taste, because the same class is what `ShopeeSearch.judge` now
+# reads and what a future `search_box` on this target would use. A fixture that
+# paraphrases the markup it is calibrating would let the rule pass here and
+# fail on the site.
+SHOPEE_RENDERED = SHOPEE_SHELL.replace(
+    "</div></body></html>",
+    "<form role=\"search\" autocomplete=\"off\" class=\"shopee-searchbar\" "
+    "action=\"/search\">"
+    "<input aria-label=\"Register now &amp; get $12 off voucher!\" "
+    "type=\"search\" class=\"shopee-searchbar-input__input\" maxlength=\"128\" "
+    "placeholder=\"Register now &amp; get $12 off voucher!\" "
+    "autocomplete=\"off\" role=\"combobox\"></form>"
+    "</div></body></html>")
 
 # Trimmed from a body captured direct on 2026-08-12: 2.1 MB, HTTP 200, the right
 # title, 63 products - and the entire PerimeterX modal sitting inside it, hidden.
@@ -200,6 +317,23 @@ class TestGoogle:
                                  "</a></body>")
         assert GOOGLE.judge("https://www.google.com/search?q=x", "", served
                             ).verdict == "ok"
+
+    def test_the_goto_redirect_changes_no_verdict(self):
+        """Google wrapped every result destination in `/goto?url=<protobuf>`
+        between 2026-08-26 15:27 and 2026-08-27 20:11 UTC, measured off our own
+        archived bodies. `judge` reads nine structural strings and not one of
+        them is a destination href, so a served page is served whichever form
+        its links take - but the marker was added to `FINGERPRINT_MARKERS` in
+        the same commit, and a marker is one careless edit away from becoming a
+        rule. This pins the separation rather than the current rule list.
+        """
+        wrapped = RESULTS.replace("</body>",
+                                  '<a href="/goto?url=CAESjgEB6zswFfY0Zi8">x</a>'
+                                  "</body>")
+        assert GOOGLE.judge("https://www.google.com/search?q=x", "", wrapped
+                            ).verdict == "ok"
+        assert fingerprint("https://www.google.com/search?q=x",
+                           wrapped)["markers"]["/goto?url="] == 1
 
     def test_empty_body(self):
         assert GOOGLE.judge("https://www.google.com/search?q=x", "", ""
@@ -486,6 +620,275 @@ class TestWalmart:
         assert WALMART.query_list == AMAZON.query_list
 
 
+class TestGoogleMaps:
+    """Both sides measured: the served side from
+    `marketplace_recon_20260903T234200Z` (2 of 2, HTTP 200, 451-452 KB), the
+    refused side inherited from `google_serp`, where 4550 of 4550 captcha rows
+    carried `/sorry/`."""
+
+    def test_the_feed_is_ok(self):
+        assert MAPS.judge("https://www.google.com/maps/search/x", "",
+                          MAPS_FEED).verdict == "ok"
+
+    def test_the_google_serp_classifier_would_have_got_this_wrong(self):
+        """The reason this target exists as its own class rather than as a URL
+        change on `google_serp`. Both served bodies carry `noscript` twice and
+        carry `id="rso"`, `id="search"` and `<h3>` zero times, so the older
+        classifier reads a rendered feed as our own client coming up short."""
+        assert GOOGLE.judge("https://www.google.com/maps/search/x", "",
+                            MAPS_FEED).verdict == "empty"
+        assert MAPS.judge("https://www.google.com/maps/search/x", "",
+                          MAPS_FEED).verdict == "ok"
+
+    def test_the_scaffold_rule_runs_after_the_feed_rule(self):
+        """Same ordering trap as Walmart's dormant modal, arrived at from the
+        other direction: here it is the *served* page that carries the
+        challenge-looking markup, and it carries it on every single row."""
+        assert "noscript" in MAPS_FEED
+        assert MAPS.judge("https://www.google.com/maps/search/x", "",
+                          MAPS_FEED).verdict == "ok"
+
+    def test_the_scaffold_without_a_feed_is_still_empty(self):
+        judgement = MAPS.judge("https://www.google.com/maps/search/x", "",
+                               "<html><body><noscript>turn on JavaScript"
+                               "</noscript></body></html>")
+        assert judgement.verdict == "empty"
+
+    def test_sorry_is_a_captcha(self):
+        assert MAPS.judge("https://www.google.com/sorry/index?continue=maps",
+                          "", SORRY).verdict == "captcha"
+
+    def test_a_single_place_panel_is_ok(self):
+        """Not observed in either recon body - both queries were plural and both
+        got a feed. The rule is here because the failure it prevents is the one
+        this repository cannot absorb: scoring a page Maps served as a refusal.
+        Keyed on the redirect, which is the certain part."""
+        judgement = MAPS.judge(
+            "https://www.google.com/maps/place/Austin+Dental/@30.2,-97.7,17z",
+            "", "<html><body>place panel</body></html>")
+        assert judgement.verdict == "ok"
+
+    def test_class_names_are_not_what_the_verdict_rests_on(self):
+        """`Nv2PK` and `hfpxzc` are obfuscated and Google rotates them - this
+        repository has already had to date one such rotation from the rows. A
+        feed that survives a rotation must still read as `ok`."""
+        rotated = MAPS_FEED.replace("Nv2PK", "aB3xQ").replace("hfpxzc", "zZ9kL")
+        assert MAPS.judge("https://www.google.com/maps/search/x", "",
+                          rotated).verdict == "ok"
+
+    def test_empty_body(self):
+        assert MAPS.judge("https://www.google.com/maps/search/x", "",
+                          "").verdict == "empty"
+
+    def test_it_asks_for_places_and_not_products(self):
+        """A product query returns a feed with nothing in it, and an empty feed
+        cannot be told from a refused one after the fact. Amazon at least says
+        `s-no-results`; Maps says nothing."""
+        assert MAPS.query_list == "places_1000"
+        assert all(" in " in q for q in MAPS.queries)
+
+
+class TestLazada:
+    """Calibrated on both sides as of 2026-09-05. It was refusals only until
+    then - 2 of 2 direct attempts on 2026-09-03 were the `sufei-punish` wall -
+    and `probehold_20260905T092634Z` supplied the served side from SG exits."""
+
+    def test_the_wall_arrives_as_200_and_the_status_is_not_consulted(self):
+        """The finding that makes this target worth having. Both refusals were
+        HTTP 200, so a harness that scored on status would have recorded two
+        passes."""
+        judgement = LAZADA.judge(LAZADA_PUNISH_URL, "", LAZADA_PUNISH)
+        assert judgement.verdict == "captcha"
+        assert "punish" in judgement.reason
+
+    def test_the_redirect_alone_is_enough(self):
+        """The URL test is first because a redirect target is not markup that
+        can be restyled."""
+        assert LAZADA.judge(LAZADA_PUNISH_URL, "",
+                            "<html><body></body></html>").verdict == "captcha"
+
+    def test_the_wall_served_inline_is_still_a_captcha(self):
+        """The second disjunct, for a wall that does not redirect. Never
+        observed; it is the cheap half of the rule."""
+        assert LAZADA.judge("https://www.lazada.sg/catalog/?q=x", "",
+                            LAZADA_PUNISH).verdict == "captcha"
+
+    def test_the_catalogue_grid_is_a_pass(self):
+        """The rule the 2026-09-05 run bought. The marker is the per-card
+        `data-qa-locator="product-item"`, read out of an archived body."""
+        judgement = LAZADA.judge(LAZADA_SERVED_URL, "", LAZADA_SERVED)
+        assert judgement.verdict == "ok"
+
+    def test_the_container_alone_is_not_a_pass(self):
+        """The near miss, and the reason the rule reads the card rather than the
+        grid frame: a page that renders `general-products` and no cards inside
+        it has not served a result."""
+        frame_only = LAZADA_SERVED[:LAZADA_SERVED.index("Bm3ON")] + "</div></body>"
+        assert 'data-qa-locator="general-products"' in frame_only
+        assert LAZADA.judge(LAZADA_SERVED_URL, "", frame_only).verdict == "block"
+
+    def test_the_wall_wins_over_the_grid(self):
+        """Rule order, pinned. A punish document carries no cards, so today the
+        order cannot change a verdict; if Lazada ever serves the challenge over
+        a rendered grid, the refusal is the honest reading and this test is what
+        stops a reorder from turning it into a pass."""
+        both = LAZADA_SERVED + LAZADA_PUNISH
+        assert LAZADA.judge(LAZADA_SERVED_URL, "", both).verdict == "captcha"
+
+    def test_an_early_snapshot_is_not_reported_as_a_refusal(self):
+        """The confound the same run exposed: 2 of 2 attempts were served and
+        only 1 of 2 had the grid in the DOM. The verdict is still `block`,
+        because the body genuinely has no result in it, but the reason must send
+        the reader to the `ready` column instead of letting the row be counted
+        as a Lazada refusal."""
+        judgement = LAZADA.judge(LAZADA_SERVED_URL, "", LAZADA_UNHYDRATED)
+        assert judgement.verdict == "block"
+        assert "ready" in judgement.reason
+
+    def test_it_shares_the_shop_query_list(self):
+        assert LAZADA.query_list == AMAZON.query_list == WALMART.query_list
+
+    def test_the_selector_and_the_rule_read_the_same_string(self):
+        """They were added in one edit for one reason: a wait that succeeds on
+        markup the judge does not read, or the other way round, is a target that
+        reports its own timing as the site's behaviour."""
+        assert LAZADA.ready_selector == "[data-qa-locator='product-item']"
+        assert LAZADA.judge(LAZADA_SERVED_URL, "", LAZADA_SERVED).verdict == "ok"
+
+
+class TestShopee:
+    """Still no measured pass, and now three measured non-passes. Two of them
+    are opposite answers about the edge: 144 bytes of stock nginx from this
+    workstation, and 269 KB of ordinary shell from SG exits on 2026-09-05. The
+    third is Shopee refusing in its own words at `/verify/traffic/error`, found
+    later the same day and archived 5 times.
+
+    The wall renders inside the shell, so the two share their only visible
+    line. Ordering is therefore load-bearing here in the same way it is for
+    Walmart's dormant challenge, and it is asserted rather than assumed."""
+
+    def test_the_nginx_403_is_a_block(self):
+        judgement = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                                 SHOPEE_403)
+        assert judgement.verdict == "block"
+        assert "nginx" in judgement.reason
+
+    def test_the_cause_is_not_named(self):
+        """From a host behind a VPN gateway asking a Singapore storefront, an
+        address refusal and a bot refusal produce the identical 144 bytes.
+        Calling this Shopee's bot defence would be a claim the body cannot
+        support."""
+        reason = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                              SHOPEE_403).reason
+        assert "captcha" not in reason and "bot" not in reason
+
+    def test_both_markers_are_required(self):
+        """`nginx` alone matches anything that mentions it and `403 forbidden`
+        alone matches a storefront's own error styling. Together they are the
+        stock error document."""
+        judgement = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                                 "<html><body>403 Forbidden</body></html>")
+        assert "no served marker" in judgement.reason
+
+    def test_the_shell_and_the_403_are_told_apart(self):
+        """One verdict, two reasons, and the split is the point. Both are
+        `block` because neither carries a result, but the 403 is the edge
+        refusing and the shell is the edge letting us through - a report that
+        merged them could not show the SG exits doing better than this host."""
+        shell = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                             SHOPEE_SHELL)
+        wall = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                            SHOPEE_403)
+        assert shell.verdict == wall.verdict == "block"
+        assert shell.reason != wall.reason
+        assert "through" in shell.reason and "nginx" in wall.reason
+
+    def test_the_shells_own_i18n_strings_are_not_read_as_a_challenge(self):
+        """`captcha`, `blocked` and `denied` all occur in the shell, in its
+        asset manifest and its message bundle. A rule that grepped for them
+        would call an ordinary storefront a challenge."""
+        assert "captcha" in SHOPEE_SHELL.lower()
+        assert SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                            SHOPEE_SHELL).verdict != "captcha"
+
+    def test_the_traffic_check_is_named(self):
+        """The one refusal Shopee states itself, so it is the one that must not
+        be reported as "read the body"."""
+        judgement = SHOPEE.judge(SHOPEE_TRAFFIC_WALL_URL, "",
+                                 SHOPEE_TRAFFIC_WALL)
+        assert judgement.verdict == "block"
+        assert "traffic check" in judgement.reason
+
+    def test_the_wall_is_not_swallowed_by_the_shell_rule(self):
+        """The wall renders inside the shell and carries "Skip to main
+        content" too - 5 of the 8 archived bodies holding that string are
+        walls. Reversing the two rules loses the wall silently, which is why
+        this asserts on the fixture as well as on the verdict."""
+        assert "skip to main content" in SHOPEE_TRAFFIC_WALL.lower()
+        wall = SHOPEE.judge(SHOPEE_TRAFFIC_WALL_URL, "", SHOPEE_TRAFFIC_WALL)
+        shell = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                             SHOPEE_SHELL)
+        assert wall.reason != shell.reason
+        assert "shell" in shell.reason and "shell" not in wall.reason
+
+    def test_the_wall_is_read_off_the_body_and_not_the_url(self):
+        """Both rules here were calibrated by replaying `judge` over
+        `data/artifacts/`, where there is no URL to read. A URL-only rule would
+        pass its own tests and score nothing on that replay."""
+        judgement = SHOPEE.judge("", "", SHOPEE_TRAFFIC_WALL)
+        assert "traffic check" in judgement.reason
+
+    def test_the_login_copy_is_not_read_as_a_pass_or_a_consent(self):
+        """It offers a login button, which is neither a result nor a cookie
+        banner. The verdict has to stay a refusal."""
+        assert SHOPEE.judge(SHOPEE_TRAFFIC_WALL_URL, "",
+                            SHOPEE_TRAFFIC_WALL).verdict == "block"
+
+    def test_a_rendered_page_is_not_called_an_unfilled_shell(self):
+        """The regression from `marketplace_recon_20260905T113703Z`.
+
+        The shell rule was `skip to main content` alone, and the first Shopee
+        body that ever rendered carries that string, so replaying `judge` over
+        it returned "served and never filled" about a page that had filled.
+        The fixture asserts the trap is still in it: without the first line
+        this test would pass against a rule that had simply stopped matching
+        the shell.
+        """
+        assert "skip to main content" in SHOPEE_RENDERED.lower()
+        judgement = SHOPEE.judge("https://shopee.sg/", "", SHOPEE_RENDERED)
+        assert "never filled" not in judgement.reason
+        assert "read the body" in judgement.reason
+
+    def test_the_shell_rule_still_fires_without_the_search_bar(self):
+        """The other half of the same rule. A discriminator that stopped the
+        false positive by never matching anything would pass the test above."""
+        judgement = SHOPEE.judge("https://shopee.sg/search?keyword=x", "",
+                                 SHOPEE_SHELL)
+        assert "never filled" in judgement.reason
+
+    def test_a_rendered_page_is_still_not_a_pass(self):
+        """One served body, and it is a front page rather than a result page.
+        That is not enough to write an `ok` marker, so a rendered page has to
+        keep landing on the reason that says to read the body."""
+        assert SHOPEE.judge("https://shopee.sg/", "",
+                            SHOPEE_RENDERED).verdict == "block"
+
+    def test_a_served_grid_has_no_rule_and_the_reason_says_so(self):
+        """The pinned gap, and unlike Lazada's it is still open: no Shopee
+        result grid has been archived, so no `ok` marker can be written without
+        reading it off shopee.sg. Delete when a grid is archived."""
+        judgement = SHOPEE.judge("https://shopee.sg/search?keyword=air+fryer",
+                                 "", "<html><body>a real grid</body></html>")
+        assert judgement.verdict == "block"
+        assert "no served marker" in judgement.reason
+
+    def test_no_selector_is_invented(self):
+        """A guessed selector makes every attempt wait out its timeout and then
+        record False for a page that was fine. Lazada's was taken out of an
+        archived body on 2026-09-05; Shopee has no such body."""
+        assert SHOPEE.ready_selector is None
+
+
 class TestContract:
     @pytest.mark.parametrize("name", sorted(TARGETS))
     def test_every_verdict_is_in_the_enum(self, name):
@@ -511,8 +914,55 @@ class TestContract:
         client was challenged 5 times out of 5 on 2026-08-12, so it never
         reached a page, and whether the markup survives without JavaScript is
         unknown. The conservative side of that unknown is the one where our own
-        preset cannot be mistaken for the target's refusal."""
-        assert NEEDS_SCRIPT == {"google_serp", "walmart_search"}
+        preset cannot be mistaken for the target's refusal.
+
+        Maps is measured: it is an application and builds the feed in the
+        browser. Lazada and Shopee are the Walmart case again - no scriptless
+        client has ever been served by either, so the unknown is resolved the
+        conservative way."""
+        assert NEEDS_SCRIPT == {"google_serp", "walmart_search", "google_maps",
+                                "lazada_search", "shopee_search"}
+
+
+class TestWarmActions:
+    """What a target declares for `--warm-interact on`.
+
+    Here rather than beside the probe's tests because the declaration is the
+    target's: the probe must not know a domain, and a CSS selector is a stronger
+    form of that knowledge than a URL is. What the probe checks is that the arm
+    can run at all; what is checked here is that the declaration is about pages
+    the target actually visits.
+    """
+
+    @pytest.mark.parametrize("name", sorted(TARGETS))
+    def test_the_shape_is_one_the_arm_can_run(self, name):
+        """`warm.problems` is what preflight refuses on, so a target that would
+        be refused should fail here and not on the night of the run."""
+        assert warm.problems(TARGETS[name]) == []
+
+    @pytest.mark.parametrize("name", sorted(TARGETS))
+    def test_every_declared_page_is_one_some_rung_visits(self, name):
+        """A URL declared here and in no rung is silently no interaction.
+
+        This is the failure this repository has recorded four times in another
+        costume - an arm labelled `on` that behaves exactly like `off`, with
+        nothing in the output saying so. One character wrong in a query string
+        is enough: `?hl=en` against `?hl=en&` would leave preflight's
+        rung-intersection check to catch it, and preflight only sees the rungs
+        that were actually selected, so a run of a different rung would pass and
+        do nothing.
+        """
+        target = TARGETS[name]
+        declared = warm.pages_with_actions(target)
+        if not declared:
+            return
+        visited = set()
+        for _, pages in getattr(target, "warm_ladder", ()):
+            visited.update(pages)
+        visited.add(getattr(target, "home_url", None))
+        assert declared <= visited, (
+            f"{name} declares warm_actions for {sorted(declared - visited)}, "
+            f"which no rung of its own ladder visits")
 
 
 class TestFingerprint:

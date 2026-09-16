@@ -148,6 +148,17 @@ def main() -> int:
     probe_table(rows, lambda r: r["cell"].split("/")[3], "BY PARAMETER ARM")
     probe_table(rows, lambda r: f"geo-{r.get('geo')}", "BY GEO ALIGNMENT")
     probe_table(rows, lambda r: r.get("entry"), "BY ENTRY SHAPE")
+    # `humanize_mode` and not the older boolean `humanize`: the boolean says
+    # only that something moved and cannot tell the engine's own input synthesis
+    # from `nmbench.pointer`. Rows written before 2026-09-03 have no such column
+    # and fall into `hand-None`, which is honest - `humanize=true` on those
+    # meant Camoufox's own and nothing else was implemented.
+    probe_table(rows, lambda r: f"hand-{r.get('humanize_mode')}",
+                "BY CURSOR - and read the display mode off the header before "
+                "reading this table. Headless delivers the mover's geometry "
+                "and not its intervals, so a headless arm is a geometry "
+                "experiment. `pointer_overruns` against `pointer_points` on "
+                "the rows says which one was run")
 
     held = [r for r in rows if r.get("phase") == "hold"]
     if held:
