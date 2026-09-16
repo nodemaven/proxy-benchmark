@@ -1,0 +1,104 @@
+# Oxylabs, residential.
+label = "Oxylabs"
+status = "measured"
+source = "probe_competitor_dialects.py phases 3/5/6/7, plus developers.oxylabs.io"
+source_read = "2026-09-10"
+
+# `customer-<login>-cc-us-st-us_california-sessid-abc123`
+prefix = "customer-{login}"
+separator = "-"
+pair_separator = "-"
+session_param = "sid"
+param_transport = "username"
+
+host = "pr.oxylabs.io"
+port = 7777
+
+# No exit-address header is documented and none was observed, so `exit_ip_header`
+# stays empty and an exit address costs a request to an echo service. NodeMaven
+# answers one on the CONNECT reply, so a comparison reading the two providers
+# with two different instruments is measuring the instruments too.
+
+# `cc`, `st` and `sessid` are Oxylabs' spellings and the canonical names are on
+# the left of `aliases`.
+#
+# `country` is aliased to `cc` because both take a two-letter ISO 3166-1 alpha-2
+# code: the name and the value grammar both match, so one call site can hold
+# across providers. `sid` is aliased to `sessid` on the same test - a session id
+# is an opaque token everywhere.
+#
+# `st` is NOT aliased to `region`, and this is the one decision in the file worth
+# reading twice. Oxylabs wants `us_california`, Decodo wants `us_california`,
+# Bright Data wants `ca` and NodeMaven wants `california`. `--param` is validated
+# against every selected provider and its VALUE is then sent to all of them
+# unchanged, so a shared canonical `region` would send one spelling to four
+# gateways and three of them would answer 200 having applied nothing. Provider
+# names stay provider-native until the values agree.
+#
+# `sesstime` is ABSENT: phase 5 found it indistinguishable from a name nobody
+# implemented, and this gateway answers an unknown name with 200 `OK`, so
+# acceptance proves nothing here. It is also not aliasable to NodeMaven's `ttl`,
+# which carries a unit (`10m`) where `sesstime` is a bare count of minutes.
+#
+# `cc` and `sessid` are absent from the list even though they are what goes on
+# the wire. An aliased name is reachable under exactly one spelling; listing both
+# would let one call pass `sid` and `sessid` together and emit
+# `sessid-a-sessid-b`, a username with two session ids in it and no error
+# anywhere.
+known_params = ["country", "st", "city", "sid"]
+
+aliases = { country = "cc", sid = "sessid" }
+
+notes = """
+Measured 2026-09-10 from a Windows workstation with no VPN, by
+`probe_competitor_dialects.py` in the sibling `lab/` tree. No throughput,
+latency or success rate is in any of it - this file describes a dialect.
+
+`status = "measured"` covers the four names above and nothing else. The loader's
+docstring defines `measured` as `rows in data/runs/ came through it` and by that
+wording this is premature: the traffic was probe CONNECTs. The word is used for
+what it tells a reader, and the scope is written out rather than left to it.
+
+THIS GATEWAY SILENTLY DROPS AN UNKNOWN NAME, measured: a name nobody implemented
+answers 200 `OK`, exactly as the baseline does. So client-side validation is the
+only check available and a name in the list above that does not belong there
+produces rows describing a setting that was never applied.
+
+WHAT EACH NAME IS MEASURED TO DO:
+
+  country   APPLIED and observed, phase 3, on a fresh session id.
+  st        APPLIED and observed, phase 7: five rounds with a fresh session id
+            each, `us_california` landed in California 5/5 and `us_texas` in
+            Texas 5/5, against a no-region control that spread over 5 distinct
+            states of 5. The control is what makes the other two arms readable -
+            a concentrated pool would otherwise read as obedience.
+  city      PARSED and its value VALIDATED: a junk value answers 400 `Bad
+            Request` where the baseline answers 200. That is a positive on a
+            gateway that answers 200 to anything it does not know. No run has
+            asked for a city and no exit was checked against one, so `applied`
+            is not claimed.
+  sid       ACCEPTED, and measured to outrank a later parameter - see below.
+
+FIRST REQUEST WINS, AND IT IS A PRODUCT DEFECT. Phase 6: `country=gb` on a fresh
+session id came out 90.198.246.85 GB AS5607; `country=us` on that SAME id came
+out 90.198.246.85 GB AS5607 with a 200 and no error; `country=us` on a fresh id
+in the same window came out 72.221.99.194 US AS22773. So the country is honoured
+by the gateway and outranked by the session, not refused. NodeMaven does not do
+this - the same arm moved GB to US.
+
+That is a caller asking for one country and being given another with a 200, and
+no string builder can defend against it: the request is correct and the answer is
+wrong. What it means for THIS harness was checked rather than assumed:
+`scripts/benchmark.py` mints a fresh `sid` per attempt in the same username as
+the country, so there is no earlier request on that id to outrank it. Any caller
+reusing an id across countries is exposed.
+
+Oxylabs produced NOTHING in the first phase-5 run: the baseline alternated across
+two rounds and the guard stopped the run rather than reading past it. It read at
+a slower cadence (`--pause 1.5`) on the re-run. A definition built from the first
+run would have been built on a baseline that was not stable.
+
+Oxylabs is on a subscription rather than pay-as-you-go traffic as of 2026-09-10,
+so a per-gigabyte comparison against the other two is shaped differently here and
+that has not been worked out.
+"""

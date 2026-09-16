@@ -1,0 +1,106 @@
+# Decodo, residential. Formerly Smartproxy.
+label = "Decodo"
+status = "measured"
+source = "probe_competitor_dialects.py phases 3/5/6/7, plus help.decodo.com/docs"
+source_read = "2026-09-10"
+
+# `user-<login>-country-us-state-us_texas-session-abc123`
+prefix = "user-{login}"
+separator = "-"
+pair_separator = "-"
+session_param = "sid"
+param_transport = "username"
+
+# Their current documentation gives this host as of 2026-09-10 and it is what
+# was probed. Older material, including anything found by searching, may still
+# say `gate.smartproxy.com`; the two have not been tested for equivalence.
+host = "gate.decodo.com"
+port = 7000
+
+# No exit-address header is documented and none was observed, so `exit_ip_header`
+# stays empty and an exit address costs a request to an echo service, unlike
+# NodeMaven which answers one on the CONNECT reply.
+
+# Decodo spells `country`, `state` and `city` the way this harness does, so only
+# the session id needs an alias.
+#
+# `state` is NOT aliased to `region` even though the name would match. Decodo
+# wants `us_texas`, NodeMaven wants `louisiana` and Bright Data wants `ny`.
+# `--param` is validated against every selected provider and its value is sent to
+# all of them unchanged, so a shared canonical `region` would send one spelling
+# to four gateways and three would answer 200 having applied nothing.
+#
+# Two documented names are ABSENT and both were sent:
+#
+#   asn              Indistinguishable from a name nobody implemented. This
+#                    gateway answers an unknown name with 200, so that is not
+#                    evidence it works.
+#   sessionduration  Same reading, and not aliasable to NodeMaven's `ttl` in any
+#                    case: `ttl` carries a unit (`10m`) where this is a bare
+#                    count of minutes. Worth knowing that Decodo's documented
+#                    ceiling is 1440 minutes against Oxylabs' 30, a 48x spread
+#                    on one canonical concept, before designing a sticky-session
+#                    arm that has to hold across all four providers.
+#
+# `session` is absent because it is reachable as `sid`; listing both spellings
+# would let one call carry two session ids and emit `session-a-session-b` with no
+# error anywhere.
+known_params = ["country", "state", "city", "zip", "continent", "sid"]
+
+aliases = { sid = "session" }
+
+notes = """
+Measured 2026-09-10 from a Windows workstation with no VPN, by
+`probe_competitor_dialects.py` in the sibling `lab/` tree. No throughput,
+latency or success rate is in any of it - this file describes a dialect.
+
+`status = "measured"` covers the six names above and nothing else. The loader's
+docstring defines `measured` as `rows in data/runs/ came through it` and by that
+wording this is premature: the traffic was probe CONNECTs. The word is used for
+what it tells a reader, and the scope is written out rather than left to it.
+
+THIS GATEWAY SILENTLY DROPS AN UNKNOWN NAME, measured. Client-side validation is
+the only check available and a name in the list above that does not belong there
+produces rows describing a setting that was never applied.
+
+WHAT EACH NAME IS MEASURED TO DO, and the levels differ:
+
+  country            APPLIED and observed, phase 3, on a fresh session id.
+  state              APPLIED and observed, phase 7: five rounds with a fresh
+                     session id each, `us_california` landed in California 5/5
+                     and `us_texas` in Texas 5/5, against a no-region control
+                     that spread over 5 distinct states of 5.
+  city, zip,         PARSED and their values VALIDATED: a junk value answers 400
+  continent          where a good one answers 200. That is a positive on a
+                     gateway that answers 200 to anything it does not know. No
+                     run has asked for any of the three and no exit was checked
+                     against one, so `applied` is not claimed for them.
+  sid                ACCEPTED, and measured to outrank a later parameter.
+
+`state` is the name whose reading changed, and the change is worth keeping.
+Phase 5 found it INDISTINGUISHABLE from an unknown name - `us_california` is the
+spelling off Decodo's own page and its junk value was not refused, so either the
+name was free-form or it was being dropped, and a value probe cannot separate
+those two. Phase 7 settled it by looking at where the exits landed instead of at
+the status code. A name that answers 200 to everything is invisible to the
+instrument that reads answers; it took an instrument that reads exits.
+
+FIRST REQUEST WINS, AND IT IS A PRODUCT DEFECT. Phase 6: `country=gb` on a fresh
+session id came out 86.8.107.164 GB AS5089; `country=us` on that SAME id came out
+86.8.107.164 GB AS5089 with a 200 and no error; `country=us` on a fresh id in the
+same window came out 172.56.126.140 US AS21928. So the country is honoured by the
+gateway and outranked by the session, not refused. NodeMaven does not do this.
+
+No string builder can defend against that: the request is correct and the answer
+is wrong. What it means for THIS harness was checked rather than assumed:
+`scripts/benchmark.py` mints a fresh `sid` per attempt in the same username as
+the country, so there is no earlier request on that id to outrank it.
+
+ON DIAGNOSTICS DECODO IS AHEAD OF US AND THE COMPARISON SHOULD NOT BE SOFTENED.
+A bad parameter value here answers 400, which is the correct code for a request
+the caller can fix and which points at the request. NodeMaven answers 406 for
+`region`, `city` and `isp` - defensible - and 407 for `filter`, `ttl`, `type` and
+`speed`, which sends a caller to check credentials that are correct. Several
+paragraphs of `nodemaven.toml` exist purely to talk a reader out of the diagnosis
+our own status code gives them.
+"""

@@ -459,3 +459,44 @@ class TestTheShippedDefinitions:
         assert (provider.prefix, provider.separator, provider.pair_separator) \
             == ("{login}", "-", "-")
         assert provider.aliases == {}
+
+
+class TestHowAGatewaySpellsAnUnpinnedCountry:
+    """`country_any` is the field the 2026-09-11 run did not have.
+
+    The harness's country axis carries a keyword meaning "do not pin one", and
+    the keyword is the literal string `any` because that is NodeMaven's own
+    wire value, promoted into the runner without anyone noticing it was one. It
+    went to all four gateways as written: 40 `ERR_TUNNEL_CONNECTION_FAILED`, 20
+    timeouts, the target reached zero times in six of sixteen cells, and three
+    providers reported at 0% against a question they were never asked.
+
+    So the two halves are pinned separately - that NodeMaven still says `any`,
+    and that the other three say nothing - because they fail differently. The
+    first going missing sends NodeMaven an empty country, which its own notes
+    say hangs the connection about 20 s. The second appearing sends a
+    competitor a country code that does not exist, which is the defect itself.
+    """
+
+    def test_nodemaven_spells_it_and_the_spelling_is_the_measured_one(self):
+        """Its 130 rows on disk were measured through `country-any`, and its
+        own notes say the default country with no `country` at all is not
+        stable - so omitting the parameter here is a different request and not
+        a tidier way of writing the same one."""
+        assert providers.load("nodemaven").country_any == "any"
+
+    @pytest.mark.parametrize("name", ["oxylabs", "decodo", "brightdata"])
+    def test_the_competitors_have_no_spelling_for_it(self, name):
+        """Nothing here measured one. Bright Data answers an unrecognised
+        country with 407 and Oxylabs and Decodo with 400, so a guess costs the
+        whole cell, and an empty string means the parameter is left out."""
+        assert providers.load(name).country_any == ""
+
+    def test_a_spelling_that_can_never_be_sent_is_refused(self, definitions):
+        """A definition naming a wire value for an axis it does not sell. The
+        value would be silently dropped at `params_for`, which is the failure
+        this whole field exists to stop, so it is refused at load instead."""
+        define(definitions, "confused", known_params=["sid"],
+               session_param="sid", country_any="any")
+        with pytest.raises(providers.ProviderError, match="never be sent"):
+            providers.load("confused")

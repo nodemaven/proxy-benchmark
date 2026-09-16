@@ -22,6 +22,25 @@ port = 8080
 # carried it and replies reading `OK` carried none, with no exception either way
 # over 17 tunnels, so there is more than one implementation behind the name and
 # a caller has to handle its absence rather than latch on the first miss.
+#
+# THERE ARE THREE PHRASES, NOT TWO, measured 2026-09-10 over 100 CONNECTs in one
+# 19-minute window, run `gateway_health_20260910T150151Z`: `OK` 52,
+# `Connection established` 44, and `Connection Established` 4 - a third spelling
+# differing from the second by one capital letter. Oxylabs, Decodo and Bright
+# Data each answered all 100 of their own attempts with exactly one string, so
+# this is ours and not what a CONNECT proxy normally does. It matters because
+# `connect_reactions` below keys a diagnosis on the phrase: three spellings of
+# one outcome means a client keying on it is keying on which node answered, and
+# a `==` against `Connection established` misses 4% of that arm outright.
+#
+# WHAT THE RUN COULD NOT CHECK, and the reason is a gap in our own rows. Whether
+# the phrase still predicts the header is unanswerable from
+# `data/runs/*.jsonl`, because a row records `exit_ip` and not where it came
+# from - `gateway.py` falls back to an echo request after `_HEADER_GIVE_UP`
+# misses, so 99 of 100 exits being named says nothing about how many arrived
+# free. The 17-tunnel correlation above therefore stands unre-tested rather than
+# confirmed, and re-testing it needs a field on the row saying which instrument
+# produced the address.
 exit_ip_header = "X-Proxy-Exit-IP"
 
 # Confirmed to be recognised. Anything outside this set is refused client-side,
@@ -43,6 +62,19 @@ exit_ip_header = "X-Proxy-Exit-IP"
 # matches, and was then verified two ways rather than assumed from it.
 known_params = ["country", "region", "city", "isp", "sid", "ttl", "filter",
                 "ipv4", "speed", "type"]
+
+# This gateway takes the literal string `any` as "do not pin a country", which
+# is why the harness's country axis has a keyword of that name at all - the
+# keyword was this vendor's wire value promoted into the runner without anyone
+# noticing it was one. Oxylabs, Decodo and Bright Data have no such spelling and
+# their definitions name none, so an unpinned cell sends them no country
+# parameter at all.
+#
+# Worth keeping rather than dropping in favour of simply omitting `country`
+# here too: the `notes` below record that with no `country` the default country
+# is not stable, so the two are different requests on this gateway and only one
+# of them is the one 130 rows on disk were measured through.
+country_any = "any"
 
 notes = """
 Measured 2026-08-10 by raw CONNECT probes. None of this is documented by the

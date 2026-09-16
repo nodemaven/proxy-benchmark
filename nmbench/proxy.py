@@ -9,12 +9,24 @@ of it, so nothing downstream has to know which provider it is talking to.
     <prefix><separator><name><pair_separator><value>...
     acct-country-us-sid-abc123-ttl-10m
 
-Client-side validation is not politeness, it is the only check available. The one
-gateway measured here answers an unrecognised parameter name with 200 and the
-setting silently dropped: the connection succeeds, the run completes, and every
-row claims a setting that was never applied. Nothing the gateway replies can tell
-you the name was wrong, so a name outside the provider's `known_params` is
-refused before a request exists.
+Client-side validation is not politeness, it is the only check available on most
+of these gateways. NodeMaven, Oxylabs and Decodo all answer an unrecognised
+parameter name with 200 and the setting silently dropped: the connection
+succeeds, the run completes, and every row claims a setting that was never
+applied. Nothing the reply can tell you says the name was wrong, so a name
+outside the provider's `known_params` is refused before a request exists.
+
+Bright Data is the exception, measured 2026-09-10: it answers an unknown name
+with 407, so acceptance there means something. That does not weaken the rule, it
+narrows what the rule is for - the check exists because three of the four cannot
+report the mistake, and it stays uniform because a validator that trusted one
+gateway's error handling would have to know which gateway it is talking to.
+
+This paragraph said "the one gateway measured here" until 2026-09-10, which was
+true when written and had stopped being true: three competitor definitions in
+`data/providers/` are now measured too. The sentence was accurate, dated by
+nothing, and read as a property of gateways in general rather than as a count of
+what had been probed at the time.
 """
 from urllib.parse import quote
 
@@ -32,9 +44,11 @@ def build_username(login: str, strict: bool = True, provider=None,
     for key, value in params.items():
         if strict and key not in provider.known_params:
             raise ParamError(
-                f"unknown parameter {key!r} for {provider.label}: the gateway "
-                f"ignores it silently, your settings will NOT be applied. "
-                f"Known: {sorted(provider.known_params)}"
+                f"unknown parameter {key!r} for {provider.label}: your settings "
+                f"will NOT be applied. Three of the four gateways measured here "
+                f"answer an unknown name with 200 and drop it, so sending this "
+                f"would produce rows describing a setting that never took "
+                f"effect. Known: {sorted(provider.known_params)}"
             )
         if value is None or value == "":
             raise ParamError(f"empty value for {key!r}: the gateway hangs on this")

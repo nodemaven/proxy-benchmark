@@ -1,0 +1,178 @@
+# Bright Data.
+#
+# THE ZONE BEHIND THIS DEFINITION IS ISP, NOT RESIDENTIAL, and that belongs in
+# the first line rather than in a footnote. An ISP pool is static addresses on
+# carrier ranges; a residential pool is peers. Against a residential arm from
+# anyone else, ISP will tend to look better on success rate and latency and
+# worse on pool size and on targets that block by ASN, and neither reading
+# compares the two companies - it compares two product classes. Any output that
+# puts this row in a column beside a residential one has to say ISP next to it.
+label = "Bright Data (ISP)"
+status = "measured"
+source = "probe_competitor_dialects.py phases 3/5/6/7, plus docs.brightdata.com"
+source_read = "2026-09-10"
+
+# `brd-customer-<customer_id>-zone-<zone_name>-country-us-session-abc123`
+#
+# Bright Data's identity is two fields, a customer id and a zone, and both live
+# in the username, so the whole `brd-customer-<id>-zone-<zone>` string is the
+# login as far as this schema is concerned. Nothing validates its shape, and a
+# typo in the zone name is the class of mistake this gateway reports as an auth
+# failure.
+prefix = "{login}"
+separator = "-"
+pair_separator = "-"
+session_param = "sid"
+param_transport = "username"
+
+# Read off the account dashboard 2026-09-10, where the zone's own copyable curl
+# line carries `--proxy brd.superproxy.io:44445`, and agreeing with the
+# documentation page. Two independent sources concurring.
+host = "brd.superproxy.io"
+port = 44445
+
+# No exit-address header is documented and none was observed, so `exit_ip_header`
+# is left empty: an exit address costs a request to an echo service here, where
+# NodeMaven answers one on the CONNECT reply itself. That is a difference in
+# instrument and not only in provider - see notes.
+
+# Every name here was SENT to this gateway and answered in a way an unimplemented
+# name cannot produce. That test is unusually strong on Bright Data and unusually
+# weak everywhere else in this directory: this gateway answers an unknown name
+# with 407, so acceptance means something, where NodeMaven, Oxylabs and Decodo
+# all answer 200 and drop it.
+#
+# Six documented names are deliberately ABSENT and the reason differs:
+#
+#   state, city, asn   Measured REFUSED on this zone, 407 with `Request
+#                      parameters 'country state' do not match zone permissions`.
+#                      They are in Bright Data's residential documentation and
+#                      this is an ISP zone. A name left in this list is a name
+#                      the runner may build a username from.
+#   zip                Unmeasured. Its probe arm carried `city` as a companion,
+#                      which is itself refused, so that 407 belongs to the
+#                      companion and says nothing about `zip`.
+#   ip, gip, c_tag     Transcribed from the documentation and never sent.
+#
+# `region` is not aliased to `state` and would not be even if `state` worked:
+# NodeMaven takes `california`, Oxylabs and Decodo take `us_california`, and
+# Bright Data takes the ISO 3166-2 code `ca`. One canonical name over four value
+# grammars sends three wrong values and draws no error from any of them.
+known_params = ["country", "sid", "dns", "os"]
+
+aliases = { sid = "session" }
+
+notes = """
+Measured 2026-09-10 from a Windows workstation with no VPN, by
+`probe_competitor_dialects.py` in the sibling `lab/` tree. Four phases, each
+with a control. No throughput, latency or success rate is in any of it by
+design - this file describes a dialect and nothing else.
+
+`status = "measured"` is claimed for the four names above and for nothing else
+in this file. Note that the loader's own docstring defines `measured` as `rows
+in data/runs/ came through it`, and by that wording this is premature: the
+traffic was probe CONNECTs, not benchmark rows. The word is used here for what
+it tells a reader - the dialect was confirmed against the gateway - and the
+scope is written out rather than left to the status.
+
+WHAT EACH NAME IS MEASURED TO DO, because the levels differ and collapsing them
+is how a definition starts overclaiming:
+
+  country   APPLIED and observed, and NOT 3/3 - see the correction below.
+            Phase 3, three countries rather than one so that `the name works`
+            is separated from `this pool is mostly US anyway`: `us`
+            185.97.2.209 AS213541, `gb` 158.46.158.132 AS209372, `de`
+            88.223.221.233 AS62387, 3/3 each.
+
+            CORRECTED 2026-09-10 at n=97, run
+            `gateway_health_20260910T150151Z`: `country-us` returned a non-US
+            exit 6 times in 97 identified, with a 200 and no error. Five on
+            82.117.85.0/24 placed in Stockholm, one on 46.20.96.0/24 placed in
+            Korinthos, both RIPE ranges - so this is not one geolocation
+            database being eccentric about an ARIN allocation. So the honest
+            figure is 91/97, not 3/3.
+
+            The 3/3 was not wrong, it was too small to see a 6% effect, and
+            that is the ordinary limit of a three-sample arm rather than a
+            mistake inside it. What the arm was built to separate, it did
+            separate - three countries landing in three places is still the
+            evidence that the name is honoured at all.
+
+            Bound on the correction: exit country comes from a single echo
+            service and what a TARGET sees depends on the database the target
+            uses. What is measured is that these addresses are
+            geolocation-ambiguous, not that every target reads them as
+            European.
+  sid       ACCEPTED, 200, where an unknown name draws 407. Not tested for
+            whether it holds one exit on this zone.
+  dns, os   PARSED and their values VALIDATED: a good value answers 200 `OK`
+            and a junk value answers 407 `Invalid Auth`. Nobody checked that an
+            exit actually had the operating system asked for, so `applied` is
+            not claimed.
+
+THE REASON PHRASE IS THE DISCRIMINATOR ON THIS GATEWAY and an integer-only
+reading loses the finding. `asn` answers 407 to a good value with `Request
+parameters 'country asn' do not match zone permissions` and 407 to a junk value
+with `Invalid Auth`. Same integer, different sentences, and the sentences order
+the gateway's own checks: junk is refused before the zone is consulted, which it
+can only be if the name was parsed and the value examined. So `asn` is parsed by
+this gateway and refused by this zone. `state` and `city` give the zone message
+on BOTH arms, so for those two the refusal happens before any value is read and
+nothing says whether the name is parsed at all.
+
+An earlier version of this note read `three names taken off Bright Data's own
+residential documentation are answered exactly as a name nobody implemented`.
+That is now wrong for `asn` and still right for `state` and `city`. It was
+written from the integer, which was the only thing the first run kept.
+
+THE HEADER'S ISP PREDICTION WAS MEASURED 2026-09-10 AND IT IS HALF WRONG, which
+is worth more here than the half that held. The header says an ISP pool "will
+tend to look better on success rate and latency and worse on pool size".
+100 interleaved attempts a provider, run `gateway_health_20260910T150151Z`, one
+host and one 19-minute window:
+
+  pool size    HELD, and by more than the header implies. 74 distinct /24 across
+               97 named exits, against 99 of 99 for NodeMaven, 97 of 97 for
+               Decodo and 93 of 94 for Oxylabs. 9 ASNs against 30 to 40, with
+               three of them carrying 82 of the 97. A pool that repeats a /24 is
+               a pool a target can learn.
+  success      FAILED, in the direction nobody predicted. This was the ONLY arm
+               to fail transport at all: 98/100, twice answering `406 Proxy
+               Error: server_error Error creating ext request: TUN_ERR: DNS
+               resolution failed(empty_address_list)`, and those two took a
+               median 4287.6 ms to fail against 195.4 ms to succeed.
+  latency      SPLIT, and reporting one number would have hidden it. The TCP
+               handshake was the fastest of the four by a factor of two to five
+               - median 10.9 ms against 19.2, 24.5 and 48.5 - and the tunnel
+               build had the worst tail of the four, p90 2120.6 ms against
+               501.1, 577.0 and 726.1. Fast to reach, slow to open.
+
+Read the handshake figure as distance and not as merit: all four arms were
+opened from one host on one line, so 10.9 ms says where the nearest PoP is.
+
+REGION IS NOT SELLABLE ON THIS ZONE. Phase 7, five rounds an arm with a fresh
+session id per round: the no-region control spread over 4 distinct states of 5,
+and both `state` arms failed 5/5 with the zone-permissions 407. The other three
+providers in this directory answered 5/5 in the state asked for. A shared region
+column would be empty for this row whatever else is decided about the
+ISP-versus-residential question above.
+
+THREE DOCUMENTED FLAGS CANNOT BE EXPRESSED HERE and are therefore absent:
+`-const`, `-direct` and `-route_err_block` are bare switches with no value, and
+`build_username` emits key-value pairs joined by `pair_separator`. Writing
+`const = "true"` would send `const-true`, a different string from the documented
+one. This is a real gap in the schema, found by trying to describe a second
+gateway with it, and it is written down rather than worked around.
+
+`city` would need a fold this schema cannot express even if the zone sold it.
+Bright Data documents city codes as lowercase with no spaces and gives
+`sanfrancisco`, a space REMOVED; Decodo and Oxylabs both want `new_york`. The
+harness has one fold rule, so it is right for two of the three and wrong for
+this one.
+
+NO `connect_reactions` EQUIVALENT IS INVENTED HERE. What has been seen is: 200
+`OK` for an accepted request, 407 `Invalid Auth` for a bad value or an unknown
+name, and 407 with the zone-permissions sentence for a name this zone does not
+sell. A 407 for a documented name and a 407 for an invented one are the same
+integer and are separated only by the phrase.
+"""

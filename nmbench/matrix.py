@@ -20,6 +20,48 @@ from pathlib import Path
 
 from . import providers
 
+# The value on the country axis that means "do not pin one". It is a keyword of
+# this harness and not a country code, so what reaches the wire is whatever the
+# provider's definition spells it as - `country_any` - or nothing at all for a
+# gateway that has no spelling for it.
+#
+# It was sent verbatim to every gateway until 2026-09-14, because the keyword
+# started life as NodeMaven's own wire value and nothing marked it as one. See
+# `providers.Provider.country_any` for what that cost on 2026-09-11.
+ANY = "any"
+
+
+def wire_country(country: str, provider=None, where: str = "this request") -> str:
+    """What goes on the wire for a country on the axis. `""` means send nothing.
+
+    **One home, deliberately.** The matrix is not the only thing that opens a
+    tunnel - `probes/gateway_health.py` is the instrument an operator reaches for
+    *first*, precisely when they doubt a gateway, and until 2026-09-14 it had no
+    idea `ANY` was a keyword. A probe that reproduces the bug it is being used to
+    check for is worse than no probe: the operator reads four dead gateways and
+    goes looking at the account.
+
+    This is the shape of defect `NodeMaven\\CLAUDE.md` records between the Python
+    and Rust SDKs - one rule, three implementations, a fix that lands in one of
+    them - so the rule is a function and the callers are callers.
+
+    Raising rather than defaulting when no provider is passed is the point of the
+    argument. A default of "send `any`" is exactly the 2026-09-11 behaviour, and
+    a default of "send nothing" would silently change what NodeMaven is asked
+    for; both are a wrong answer delivered quietly, which is the failure mode
+    this repository is built to refuse.
+    """
+    if country != ANY:
+        return country
+    if provider is None:
+        raise ValueError(
+            f"{where} asks for an unpinned country and no provider was passed, "
+            f"so there is no dialect to spell it in. {ANY!r} is a keyword of "
+            f"this harness and not a country code: sending it as written is "
+            f"what stopped six cells of the 2026-09-11 run before they reached "
+            f"the target")
+    return provider.country_any
+
 
 @dataclass(frozen=True)
 class Cell:
@@ -59,20 +101,33 @@ class Cell:
             parts.append(f"provider-{self.provider}")
         return "/".join(parts)
 
-    @property
-    def params(self) -> dict:
+    def params_for(self, provider=None) -> dict:
         """Gateway parameters for this cell, without the session id.
 
         An empty country is a gateway that sells none, and it is left out rather
         than sent empty: the one gateway measured here hangs for about 20 s on an
         empty value, and a gateway that does not know the name at all answers 200
         and drops it. Neither failure is visible in a row.
+
+        `ANY` is the other way of asking for nothing and it is not the same
+        thing: the cell key still records that the axis was varied, and one
+        gateway here has a wire value for it. It is translated through the
+        provider rather than sent as written, which is what this method exists
+        for and why it takes an argument where a property would not.
+
+        A provider that names no spelling gets no country parameter, so an
+        unpinned cell is one request on every gateway and a comparable one. The
+        cost is stated rather than hidden: on NodeMaven `country=any` and no
+        country are different requests - its own notes say the default country
+        is not stable - so the arms are only comparable as `unpinned`, which is
+        what the axis asked for.
         """
         if self.direct:
             return {}
-        if not self.country:
+        country = wire_country(self.country, provider, where=f"cell {self.key}")
+        if not country:
             return dict(self.extra)
-        return {"country": self.country, **dict(self.extra)}
+        return {"country": country, **dict(self.extra)}
 
 
 @dataclass

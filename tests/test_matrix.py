@@ -7,6 +7,7 @@ an interrupted run from re-sending queries the targets have already answered,
 which is the pool-heating pattern the circuit breaker exists to prevent.
 """
 import json
+from pathlib import Path
 
 import pytest
 
@@ -53,10 +54,11 @@ class TestCell:
 
     def test_params_carry_country_and_extras_but_no_sid(self):
         cell = cells(("camoufox",), extra={"filter": "medium"})[0]
-        assert cell.params == {"country": "us", "filter": "medium"}
+        assert cell.params_for(picked("mine")["mine"]) == {
+            "country": "us", "filter": "medium"}
 
     def test_direct_sends_no_gateway_parameters(self):
-        assert cells(("camoufox",), direct=True)[0].params == {}
+        assert cells(("camoufox",), direct=True)[0].params_for() == {}
 
     def test_cells_are_hashable_and_the_key_is_stable(self):
         first, second = cells(("camoufox",))[0], cells(("camoufox",))[0]
@@ -179,7 +181,7 @@ class TestProviderAxis:
     def test_a_direct_cell_sends_no_gateway_parameters_under_any_provider(self):
         built = cells(("chromium:direct",), chosen=picked("synth"),
                       extra={"filter": "medium"})
-        assert built[0].params == {}
+        assert built[0].params_for(picked("synth")["synth"]) == {}
 
     def test_the_provider_segment_comes_last(self):
         """So the segments already on disk keep their positions and a key can
@@ -225,13 +227,168 @@ class TestAGatewayThatSellsNoCountry:
         built = cells(("camoufox",), countries=["us"],
                       extra={"filter": "medium"},
                       chosen=picked("mine", sells=()))
-        assert built[0].params == {"filter": "medium"}
+        assert built[0].params_for(
+            picked("mine", sells=())["mine"]) == {"filter": "medium"}
 
     def test_a_country_gateway_in_the_same_matrix_keeps_its_axis(self):
         built = cells(("camoufox",), countries=["ru", "us"],
                       chosen={**picked("pool"), **picked("mine", sells=())})
         assert sorted(c.country for c in built) == ["", "ru", "us"]
         assert len({c.key for c in built}) == 3
+
+
+class TestAnUnpinnedCountryIsAKeywordAndNotACountryCode:
+    """`any` is this harness's word for "do not pin one" and every gateway
+    spells it differently, including three that have no spelling at all.
+
+    It is tested because the keyword started life as NodeMaven's own wire value
+    and reached the runner without anyone marking it as one, so `--countries
+    any` sent the literal string to four gateways. The 2026-09-11 run is the
+    cost: six of sixteen cells drew 40 `ERR_TUNNEL_CONNECTION_FAILED` and 20
+    timeouts, reached the target zero times, and three providers were published
+    at 0% against a question they were never asked.
+
+    A synthetic definition and not the shipped TOML, for the reason `picked`
+    gives: if `nodemaven.toml` stopped saying `any` these tests would quietly
+    become tests of something else and still pass. The shipped files are pinned
+    separately, in `test_providers.py`.
+    """
+
+    def unpinned(self, provider):
+        return cells(("camoufox",), countries=[matrix.ANY])[0].params_for(
+            provider)
+
+    def test_a_gateway_with_a_wire_value_for_it_is_sent_that_value(self):
+        spells_it = providers.Provider(id="pool", label="pool",
+                                       known_params=frozenset({"country"}),
+                                       country_any="whatever")
+        assert self.unpinned(spells_it) == {"country": "whatever"}
+
+    def test_a_gateway_with_no_spelling_is_sent_no_country_at_all(self):
+        """Not the keyword, and not an empty value either. Bright Data answers
+        a country it does not recognise with 407 and Oxylabs and Decodo with
+        400, so the tunnel never opens and the row carries an error about a
+        target that was never reached."""
+        assert self.unpinned(picked("pool")["pool"]) == {}
+
+    def test_the_axis_is_still_recorded_even_where_nothing_is_sent(self):
+        """Sending nothing is not the same as having no axis. A cell that asked
+        for an unpinned country and a gateway that sells no country produce the
+        same empty parameter set and must not produce the same key, or the two
+        are one line in the summary and one identity on `--resume`."""
+        built = cells(("camoufox",), countries=[matrix.ANY])[0]
+        assert built.country == matrix.ANY
+        assert built.key.endswith("/any")
+
+    def test_asking_for_it_with_no_provider_raises_instead_of_dropping_it(self):
+        """The failure this whole class is about is a setting that was not
+        applied and left no trace. A caller that reaches this method without a
+        dialect cannot be given a silent empty dict, because that is
+        indistinguishable from a gateway that sells no country."""
+        with pytest.raises(ValueError, match="keyword"):
+            cells(("camoufox",), countries=[matrix.ANY])[0].params_for()
+
+    def test_a_direct_cell_needs_no_provider_to_ask_for_nothing(self):
+        """There is no gateway on the direct arm, so there is no dialect to
+        want and the guard above must not fire."""
+        built = cells(("camoufox",), countries=[matrix.ANY], direct=True)
+        assert built[0].params_for() == {}
+
+
+class TestTheRuleHasOneHome:
+    """The translation is a function so that the matrix is not the only caller.
+
+    `probes/gateway_health.py` opens tunnels too, and it is the instrument an
+    operator reaches for *first* when a gateway looks wrong. Until 2026-09-14 it
+    had its own idea of what `--country any` meant - namely nothing, it passed
+    the string through - so pointing it at four gateways to check the fix would
+    have reproduced the bug and reported three dead providers.
+
+    That is the defect class `NodeMaven\\CLAUDE.md` logs between the Python and
+    Rust SDKs: one rule, several implementations, a correction that reaches one
+    of them. These tests are here so a change to the rule breaks every caller
+    that stopped using it.
+    """
+
+    def test_an_ordinary_country_passes_through_untouched(self):
+        assert matrix.wire_country("us", picked("pool")["pool"]) == "us"
+
+    def test_a_gateway_with_no_spelling_is_told_to_send_nothing(self):
+        assert matrix.wire_country(matrix.ANY, picked("pool")["pool"]) == ""
+
+    def test_a_gateway_with_a_spelling_is_told_to_send_it(self):
+        spells_it = providers.Provider(id="pool", label="pool",
+                                       known_params=frozenset({"country"}),
+                                       country_any="whatever")
+        assert matrix.wire_country(matrix.ANY, spells_it) == "whatever"
+
+    def test_no_provider_is_an_error_and_not_a_default(self):
+        """Either default is a wrong answer delivered quietly: passing the
+        keyword through is the 2026-09-11 behaviour, and dropping it changes
+        what the one gateway that spells it gets asked."""
+        with pytest.raises(ValueError, match="keyword"):
+            matrix.wire_country(matrix.ANY)
+
+    def test_the_caller_is_named_in_the_error(self):
+        """The probe and the matrix raise the same exception from different
+        places, and an operator reading it needs to know which one was asking."""
+        with pytest.raises(ValueError, match=r"--country any"):
+            matrix.wire_country(matrix.ANY, where="--country any")
+
+    def test_the_probe_translates_rather_than_passing_the_keyword_through(self):
+        """Pinned against the probe's own source, because the failure it guards
+        is not a wrong value - it is a caller that stopped calling. A behavioural
+        test would need a live gateway, and this repository's rule is that
+        nothing needing one runs from the workstation."""
+        source = (Path(__file__).resolve().parent.parent / "scripts" / "probes"
+                  / "gateway_health.py").read_text(encoding="utf-8")
+        assert "matrix.wire_country(" in source
+        assert '{"country": args.country' not in source
+
+
+class TestTheHostingHintDoesNotCryWolf:
+    """The exit-operator warning in `probes/gateway_health.py`.
+
+    It is a hint on a name and can never be a verdict - the ASN registration
+    would settle it and the probe has none. What it must not do is fire on a
+    consumer ISP, because the line's whole value is that somebody believes it.
+
+    On 2026-09-14 it fired for both Oxylabs and Decodo on a 20-attempt unpinned
+    arm. The cause was `colo` matching inside `Colombia`, and because the line
+    printed no names there was nothing in the output to catch it with.
+    """
+
+    def health(self):
+        import importlib.util
+        path = (Path(__file__).resolve().parent.parent / "scripts" / "probes"
+                / "gateway_health.py")
+        spec = importlib.util.spec_from_file_location("nmbench_health", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_names_that_produced_the_false_alarm_do_not_fire(self):
+        reads_as_hosting = self.health().reads_as_hosting
+        for org in ("AS10620 Telmex Colombia S.A.",
+                    "AS13489 UNE EPM TELECOMUNICACIONES S.A.",
+                    "AS12252 America Movil Peru S.A.C.",
+                    "AS7922 Comcast Cable Communications, LLC",
+                    "AS213541 WS Telecom Inc"):
+            assert not reads_as_hosting(org), org
+
+    def test_it_still_fires_on_the_names_it_is_for(self):
+        """The other half of the correction. Narrowing a filter until it matches
+        nothing is the same failure as widening it until it matches everything,
+        and only this arm can tell the two apart."""
+        reads_as_hosting = self.health().reads_as_hosting
+        for org in ("AS60068 Datacamp Limited",
+                    "AS16276 OVH SAS",
+                    "AS396356 Latitude.sh",
+                    "AS63949 Linode, LLC",
+                    "AS24940 Hetzner Online GmbH",
+                    "AS14061 DigitalOcean, LLC",
+                    "AS8100 QuadraNet Enterprises LLC data center"):
+            assert reads_as_hosting(org), org
 
 
 class TestEngineSpec:
@@ -267,7 +424,7 @@ class TestEngineSpec:
         built = matrix.build_cells(["chromium:direct"], ["bing_serp"],
                                    preset="light", countries=["us"],
                                    extra={"filter": "medium"})
-        assert built[0].params == {}
+        assert built[0].params_for() == {}
 
     def test_the_global_flag_still_wins(self):
         """--direct means nothing leaves through the gateway. A spec that

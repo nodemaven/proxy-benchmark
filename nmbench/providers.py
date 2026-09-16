@@ -86,6 +86,21 @@ class Provider:
     pair_separator: str = "-"
     known_params: frozenset = frozenset()
     aliases: dict = field(default_factory=dict)
+    # How this gateway spells "do not pin a country". `matrix.ANY` is a keyword
+    # on the harness's own country axis, not a country code, and the gateways
+    # disagree about whether such a thing can be asked for at all: NodeMaven
+    # takes the literal `any`, and the other three have no spelling for it - you
+    # leave the parameter out. Empty here means exactly that, and it is the
+    # default because it is the assumption that sends nothing.
+    #
+    # This field did not exist until 2026-09-14 and `any` went to every gateway
+    # as written. The run of 2026-09-11 is what it cost: six of sixteen cells
+    # asked four gateways for a country called `any`, drew 40
+    # `ERR_TUNNEL_CONNECTION_FAILED` and 20 timeouts between them, and reached
+    # Amazon zero times - so three providers were reported at 0% against a
+    # question they were never asked. The warning was already written down in
+    # `probes/probe_and_hold.py` and had not reached the matrix runner.
+    country_any: str = ""
     session_param: str = "sid"
     param_transport: str = "username"
     host: str = ""
@@ -176,6 +191,14 @@ def _build(name: str, raw: dict, path: Path) -> Provider:
         )
     if "known_params" in raw:
         raw["known_params"] = frozenset(raw["known_params"])
+    if raw.get("country_any") and "country" not in raw.get("known_params", ()):
+        raise ProviderError(
+            f"{path.name} spells an unpinned country as "
+            f"{raw['country_any']!r} and does not list 'country' in "
+            f"known_params, so that spelling can never be sent. A definition "
+            f"that sells no country has the axis collapsed for it and asks for "
+            f"nothing; leave country_any out"
+        )
     session = raw.get("session_param", "sid")
     known = raw.get("known_params")
     if known and session and session not in known:
