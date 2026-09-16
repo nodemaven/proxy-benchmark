@@ -224,6 +224,192 @@ class CircuitBreaker:
             self.reason = reason
 
 
+class SessionBreaker:
+    """The cell breaker for a runner whose unit of measurement is a session.
+
+    `CircuitBreaker` counts consecutive failed *attempts*, which is right for a
+    probe that draws a fresh exit per attempt and wrong for the matrix runner,
+    where one batch is one browser holding one sticky session on one exit. Ten
+    attempts down a dead exit is one observation repeated ten times, and the
+    2026-09-11 run is what that costs: `--batch 10 --breaker 10` made the limit
+    exactly one session, so a single bad exit stopped a cell permanently. Ten of
+    the sixteen cells died on their first session ever, and every one of the
+    sixteen ended on a session that scored 0/10 - which is not a coincidence,
+    it is the stopping rule printing itself.
+
+    The distortion is worse than a small sample, because the sample size is a
+    function of the result. A cell that draws good exits keeps running and
+    accumulates n; a cell that draws one bad exit stops at n=10. Every pass rate
+    in that file is therefore conditioned on the cell having survived, and the
+    ones that look worst are the ones with the least evidence behind them. Any
+    stopping rule has this property to some degree; counting sessions is what
+    makes the floor big enough that the number means something.
+
+    So a cell is stopped by a run of dead *sessions*. One session is one sticky
+    exit, measured - 24 of 24 sessions held exactly one exit prefix - so `limit`
+    is also the number of distinct exits that have to fail before the cell is
+    given up, and no single exit can end a cell at any setting above 1. What it
+    costs is worth stating rather than burying: a target that refuses
+    everything is now asked `limit * batch` times before the run concludes it,
+    where the old rule concluded after one session. That is the price of a
+    denominator, and it is paid against the target, so it is a pool-safety
+    setting and not a patience setting.
+
+    A session that never reached the target is counted separately and stops the
+    cell sooner, on `unreachable_limit`. Two reasons, and the second is the one
+    that matters. Retrying it cannot produce a verdict - there is no answer from
+    the target's application layer to read - so the attempts buy nothing. And
+    the stop reason has to survive into the output, because a cell that was
+    never answered is not a cell that scored zero: reporting it as 0% is what
+    the 2026-09-11 file did for three competitors' unpinned arms, which had
+    asked for a country that does not exist and reached Amazon not once.
+    """
+
+    def __init__(self, cell: str, limit: int = 3, unreachable_limit: int = 2,
+                 base_pause: float = 5.0, max_pause: float = 30.0):
+        self.cell = cell
+        self.limit = limit
+        self.unreachable_limit = unreachable_limit
+        self.base_pause = base_pause
+        self.max_pause = max_pause
+        self.sessions = 0
+        self.consecutive_dead = 0
+        self.consecutive_unreachable = 0
+        self.consecutive_abandoned = 0
+        self.alive_sessions = 0
+        # Sessions where at least one attempt reached the target's application
+        # layer, whatever it then answered. This is the denominator of every
+        # rate the cell can support, and `no_verdict` is it being zero.
+        self.arrived_sessions = 0
+        # What the session running right now has produced so far.
+        self.session_ok = 0
+        self.session_attempts = 0
+        self.session_arrived = 0
+        self.consecutive = 0
+        self.tripped = False
+        self.reason = None
+
+    def record(self, verdict: str, error=None) -> float:
+        """Feed one verdict in, get the seconds to wait before the next attempt.
+
+        Nothing here can trip the breaker. A cell is judged at the end of a
+        session, and this method's only other job is the backoff, which is per
+        attempt because that is the thing it paces.
+
+        `error` is the row's raw error string and decides whether the attempt
+        reached the target at all. It is taken rather than derived from the
+        verdict because `error` is one verdict covering both, and the whole
+        distinction this class adds is inside it.
+        """
+        self.session_attempts += 1
+        if verdict != "error" or not is_transport_failure(error):
+            self.session_arrived += 1
+        if verdict == "ok":
+            self.session_ok += 1
+            self.consecutive = 0
+            return self.base_pause
+
+        self.consecutive += 1
+        return min(self.base_pause * (2 ** (self.consecutive - 1)), self.max_pause)
+
+    def end_session(self) -> str:
+        """Close the current session, classify it, and stop the cell if it is
+        time. Returns the classification, which the caller writes to the row.
+
+        Three outcomes, and collapsing them is how a run starts reporting a
+        gateway that never answered as a target that refused us:
+
+          alive        at least one attempt was served
+          dead         the target answered and refused every attempt
+          unreachable  no attempt reached the target's application layer
+
+        A session with no attempts in it is `abandoned`: a browser that would
+        not launch or a session that died before its first query. It is not a
+        session of the run and is not counted as one - no exit was measured
+        through and the target was never asked - but a run of them still stops
+        the cell, because relaunching a browser that will not start costs a
+        minute a time and produces nothing to count.
+        """
+        attempts, ok, arrived = (self.session_attempts, self.session_ok,
+                                 self.session_arrived)
+        self.session_attempts = self.session_ok = self.session_arrived = 0
+        self.consecutive = 0
+        if not attempts:
+            self.consecutive_abandoned += 1
+            if self.consecutive_abandoned >= self.unreachable_limit:
+                self.trip(f"{self.consecutive_abandoned} sessions in a row that "
+                          f"sent nothing at all, so this is the launcher here "
+                          f"and not an answer from anywhere")
+            return "abandoned"
+        self.consecutive_abandoned = 0
+
+        self.sessions += 1
+        if ok:
+            self.alive_sessions += 1
+            self.arrived_sessions += 1
+            self.consecutive_dead = 0
+            self.consecutive_unreachable = 0
+            return "alive"
+
+        self.consecutive_dead += 1
+        if arrived:
+            self.arrived_sessions += 1
+            self.consecutive_unreachable = 0
+            outcome = "dead"
+        else:
+            self.consecutive_unreachable += 1
+            outcome = "unreachable"
+
+        if self.consecutive_unreachable >= self.unreachable_limit:
+            self.trip(
+                f"{self.consecutive_unreachable} sessions in a row where no "
+                f"attempt reached the target, so this cell has no verdict "
+                f"rather than a low one")
+        elif self.consecutive_dead >= self.limit:
+            self.trip(f"{self.consecutive_dead} sessions in a row, on "
+                      f"{self.consecutive_dead} different exits, with nothing "
+                      f"served, over {self.sessions} sessions")
+        return outcome
+
+    @property
+    def no_verdict(self) -> bool:
+        """Did this cell ever get an answer out of the target.
+
+        The flag an output needs before it prints a pass rate: a cell that was
+        stopped without one attempt ever arriving has no denominator, and `0%`
+        is a claim about the target that nothing here measured.
+
+        Read off the session counters rather than off `reason`, because a cell
+        can be stopped for one thing while being unmeasurable for another - a
+        gateway that refuses every tunnel and then an engine that stops
+        launching is tripped by the second and has no verdict because of the
+        first. A stop reason is an account of why the run ended; this is a
+        statement about what the rows can support.
+
+        The session in flight counts too. A run stopped by the transport
+        watchdog or by Ctrl-C never closes its last session, and the rows that
+        session wrote are on disk all the same.
+        """
+        return self.arrived_sessions == 0 and self.session_arrived == 0
+
+    def trip(self, reason: str) -> None:
+        """Stop the cell for a reason that is not a run of sessions.
+
+        An engine whose binary will not start, or a session that left from the
+        operator's own address instead of the pool, will do exactly the same on
+        the next batch. Without this the cell is retried once per remaining
+        batch - hundreds of browser launches that produce no measurement and,
+        in the second case, hundreds of requests to the target from an address
+        that was never supposed to reach it.
+
+        The first reason wins. What stopped a cell is the first thing that went
+        wrong with it, not the last.
+        """
+        if not self.tripped:
+            self.tripped = True
+            self.reason = reason
+
+
 class TransportWatch:
     """Stops the whole run once the errors stop being about the targets.
 

@@ -13,15 +13,29 @@ import pytest
 from nmbench.breaker import (
     TRANSPORT_MARKERS,
     CircuitBreaker,
+    SessionBreaker,
     TransportWatch,
     is_transport_failure,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# A real one, off a row. The classification these tests turn on is made by
+# substring match against this, so a made-up string would test nothing.
+TUNNEL = ("Error: Page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at "
+          "https://www.amazon.com/s?k=y")
+
 
 def feed(breaker, verdicts):
     return [breaker.record(v) for v in verdicts]
+
+
+def session(breaker, verdicts, error=None):
+    """One batch: n attempts and then the session closing, which is the only
+    moment a `SessionBreaker` judges anything."""
+    for verdict in verdicts:
+        breaker.record(verdict, error if verdict == "error" else None)
+    return breaker.end_session()
 
 
 class TestTripping:
@@ -178,20 +192,188 @@ class TestTransportWatch:
         assert watch.tripped is True
 
 
-class TestTheTwoDefaultsAreDeliberatelyDifferent:
-    """N is not one number across this repository, and the difference is load
-    bearing in both directions.
+class TestASessionIsTheUnitAndNotAnAttempt:
+    """What the matrix runner stops on, and why it is not what the probe stops
+    on.
 
-    The class default is 5 and the matrix runner passes 10. That reads as an
-    oversight, which is exactly the risk: somebody tidies the two into one
-    constant, nothing fails, and the meaning of every future row shifts.
+    One batch is one browser holding one sticky session, which is one exit -
+    measured, 24 of 24 sessions held exactly one exit prefix. So a run of
+    failures inside a batch is one exit failing repeatedly and says nothing
+    about the cell, and a cell can only be judged by how many *exits* it has
+    been refused through.
+    """
 
-    Both halves are measured. Read 2026-08-12 over every `benchmark_*.jsonl`,
-    129 cells and 1464 attempts, as the chance an attempt succeeds given the
-    failures immediately before it in its own cell: 5.8% at five consecutive
-    failures, 1.6% at six, 0.5% from seven to nine. So stopping at 5 records a
-    partial refusal as a total one, and going far past 10 buys almost nothing at
-    a price of one confirmed-automation retry each, on a shared production pool.
+    def test_one_dead_exit_cannot_end_a_cell(self):
+        """The 2026-09-11 defect exactly: `--batch 10 --breaker 10` made the
+        limit one session, so ten of sixteen cells were ended by the first
+        exit they drew and every cell in the file ended on a 0/10 session."""
+        breaker = SessionBreaker("cell", limit=3)
+        assert session(breaker, ["block"] * 10) == "dead"
+        assert breaker.tripped is False
+
+    def test_the_limit_counts_sessions(self):
+        breaker = SessionBreaker("cell", limit=3)
+        session(breaker, ["block"] * 10)
+        session(breaker, ["block"] * 10)
+        assert breaker.tripped is False
+        session(breaker, ["block"] * 10)
+        assert breaker.tripped is True
+        assert "3 sessions in a row" in breaker.reason
+
+    def test_one_served_attempt_keeps_the_session_alive(self):
+        """`alive` is one answer out of ten, not ten. A session that served
+        anything proves the exit reaches the target, which is the thing the
+        stopping rule is about."""
+        breaker = SessionBreaker("cell", limit=3)
+        assert session(breaker, ["block"] * 9 + ["ok"]) == "alive"
+        assert breaker.alive_sessions == 1
+
+    def test_an_alive_session_clears_the_streak(self):
+        breaker = SessionBreaker("cell", limit=2)
+        session(breaker, ["block"] * 5)
+        session(breaker, ["ok"])
+        session(breaker, ["block"] * 5)
+        assert breaker.tripped is False
+
+    def test_nothing_inside_a_session_can_stop_it_early(self):
+        """`record` returns a backoff and never trips. A batch that is cut
+        short would leave the cell holding a half-measured session, and the
+        exit it drew has been paid for either way."""
+        breaker = SessionBreaker("cell", limit=1)
+        for _ in range(50):
+            breaker.record("block")
+        assert breaker.tripped is False
+
+    def test_the_backoff_still_grows_within_a_session(self):
+        breaker = SessionBreaker("cell", base_pause=1.0, max_pause=8.0)
+        waits = [breaker.record("block") for _ in range(5)]
+        assert waits == [1.0, 2.0, 4.0, 8.0, 8.0]
+
+    def test_a_success_resets_the_backoff(self):
+        breaker = SessionBreaker("cell", base_pause=1.0)
+        breaker.record("block")
+        breaker.record("block")
+        assert breaker.record("ok") == 1.0
+        assert breaker.record("block") == 1.0
+
+
+class TestACellThatWasNeverAnsweredHasNoVerdict:
+    """The distinction that turns a published 0% back into an unmeasured cell.
+
+    On 2026-09-11 six cells asked four gateways for a country called `any`.
+    Three of the gateways refused the tunnel, so no attempt in those cells ever
+    reached Amazon - and the file reports them at 0%, which reads as a target
+    that refused every request. It is the difference between a measurement and
+    the absence of one, and it is carried by the error string on the attempt.
+    """
+
+    def test_a_session_where_nothing_arrived_is_not_dead_but_unreachable(self):
+        breaker = SessionBreaker("cell")
+        assert session(breaker, ["error"] * 10, error=TUNNEL) == "unreachable"
+
+    def test_a_target_that_refuses_everything_is_dead_and_not_unreachable(self):
+        """`block` is the harness working. A breaker that treated a refusal as
+        an absent measurement would delete the finding it exists to protect."""
+        breaker = SessionBreaker("cell")
+        assert session(breaker, ["block"] * 10) == "dead"
+        assert breaker.no_verdict is False
+
+    def test_an_error_that_could_be_the_target_still_counts_as_arrival(self):
+        """A timeout is a finding about the target - stalling a client is a
+        thing targets do - so it must not leave the denominator."""
+        breaker = SessionBreaker("cell")
+        assert session(breaker, ["error"] * 10,
+                       error="TimeoutError: Page.goto: Timeout 60000ms "
+                             "exceeded. Call log:") == "dead"
+        assert breaker.no_verdict is False
+
+    def test_an_unreachable_cell_stops_sooner_than_a_refused_one(self):
+        """Retrying an attempt that never reached the target cannot produce a
+        verdict, so the attempts buy nothing. Two sessions and not three."""
+        breaker = SessionBreaker("cell", limit=3, unreachable_limit=2)
+        session(breaker, ["error"] * 10, error=TUNNEL)
+        assert breaker.tripped is False
+        session(breaker, ["error"] * 10, error=TUNNEL)
+        assert breaker.tripped is True
+        assert "reached the target" in breaker.reason
+        assert breaker.no_verdict is True
+
+    def test_one_arrival_anywhere_in_the_cell_gives_it_a_denominator(self):
+        """`no_verdict` is about the cell and not about its last session. A
+        cell that was answered once and then lost its tunnel has a rate, badly
+        measured; a cell that was never answered has none at all."""
+        breaker = SessionBreaker("cell")
+        session(breaker, ["block"] * 10)
+        session(breaker, ["error"] * 10, error=TUNNEL)
+        session(breaker, ["error"] * 10, error=TUNNEL)
+        assert breaker.tripped is True
+        assert breaker.no_verdict is False
+
+    def test_the_session_in_flight_counts_towards_it(self):
+        """A run stopped by the transport watchdog or by Ctrl-C never closes
+        its last session, and the rows that session wrote are on disk."""
+        breaker = SessionBreaker("cell")
+        breaker.record("block")
+        assert breaker.no_verdict is False
+
+
+class TestABatchThatSentNothing:
+    """A browser that would not launch is not a session of the run.
+
+    It measured no exit and asked the target nothing, so counting it as a dead
+    session would charge our own launcher to the target's refusal rate. The old
+    runner did exactly that, by recording a synthetic `error` attempt - which
+    also counted as having reached the target.
+    """
+
+    def test_it_is_not_counted_as_a_session(self):
+        breaker = SessionBreaker("cell")
+        assert breaker.end_session() == "abandoned"
+        assert breaker.sessions == 0
+
+    def test_a_run_of_them_still_stops_the_cell(self):
+        """Relaunching a browser that will not start costs a minute a time and
+        produces nothing to count."""
+        breaker = SessionBreaker("cell", unreachable_limit=2)
+        breaker.end_session()
+        assert breaker.tripped is False
+        breaker.end_session()
+        assert breaker.tripped is True
+        assert "sent nothing at all" in breaker.reason
+
+    def test_a_session_that_ran_clears_the_streak(self):
+        breaker = SessionBreaker("cell", unreachable_limit=2)
+        breaker.end_session()
+        session(breaker, ["block"])
+        breaker.end_session()
+        assert breaker.tripped is False
+
+
+class TestTheTwoBreakersAreDeliberatelyDifferent:
+    """N is not one number across this repository, and it is not even one unit.
+
+    `google_429.py` draws a fresh exit per attempt, so its unit is the attempt
+    and `CircuitBreaker` counts attempts. The matrix runner puts one browser on
+    one sticky exit for a whole batch, so its unit is the session and it uses
+    `SessionBreaker`. That reads as duplication, which is exactly the risk:
+    somebody tidies the two into one class, nothing fails, and the meaning of
+    every future row shifts.
+
+    The attempt figure is measured. Read 2026-08-12 over every
+    `benchmark_*.jsonl`, 129 cells and 1464 attempts, as the chance an attempt
+    succeeds given the failures immediately before it in its own cell: 5.8% at
+    five consecutive failures, 1.6% at six, 0.5% from seven to nine.
+
+    **That table is what made the old runner default wrong, and it is worth
+    saying how, because the number was not misread - it was applied to the
+    wrong thing.** It says a sixth consecutive failure is nearly always
+    followed by more, which is true of consecutive *attempts* down one exit.
+    The runner then used it as a cell-stopping rule, where `--batch 10
+    --breaker 10` makes the limit exactly one session: on 2026-09-11 ten of
+    sixteen cells were ended by their first exit, and all sixteen ended on a
+    session that scored 0/10 - the stopping rule printing itself. A statistic
+    about when to stop retrying one exit is not a statistic about when to stop
+    measuring a cell.
 
     Read off the source rather than by running a matrix, because what is being
     pinned is a default nobody passes.
@@ -212,18 +394,25 @@ class TestTheTwoDefaultsAreDeliberatelyDifferent:
             "that default cannot move has gone with it. Either restore the "
             "call or move the constant and say so here")
 
-    def test_the_matrix_runner_asks_for_more(self):
-        """A benchmark is measuring the shape of a refusal, so it has to see
-        enough of one. The runner is the only place that decides this, and it
-        decides it in an argparse default."""
+    def test_the_matrix_runner_counts_sessions(self):
+        """The unit, not the size, is what this pins. An attempt-counting
+        breaker in the matrix runner is the 2026-09-11 defect however its
+        limit is set, because ten attempts down one dead exit is one
+        observation repeated ten times."""
         source = self.RUNNER.read_text(encoding="utf-8")
-        assert '"--breaker", type=int, default=10' in source
+        assert "SessionBreaker(c.key, limit=args.breaker" in source
+        assert "CircuitBreaker" not in source, (
+            "the matrix runner is counting attempts again. Its batch is one "
+            "browser on one sticky exit, so a run of failed attempts inside "
+            "one is a single exit and not evidence about the cell")
 
-    def test_the_runner_never_falls_back_to_the_class_default(self):
-        """The split only holds while the runner passes its own number. A
-        `CircuitBreaker(c.key)` here would take 5 and nothing would say so."""
+    def test_the_runner_default_is_a_number_of_sessions(self):
+        """A benchmark is measuring the shape of a refusal, so it has to see
+        enough of one - which now means enough exits, not enough retries. The
+        runner is the only place that decides this and it decides it in an
+        argparse default."""
         source = self.RUNNER.read_text(encoding="utf-8")
-        assert "CircuitBreaker(c.key, limit=args.breaker" in source
+        assert '"--breaker", type=int, default=3' in source
 
 
 class TestTellingATransportFailureFromARefusal:

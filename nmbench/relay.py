@@ -72,7 +72,7 @@ import select
 import socket
 import threading
 
-from . import config, providers, proxy
+from . import config, providers, proxy, tlsfp
 
 # Long enough that a slow residential exit is not cut off mid-page, short enough
 # that a hung tunnel does not hold a worker for the length of a run. The gateway
@@ -133,6 +133,34 @@ MAX_HEAD_BYTES = 65536
 # uncontrolled variable was which browsers talk to their vendor mid-measurement.
 # It cannot touch a verdict - no target is behind it - and `blocked` is counted
 # so a session that met it says so. Pass `block_hosts=()` to price it again.
+#
+# **"The five Playwright engines never make this request" is false, and the
+# counter in the sentence after it is what caught it.** The first relayed
+# Playwright run - patchright, 11 sessions on 2026-09-05 evening, the first time
+# any Playwright engine here had a relay pointed at it - refused **350 requests
+# over 22 attempts**: 304 on the Shopee front page at 22-43 per single page
+# load, 46 on the search page. So the request is made, and often.
+#
+# What the mistake looked like from the inside: the claim was read off a real
+# measurement and quoted correctly. Every byte figure above was taken 60 s
+# parked on `about:blank` with nothing navigated, and patchright's row in that
+# table is 0.00 MB because Playwright's default `--disable-features` already
+# carries `OptimizationHints`. Two different things were then collapsed into
+# one - that the flag suppresses the *idle* download, which holds, and that the
+# engine never contacts the host at all, which the idle arm cannot show,
+# because an idle browser has no page to fetch hints for. The same failure this
+# tree already records against the `OptimizationHints` crash question, where 12
+# clean starts on Google Chrome were offered against a report about unbranded
+# Chromium: a negative result is only evidence if the arm matches the claim's
+# conditions.
+#
+# The conclusion the sentence was drawing survives and is now load-bearing
+# rather than decorative. Refusing the host is still what makes the engines
+# comparable - it just turns out to be doing real work on the Playwright side
+# too, instead of being a no-op kept for symmetry. What is not known is the
+# price: `blocked` counts refused requests and not the bytes they would have
+# carried, and nothing here has run the paired `block_hosts=()` arm that would
+# say. Do not quote a byte figure for this until that arm exists.
 VENDOR_FETCH = ("optimizationguide-pa.googleapis.com",)
 
 
@@ -186,6 +214,19 @@ class Relay:
         # address is a fact about the run, and storing the last one would hide
         # it.
         self.exits = []
+        # The distinct TLS fingerprints this session's client sent, in the order
+        # first seen, and the readable strings they were hashed from. Populated
+        # by `_pump`; see `nmbench.tlsfp` for why this is read here rather than
+        # asked of an echo service.
+        #
+        # A session-level fact and not a per-attempt one, which is why it is not
+        # differenced by `since()` the way the counters are: a browser's
+        # handshake is a property of the binary and its flags, so the value is
+        # the same for every attempt in the session and the honest thing to put
+        # on each row is that value rather than "whatever was renegotiated
+        # during this attempt", which for a keep-alive tunnel is nothing.
+        self.ja4 = []
+        self.ja4_r = []
         self._server = None
         self._thread = None
 
@@ -234,7 +275,8 @@ class Relay:
             return {"bytes_up": self.up, "bytes_down": self.down,
                     "bytes": self.up + self.down, "tunnels": self.tunnels,
                     "tunnel_failures": self.failures, "blocked": self.blocked,
-                    "exits": list(self.exits)}
+                    "exits": list(self.exits),
+                    "ja4": list(self.ja4), "ja4_r": list(self.ja4_r)}
 
     def since(self, before: dict) -> dict:
         """The difference against an earlier snapshot, for one attempt.
@@ -255,7 +297,16 @@ class Relay:
                 # written before this counter existed is still a valid earlier
                 # reading of everything else in it.
                 "blocked": now["blocked"] - before.get("blocked", 0),
-                "exits": now["exits"][len(seen):]}
+                "exits": now["exits"][len(seen):],
+                # Passed through whole rather than differenced, unlike every
+                # other key here. A handshake is a property of the binary and
+                # its flags, not of the attempt: it is identical for every
+                # attempt in the session, and a browser on keep-alive sends one
+                # for the first attempt and none for the next forty. Differenced
+                # it would be present on one row of a page and absent on the
+                # rest, which reads as an engine that stopped having a TLS
+                # fingerprint.
+                "ja4": now["ja4"], "ja4_r": now["ja4_r"]}
 
     # -- the relay itself --------------------------------------------------
 
@@ -374,7 +425,12 @@ class Relay:
         except OSError:
             _close(upstream)
             return
-        self._pump(client, upstream)
+        # The first thing the client writes into an established tunnel is its
+        # ClientHello, so this is the one place in the harness where an engine's
+        # TLS fingerprint can be read during the run that is being recorded.
+        # Only here and not in `_forward`: that path is plain HTTP and has no
+        # handshake to read.
+        self._pump(client, upstream, watch_hello=True)
 
     def _forward(self, client: socket.socket, head: str) -> None:
         """Plain HTTP through the upstream proxy, absolute-URI form.
@@ -414,7 +470,26 @@ class Relay:
             self.up += up
             self.down += down
 
-    def _pump(self, client: socket.socket, upstream: socket.socket) -> None:
+    def _record_hello(self, record: bytes) -> None:
+        """Fingerprint one ClientHello, at most once per distinct value.
+
+        Distinct rather than every tunnel: a page opens many, and a browser's
+        JA4 does not change between them, so storing one per tunnel would be
+        thousands of copies of one string. Keeping the distinct ones in order
+        does record the case that matters - an engine whose handshake changed
+        part way through a session is a fact about the run, and a single value
+        would hide it exactly as storing only the last exit would.
+        """
+        value, readable = tlsfp.ja4(record)
+        if not value:
+            return
+        with self._lock:
+            if value not in self.ja4:
+                self.ja4.append(value)
+                self.ja4_r.append(readable)
+
+    def _pump(self, client: socket.socket, upstream: socket.socket,
+              *, watch_hello: bool = False) -> None:
         """Copy both ways until either end closes, counting every byte.
 
         Counted per chunk rather than totalled and posted when the tunnel ends.
@@ -427,9 +502,18 @@ class Relay:
         `bytes_up: 0, bytes_down: 0` for exactly that reason.
 
         One lock acquisition per 64 KB is not worth avoiding.
+
+        `watch_hello` buys the TLS fingerprint for the cost of buffering the
+        first record. The order below is deliberate: the byte is forwarded and
+        counted first, and the handshake is looked at afterwards, so a bug in
+        the parser can cost the fingerprint and never a tunnel. `tlsfp.ja4`
+        returns `None` rather than raising for the same reason. The buffer is
+        released as soon as one record is complete, and abandoned at
+        `MAX_HELLO_BYTES` for a peer that never finishes one.
         """
         client.settimeout(None)
         upstream.settimeout(None)
+        hello = b"" if watch_hello else None
         try:
             while True:
                 readable, _, broken = select.select(
@@ -443,6 +527,20 @@ class Relay:
                     if source is client:
                         upstream.sendall(data)
                         self._count(up=len(data))
+                        if hello is not None:
+                            hello += data
+                            if tlsfp.hello_is_complete(hello):
+                                self._record_hello(hello)
+                                hello = None
+                            elif (hello[0] != 0x16
+                                  or len(hello) > tlsfp.MAX_HELLO_BYTES):
+                                # Either this is not a handshake at all, in
+                                # which case there is nothing to wait for - a
+                                # relayed CONNECT to a plaintext port is legal
+                                # and reaches here - or the peer is sending a
+                                # record it never finishes. `hello` is non-empty
+                                # here because `data` was.
+                                hello = None
                     else:
                         client.sendall(data)
                         self._count(down=len(data))

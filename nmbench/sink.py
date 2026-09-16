@@ -5,6 +5,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import host
+
 RUNS_DIR = Path(__file__).resolve().parent.parent / "data" / "runs"
 
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -66,6 +68,26 @@ class JsonlSink:
         row = dict(row)
         row.setdefault("run_id", self.run_id)
         row.setdefault("ts", datetime.now(UTC).isoformat())
+        # Which machine produced the row, for the same reason the masking is
+        # here: counted 2026-09-02, there are 37 `sink.write` call sites in this
+        # repository and 23 of them build the dict inline rather than passing a
+        # row from `blank_row`. Every bookkeeping row - `cell_stopped`,
+        # `session_failed` - and every probe file, including the two that read
+        # fingerprints, is one of those. Filling this per call site would leave
+        # the thirty-eighth, and the whole value of the column is that no run
+        # lacks it.
+        #
+        # `setdefault` is not enough. `blank_row` builds from
+        # `dict.fromkeys(ROW_FIELDS)`, so the keys are present and None, and
+        # `setdefault` would leave them that way. Absent and None both mean "not
+        # recorded" here, and an explicit value from the caller is left alone -
+        # a probe replaying somebody else's rows has to be able to say whose
+        # they were.
+        for key, value in host.facts().items():
+            if row.get(key) is None:
+                row[key] = value
+        # After the host is filled, so an operator who put an address in
+        # `NMBENCH_HOST` gets it masked like anything else.
         row = {k: _mask(v) if isinstance(v, str) and k not in _KEEP_VERBATIM
                else v
                for k, v in row.items()}

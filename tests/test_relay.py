@@ -18,9 +18,14 @@ Nothing here opens a socket. `_open_upstream` is replaced with a call that
 fails the test if it is reached, which is also the assertion that the refusal
 happens before any upstream connection exists rather than after one.
 """
+import socket
+import ssl
+import threading
+import time
+
 import pytest
 
-from nmbench import providers, relay
+from nmbench import providers, relay, tlsfp
 
 
 class FakeClient:
@@ -180,7 +185,7 @@ class TestTheExitHeaderIsTheProvidersOwn:
 
         hop = relay.Relay(provider=vendor)
         hop._open_upstream = lambda: FakeUpstream(reply)
-        hop._pump = lambda client, upstream: None
+        hop._pump = lambda client, upstream, **kwargs: None
         hop._tunnel(FakeClient(), "www.example.com:443", "")
         return hop
 
@@ -204,6 +209,140 @@ class TestTheExitHeaderIsTheProvidersOwn:
                         b"X-Proxy-Exit-IP: 1.2.3.4\r\n\r\n")
         assert hop.snapshot()["exits"] == []
         assert hop.snapshot()["tunnels"] == 1
+
+
+class TestTheHandshakeIsReadWithoutDisturbingTheTunnel:
+    """The TLS fingerprint, end to end through a real relay on loopback.
+
+    Every other test in this file replaces `_pump`, which is the one method the
+    fingerprint is read in, so none of them touches it. This class runs the real
+    byte-copy loop with a real TLS client on one side and a fake gateway on the
+    other. Nothing leaves the machine: the gateway is a socket in this process
+    and it answers the CONNECT and then nothing, so the handshake fails a moment
+    after the ClientHello - which is all that is being read.
+
+    The failure this exists to catch is not a wrong fingerprint. It is a relay
+    that stops forwarding bytes correctly because it is now also inspecting
+    them, which would be a defect in every relayed run rather than in a column.
+    """
+
+    def gateway(self):
+        """A listener that answers one CONNECT with 200 and then absorbs.
+
+        Returns `(address, received)` where `received` is a list the tunnel's
+        payload is appended to, so a test can assert the client's bytes arrived
+        unaltered as well as that they were fingerprinted.
+        """
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        received = []
+
+        def serve():
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                return
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    conn.close()
+                    return
+                head += chunk
+            conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+            while True:
+                try:
+                    chunk = conn.recv(4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                received.append(chunk)
+            conn.close()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        host, port = listener.getsockname()
+        return (host, port), received
+
+    def run_one(self, fake_credentials, monkeypatch, target):
+        (host, port), received = self.gateway()
+        hop = relay.Relay()
+        monkeypatch.setattr(hop, "upstream_host", host)
+        monkeypatch.setattr(hop, "upstream_port", port)
+        with hop:
+            listen_host, listen_port = hop.address.rsplit(":", 1)
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            raw = socket.create_connection((listen_host, int(listen_port)),
+                                           timeout=10)
+            raw.sendall(f"CONNECT {target}:443 HTTP/1.1\r\n"
+                        f"Host: {target}:443\r\n\r\n".encode())
+            reply = b""
+            while b"\r\n\r\n" not in reply:
+                chunk = raw.recv(4096)
+                if not chunk:
+                    break
+                reply += chunk
+            assert reply.startswith(b"HTTP/1.1 200"), reply[:80]
+            try:
+                context.wrap_socket(raw, server_hostname=target)
+            except Exception:
+                pass
+            # The relay copies on its own thread, so the bytes are in flight
+            # when `wrap_socket` gives up. Wait for them rather than sleeping a
+            # fixed amount: this is the assertion that they arrive at all.
+            deadline = time.time() + 10
+            while not received and time.time() < deadline:
+                time.sleep(0.01)
+        return hop, received
+
+    def test_the_fingerprint_is_recorded(self, fake_credentials, monkeypatch):
+        hop, _ = self.run_one(fake_credentials, monkeypatch, "localhost")
+        assert hop.snapshot()["ja4"], (
+            "a complete ClientHello went through the relay and no fingerprint "
+            "was recorded, so every relayed row would carry a null tls_ja4")
+        assert hop.snapshot()["ja4"][0].startswith("t13d")
+
+    def test_the_bytes_reach_the_gateway_unaltered(self, fake_credentials,
+                                                    monkeypatch):
+        """The inspection must be a copy, not a consumption.
+
+        A parser that read from the socket, or that forwarded the buffer it had
+        accumulated rather than the chunk it received, would give a fingerprint
+        and a broken tunnel. That failure would show up as an engine that stopped
+        working, attributed to the engine.
+        """
+        hop, received = self.run_one(fake_credentials, monkeypatch, "localhost")
+        forwarded = b"".join(received)
+        assert forwarded, "the tunnel forwarded nothing"
+        assert forwarded[0] == 0x16
+        assert hop.snapshot()["bytes_up"] == len(forwarded)
+        # The record the gateway got is the record that was fingerprinted.
+        assert tlsfp.ja4(forwarded)[0] == hop.snapshot()["ja4"][0]
+
+    def test_the_readable_form_is_kept_beside_the_digest(self, fake_credentials,
+                                                          monkeypatch):
+        hop, _ = self.run_one(fake_credentials, monkeypatch, "localhost")
+        snapshot = hop.snapshot()
+        assert len(snapshot["ja4"]) == len(snapshot["ja4_r"])
+        assert snapshot["ja4_r"][0].startswith(snapshot["ja4"][0][:10])
+
+    def test_since_does_not_difference_it_away(self, fake_credentials,
+                                                monkeypatch):
+        """A snapshot taken after the handshake still reports it.
+
+        Every other key in `since` is a difference, and a fingerprint treated
+        the same way would appear on the first attempt of a session and vanish
+        for the rest, because a browser on keep-alive sends one ClientHello and
+        then forty requests.
+        """
+        hop, _ = self.run_one(fake_credentials, monkeypatch, "localhost")
+        after = hop.snapshot()
+        assert hop.since(after)["ja4"] == after["ja4"]
+        assert hop.since(after)["bytes"] == 0
 
 
 class TestHostParsing:
