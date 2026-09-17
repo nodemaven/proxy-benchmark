@@ -18,18 +18,13 @@
 # need and this file lacks turns the next push red, which is loud, immediate and
 # free - the one failure mode that does not need a test.
 
+# The runtime packages, included rather than repeated. Until 2026-09-17 this
+# file listed them itself and the quickstart installed this file to get them,
+# which meant a reader making one measurement also installed a linter. The gate
+# is the runtime plus two tools; saying that in one line is what stops the two
+# lists drifting apart. `requirements-core.txt` carries the reasoning for each
+# of the three, including why brotli is there when nothing imports it.
+-r requirements-core.txt
+
 pytest
 ruff
-
-# Imported at module level by the package, so the suite cannot collect without
-# them: `config.py` reads .env through dotenv, `gateway.py` and `engines/http.py`
-# import requests.
-requests
-python-dotenv
-
-# Not imported by the suite, verified. It is here because it is a correctness
-# dependency of the verdict path rather than a convenience: browsers advertise
-# brotli, so the harness does too, and without the package requests hands back
-# undecoded bytes and a content-based verdict reads a good page as a block. A test
-# that comes to pin that must not go red for the want of a 400 KB wheel.
-brotli

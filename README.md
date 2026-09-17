@@ -12,6 +12,11 @@
 **Find out what is blocking your requests - the proxy, the browser, the host, or
 the target itself.**
 
+Built and maintained by [NodeMaven](https://github.com/nodemaven), who sell
+proxies. Every number here is generated from the run files in `data/runs/`,
+which are committed, so a reader can recompute any of them rather than take
+them.
+
 <!-- No CI badge here, deliberately. shields.io reads the workflow anonymously and
      this repository is internal, so the badge rendered a red
      "gate: repo or workflow not found" - measured 2026-08-25 by fetching the badge
@@ -95,6 +100,27 @@ This asks the question with a control instead:
 The output that matters is not "this request passed". It is: this variable
 changed, these did not, and the outcome moved with it.
 
+Three of the answers that came back, each with its denominator and its run file:
+
+- **The unmodified browser finished in the leading group on Amazon.** Stock
+  Chromium 96% (419/436) against 63% (288/457) for the lowest anti-detect
+  engine, over 3530 judged attempts. Six engines sit within four points at the
+  top, no test separates them, and the control is one of the six.
+  [Full table](RESULTS.md#amazon_search-in-the-130-hour-run)
+- **The same code, gateway and target scored 39% on one machine and 0% on
+  another.** 24/61 from a Windows workstation against 0/84 from a Linux VPS in
+  overlapping hours, Fisher p = 3.7e-11. The client machine is a variable a
+  proxy comparison usually holds fixed without saying so.
+  [The split](RESULTS.md#the-host-separated-from-the-date)
+- **Chrome spends 43 MB per fresh profile talking to Google before you ask it
+  for anything.** 43.2 MB of a 43.4 MB idle window, on a browser parked on
+  `about:blank`. On a metered residential exit that is billed traffic for a file
+  no target ever sees.
+  [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
+
+[The rest of them](#research-findings), including the five that replaced an
+earlier conclusion of ours.
+
 ## Contents
 
 | | Sections |
@@ -114,13 +140,13 @@ heading that had been deleted.
 
 ## Quickstart
 
-A real measurement, no proxy account, no browser download. Measured 2026-08-27 on
-a fresh clone: 22 s to install, 31 s to run.
+A real measurement, no proxy account, no browser download. Three packages, and
+31 s to run on a fresh clone measured 2026-08-27.
 
     git clone https://github.com/nodemaven/proxy-benchmark && cd proxy-benchmark
     python -m venv .venv
     .venv\Scripts\Activate.ps1                 # macOS, Linux: . .venv/bin/activate
-    pip install -r requirements-ci.txt
+    pip install -r requirements-core.txt
     python scripts/benchmark.py --engines http --targets ddg_serp \
         --queries 5 --direct --preset none
 
@@ -130,9 +156,9 @@ per attempt and a summary:
     engine              target        exit                n   pass  verdicts
     http-direct         ddg_serp      direct              5   100%  {'ok': 5}
 
-The first run is deliberately the bare HTTP client with no proxy. There is
-nothing to install and nothing to spend, and it establishes that the harness
-works before a second variable is introduced.
+The first run is deliberately the bare HTTP client with no proxy. There is no
+browser to download, no proxy account to configure, and nothing to spend, and it
+establishes that the harness works before a second variable is introduced.
 
 Every attempt is also a JSONL row under `data/runs/`, which is the only thing
 this repository treats as evidence.
@@ -180,8 +206,8 @@ they answer different questions. Pick by what you are asking:
 | Route | Covers | Costs | What the value is |
 |---|---|---|---|
 | `tls_ja4` column | the 3 engines that need the relay | nothing, it comes with the matrix | the handshake on the connection that produced *this row's verdict* |
-| `tls-clienthello` | 9 of 10 engines, not `obscura` | nothing: a listener on this machine, no live host, no traffic | what the engine's handshake *is*, off the run |
-| `tls-echo` | all 10, `obscura` included | a live host, one request per engine | the same, plus what only a server that answers can derive |
+| `tls-clienthello` | 10 of the 11 engines, not `obscura` | nothing: a listener on this machine, no live host, no traffic | what the engine's handshake *is*, off the run |
+| `tls-echo` | all 11, `obscura` included | a live host, one request per engine | the same, plus what only a server that answers can derive |
 
 Only the first is per-attempt; the other two are per-engine and are the ones to
 re-run after a browser upgrade. `tls-echo` is the only route to `obscura`, which
@@ -361,7 +387,7 @@ found an Akamai interstitial and an AWS WAF challenge filed as refusals, and mov
 
 <!-- RESULTS:BEGIN -->
 
-Best and worst engine per target, from the 10432 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+What the current evidence supports, engine by engine and target by target, from the 10432 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
 
 | target | best | worst | rows |
 |---|---|---|---|
@@ -474,9 +500,6 @@ section each line links to along with the date it stopped being true.
   `data/runs/probehold_20260831T222129Z.jsonl`,
   `data/runs/probehold_20260901T210934Z.jsonl`,
   `data/runs/probehold_20260904T000605Z.jsonl`
-
-Nothing here is a NodeMaven sales number. Where the pool loses, the run file
-saying so is in `data/runs/` with everything else.
 
 **Five of these eleven replaced an earlier claim of ours, and both versions are
 still in the notebook** - Amazon, the warm-up, the Google levels, the idle

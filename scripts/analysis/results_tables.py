@@ -852,7 +852,8 @@ def readme_block(flagship, rest, span):
     """
     print(MARK_BEGIN)
     print()
-    print(f"Best and worst engine per target, from the "
+    print(f"What the current evidence supports, engine by engine and target by "
+          f"target, from the "
           f"{len(flagship) + len(rest)} attempt rows in "
           f"`data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged "
           f"attempts - harness and path failures are counted separately and "

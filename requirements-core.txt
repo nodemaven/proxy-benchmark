@@ -1,0 +1,25 @@
+# What the harness needs to run, and nothing else.
+#
+# Three packages, no browser and no test tooling. This is what the quickstart
+# installs, because the quickstart's first run is the bare HTTP client with no
+# proxy: it needs the runner to import and nothing more.
+#
+# Split out of `requirements-ci.txt` on 2026-09-17. That file is the offline
+# gate and carries `pytest` and `ruff`, which a reader who only wants to make a
+# measurement has no use for - and a quickstart that installs a linter invites
+# the reasonable question of what else it is doing. The gate now includes this
+# file rather than repeating it, so the two cannot drift.
+#
+# `requirements.txt` is a fourth thing and is not this: it adds camoufox, which
+# downloads a browser. `requirements-dev.txt` adds the other five frameworks.
+
+# Imported at module level by the package: `config.py` reads .env through
+# dotenv, `gateway.py` and `engines/http.py` import requests.
+requests
+python-dotenv
+
+# Not imported anywhere, and load-bearing anyway. Browsers advertise brotli, so
+# the harness does too, and without the package requests hands back undecoded
+# bytes and a content-based verdict reads a good page as a block - see
+# `engines.supported_encodings`.
+brotli
