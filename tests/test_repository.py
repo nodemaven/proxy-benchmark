@@ -657,6 +657,14 @@ def test_every_published_row_came_through_a_published_gateway():
     Rows written before the `provider` field existed carry no claim about a
     gateway and are skipped rather than assumed: 4290 of them on 2026-08-27,
     against 9074 that name one.
+
+    An empty string is skipped for the same reason as a missing one, and the
+    distinction is worth stating because it looks like a loosening and is not.
+    An offender is a gateway that is *named* and has no definition on disk; ""
+    names nothing. A direct row carries it legitimately, and so does every
+    bookkeeping row written before `Cell.provider_id` existed - this test is
+    what found those, on `benchmark_20260915T070057Z`, where 28 `session_closed`
+    rows said "" while the attempts in the same cells said `nodemaven`.
     """
     from nmbench import providers
 
@@ -676,7 +684,7 @@ def test_every_published_row_came_through_a_published_gateway():
             if not isinstance(row, dict):
                 continue
             name = row.get("provider")
-            if name is None:
+            if not name:
                 continue
             named += 1
             if name not in shipped:

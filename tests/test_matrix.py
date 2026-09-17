@@ -192,6 +192,31 @@ class TestProviderAxis:
         assert built[0].key == ("benchmark/bing_serp/camoufox-light/us/"
                                "filter-medium/headful/geo-align/provider-synth")
 
+    def test_the_default_cell_still_names_its_gateway_for_a_row(self):
+        """The key omits the default and a row must not.
+
+        These are two different jobs sharing one field, and they were sharing it
+        silently: `provider` is a resume identity, empty for the default so the
+        keys of every earlier run stay valid, and it was also being written into
+        the bookkeeping rows as the gateway's name. On
+        `benchmark_20260915T070057Z` that put `provider: ""` on 28
+        `session_closed` rows whose own attempt rows said `nodemaven`.
+        """
+        built = cells(("camoufox",), chosen=picked(providers.default_name()))
+        assert built[0].provider == ""
+        assert built[0].provider_id == providers.default_name()
+
+    def test_a_named_gateway_reads_the_same_either_way(self):
+        built = cells(("camoufox",), chosen=picked("synth"))
+        assert built[0].provider == "synth" == built[0].provider_id
+
+    def test_a_direct_cell_names_no_gateway(self):
+        """There is no gateway to name, and the `direct` column already says so.
+        Resolving to the default here would attribute this machine's own line to
+        a provider."""
+        built = cells(("chromium:direct",), chosen=picked("synth"))
+        assert built[0].provider_id == ""
+
 
 class TestAGatewayThatSellsNoCountry:
     """A proxy somebody already owns is one endpoint with one exit behind it,

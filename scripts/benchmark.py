@@ -934,6 +934,7 @@ def main() -> int:
                                   f"than sending the rest of this cell's "
                                   f"queries from the operator's own line.")
                             sink.write({"cell": cell.key, "target": cell.target,
+                                        "provider": cell.provider_id,
                                         "verdict": "cell_stopped",
                                         "verdict_reason": reason})
                             continue
@@ -1092,7 +1093,14 @@ def main() -> int:
                         # this column too. Same name has to mean the same thing
                         # or the two row kinds cannot be read together, and
                         # reading them together is the point of the column.
-                        "provider": cell.provider,
+                        #
+                        # `provider_id` and not `provider`: the field is a key
+                        # segment and is empty for the default gateway, so
+                        # writing it here made this row disagree with the
+                        # attempt rows of its own cell. Measured on
+                        # `benchmark_20260915T070057Z`, where 28 of these say ""
+                        # and the attempts beside them say `nodemaven`.
+                        "provider": cell.provider_id,
                         "verdict": "session_closed",
                         "verdict_reason": outcome,
                         "exit_prefix": identity.get("exit_prefix"),
@@ -1108,6 +1116,7 @@ def main() -> int:
             if breaker.tripped:
                 print(f"  {cell.key}: stopped, {breaker.reason}")
                 sink.write({"cell": cell.key, "target": cell.target,
+                            "provider": cell.provider_id,
                             "verdict": "cell_stopped",
                             "verdict_reason": breaker.reason})
     except TransportLost:

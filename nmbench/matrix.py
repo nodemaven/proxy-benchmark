@@ -101,6 +101,32 @@ class Cell:
             parts.append(f"provider-{self.provider}")
         return "/".join(parts)
 
+    @property
+    def provider_id(self) -> str:
+        """Which gateway this cell went through, resolved rather than as stored.
+
+        `provider` is a key segment and is empty for the default, so it is the
+        wrong thing to write into a row. The comment above says the provider id
+        is written to every row either way; that was true of the attempt rows,
+        which take the name from the definition they were handed, and false of
+        the bookkeeping rows, which took it from here.
+
+        Measured 2026-09-15 on `benchmark_20260915T070057Z`: 28 `session_closed`
+        rows carry `provider: ""` while the 30 attempt rows in the same cell
+        carry `nodemaven`, so the two row kinds disagree about the gateway
+        inside one cell. That is the exact failure the write site's own comment
+        warns against - the same name has to mean the same thing or the two
+        cannot be read together, and reading them together is the point of the
+        session section. An empty string also reads as a gateway that is not in
+        `data/providers/`, so the publishability gate is what found it.
+
+        Empty for a direct cell, where there is no gateway to name and the
+        `direct` column already says so.
+        """
+        if self.direct:
+            return ""
+        return self.provider or providers.default_name()
+
     def params_for(self, provider=None) -> dict:
         """Gateway parameters for this cell, without the session id.
 
