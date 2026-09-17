@@ -147,7 +147,8 @@ def attempt(index: int, params: dict, timeout: int, registry, provider,
 HOSTING_WORDS = ("datacamp", "hosting", "data center", "datacenter", "vps",
                  "digitalocean", "ovh", "linode", "hetzner", "colo", "colocation",
                  "latitude.sh")
-HOSTING = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(w) for w in HOSTING_WORDS))
+_HOSTING_ALTERNATION = "|".join(re.escape(w) for w in HOSTING_WORDS)
+HOSTING = re.compile(rf"\b(?:{_HOSTING_ALTERNATION})\b")
 
 
 def reads_as_hosting(org: str) -> bool:

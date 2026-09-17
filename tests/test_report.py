@@ -30,6 +30,7 @@ that was caught in review:
 """
 import importlib.util
 from pathlib import Path
+from typing import ClassVar
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location(
@@ -182,8 +183,8 @@ class TestWhichGatewayAnsweredTheRow:
     """
     # Two, because a single country is not named either and a fixture holding
     # one would have hidden the country half of every expectation below.
-    COUNTRIES = {"us", "any"}
-    TWO = {"nodemaven", "oxylabs"}
+    COUNTRIES: ClassVar[set[str]] = {"us", "any"}
+    TWO: ClassVar[set[str]] = {"nodemaven", "oxylabs"}
 
     def row(self, provider, **extra):
         return dict({"engine": "chromium/none", "provider": provider,
@@ -247,9 +248,9 @@ class TestTheSessionSection:
         assert "never answered by their target" not in capsys.readouterr().out
 
     def test_the_exit_yield_counts_sessions_that_served_something(self, capsys):
-        rows = ([self.closed("c1", "alive", "203.0.113", 0)]
-                + [self.closed("c1", "dead", "198.51.100", 1)]
-                + [self.closed("c1", "unreachable", "192.0.2", 2)])
+        rows = [self.closed("c1", "alive", "203.0.113", 0),
+                self.closed("c1", "dead", "198.51.100", 1),
+                self.closed("c1", "unreachable", "192.0.2", 2)]
         report.sessions(rows)
         assert "1 of 3 sessions served at least one page (33%)" \
             in capsys.readouterr().out
@@ -272,6 +273,6 @@ class TestTheSessionSection:
                 self.closed("c1", "dead", "203.0.113", 1),
                 self.closed("c1", "dead", "198.51.100", 2)]
         report.sessions(rows)
-        line = [ln for ln in capsys.readouterr().out.splitlines()
-                if ln.strip().startswith("c1")][0]
+        line = next(ln for ln in capsys.readouterr().out.splitlines()
+                    if ln.strip().startswith("c1"))
         assert line.split() == ["c1", "0", "3", "0", "0", "2"]
