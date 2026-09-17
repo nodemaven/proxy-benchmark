@@ -2,9 +2,10 @@
 
 <!-- The mark is byte-identical to the one on the org profile (md5
      2fbcc1624ea51bacf95ca6e9c5c7c686, checked 2026-08-25) so the two pages read as
-     one set. Relative rather than absolute, so it survives a fork and renders
-     before this repository is public; this README is not shipped to a package
-     index, so nothing here needs an absolute URL. -->
+     one set. Relative rather than absolute, so it survives a fork; this README
+     is not shipped to a package index, so nothing here needs an absolute URL.
+     It also rendered while the repository was still internal, which is what the
+     relative form bought at the time and is no longer the reason to keep it. -->
 <a href="https://github.com/nodemaven"><img src="assets/nodemaven-mark.svg" alt="NodeMaven" height="56"></a>
 
 # proxy-benchmark
@@ -17,23 +18,22 @@ proxies. Every number here is generated from the run files in `data/runs/`,
 which are committed, so a reader can recompute any of them rather than take
 them.
 
-<!-- No CI badge here, deliberately. shields.io reads the workflow anonymously and
-     this repository is internal, so the badge rendered a red
-     "gate: repo or workflow not found" - measured 2026-08-25 by fetching the badge
-     URL itself, not inferred. An earlier note here predicted "gate inaccessible";
-     the real string is the harsher one, and it reads as a broken repository rather
-     than a private one.
-     Nothing is wrong with the workflow: it is named `gate`, active at
-     .github/workflows/ci.yml, and its last three runs on `main` were green. A badge
-     simply cannot say that to a client that cannot see the repository.
-     Restore it the day the repository goes public, not before:
-     [![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
+<!-- The gate badge was held back from 2026-08-25 to 2026-09-17, because
+     shields.io reads the workflow anonymously and this repository was internal:
+     it rendered a red "gate: repo or workflow not found", measured by fetching
+     the badge URL rather than inferred. That reads as a broken repository and
+     not as a private one, which is why it was removed rather than left.
+     Restored 2026-09-17 by the same check, and the answer is now
+     "gate: passing". The note is kept because the trigger is not the workflow
+     being green - it was green the whole time - but the repository being
+     readable to a client that has no account.
      The row count below is generated, not carried forward. `make docs` derives it
      from `data/runs/*.jsonl` and a test fails when the badge and the files
      disagree, so it cannot go stale unnoticed again. It had twice: 3,701 from the
      first commit until 2026-08-25, then 12,173 until 2026-08-27, by which point
      the files held 13,364. Do not edit the number by hand. -->
 
+[![gate](https://img.shields.io/github/actions/workflow/status/nodemaven/proxy-benchmark/ci.yml?style=flat-square&label=gate)](https://github.com/nodemaven/proxy-benchmark/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 <!-- Links to the workflow, not to pyproject.toml, because pyproject.toml declares no
      `requires-python` at all - the only thing backing "3.11 | 3.13" is the CI matrix
