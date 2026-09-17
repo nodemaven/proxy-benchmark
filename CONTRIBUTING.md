@@ -30,7 +30,7 @@ credentials, no browser - so it runs on a laptop with no account and it runs in
 CI. An autouse fixture strips the gateway variables from the environment, so a
 test that tried to open a connection fails rather than spends traffic.
 
-    pip install -r requirements-ci.txt      # what the gate needs, 5 packages
+    pip install -r requirements-ci.txt      # what the gate needs, 6 packages
     pip install -r requirements-dev.txt     # plus the six browser frameworks
 
 The gate needs none of the frameworks: every engine imports its own inside a

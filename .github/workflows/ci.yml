@@ -56,7 +56,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements-ci.txt
+          # Both files, because requirements-ci.txt is now an `-r` include of
+          # requirements-core.txt: keyed on the includer alone, a change to the
+          # three runtime packages would be served a cache built without it.
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements-core.txt
 
       # requirements-ci.txt and not requirements-dev.txt: the dev list installs
       # six browser frameworks the suite never imports, which would make the gate

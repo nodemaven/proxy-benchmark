@@ -21,10 +21,27 @@
 # The runtime packages, included rather than repeated. Until 2026-09-17 this
 # file listed them itself and the quickstart installed this file to get them,
 # which meant a reader making one measurement also installed a linter. The gate
-# is the runtime plus two tools; saying that in one line is what stops the two
-# lists drifting apart. `requirements-core.txt` carries the reasoning for each
-# of the three, including why brotli is there when nothing imports it.
+# is the runtime plus the three tools below; saying that in one line is what
+# stops the two lists drifting apart. `requirements-core.txt` carries the
+# reasoning for each of the three, including why brotli is there when nothing
+# imports it.
 -r requirements-core.txt
 
 pytest
 ruff
+
+# `tls-clienthello` decides whether a hello came from the engine or from this
+# process by reading its own socket table, and `_is_our_own_socket` imports
+# psutil lazily and returns None when it is absent. That degradation is on
+# purpose and stays - a probe that stopped working because an undeclared
+# dependency went away would be the worse trade. What it must not do is
+# degrade in the gate, because ownership is the only thing separating the two
+# clients, and a suite that never runs it is not testing the thing the module
+# is for.
+#
+# Added 2026-09-17, after the two ownership tests failed on all four CI jobs
+# with `assert None is True`. They had never run there: the probe and its
+# tests arrived in `8c650f0` and sat ten commits deep on an unpushed `main`.
+# Not in `requirements-core.txt`, because nothing in a quickstart run reaches
+# this path.
+psutil
