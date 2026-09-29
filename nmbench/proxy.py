@@ -89,7 +89,47 @@ def parse_params(items, flag: str = "--param", provider=None) -> dict:
     if params:
         # The login is irrelevant to what is being checked and is never sent.
         build_username("check", provider=provider, **params)
+        for key, value in params.items():
+            check_value(key, value, provider=provider, flag=flag)
     return params
+
+
+def check_value(key: str, value: str, provider=None, flag: str = "--param"):
+    """Refuse a value a definition says the gateway does not take.
+
+    The name check above is the older half and it only ever asked whether the
+    gateway knows the NAME. A known name with a value it does not recognise is
+    the same failure one level down and it is worse, because the name check
+    passing reads as the setting having been validated: NodeMaven answers a bad
+    `filter` with 407, which sends the operator to check credentials that are
+    fine, and answers an unrecognised `speed` with 200 and the setting dropped,
+    which cannot be seen in the rows at all.
+
+    Only `enum` is enforced, and that is the point of the kind being a field
+    rather than something inferred from the list being short. A `text`
+    parameter's values are examples with evidence attached, not a whitelist -
+    `ttl` takes `1m`, `45m` and `3h` and nobody will enumerate them, so refusing
+    what is not listed would refuse the legal values this harness has not
+    happened to send yet.
+
+    This lives beside `parse_params` rather than inside `build_username` on
+    purpose. The builder is used with `strict=False` by the health probe
+    specifically so it can send names the gateway may not know, which is how the
+    unknown-name behaviour was measured in the first place; a value check in
+    there would refuse the probe that the vocabulary came from.
+    """
+    provider = provider or providers.load()
+    spec = provider.tunable(key)
+    if spec is None or spec.kind != "enum":
+        return
+    if any(v.value == value for v in spec.values):
+        return
+    legal = ", ".join(f"{v.value} ({v.status})" for v in spec.values)
+    raise ParamError(
+        f"{flag} {key}={value!r} is not a value {provider.label} is known to "
+        f"take. It would be answered 407 on this gateway, which reads as a "
+        f"credential problem, or 200 with the setting dropped, which reads as "
+        f"success. Known: {legal}")
 
 
 def session_params(session_id: str, provider=None, **params) -> dict:

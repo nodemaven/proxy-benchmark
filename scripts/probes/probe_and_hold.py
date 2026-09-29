@@ -68,7 +68,7 @@ from nmbench.console import tolerate_unencodable_output
 # and the wrapper has no reconfigure of its own.
 tolerate_unencodable_output()
 
-from nmbench import config, engines, gateway, providers, proxy, warm
+from nmbench import config, engines, gateway, ladder, providers, proxy, warm
 from nmbench import queries as querylist
 from nmbench.artifacts import ArtifactStore
 from nmbench.breaker import CircuitBreaker, TransportWatch, is_transport_failure
@@ -76,61 +76,38 @@ from nmbench.humanize import fine_timer
 from nmbench.relay import Relay
 from nmbench.sink import JsonlSink
 from nmbench.stats import band
+from nmbench.stop import EXIT_STOPPED, StoppedByOperator, StopWatch, dispose
 from nmbench.targets import TARGETS
 
 SENDS_REQUESTS = True
 
-# What each rung of the warm-up ladder asks, in words and without a domain in
-# them. The URLs live on the targets - a probe that knew a domain would be a
-# probe that could warm one target better than another - but the *question* is
-# the experiment's and belongs here, next to the flag that selects it. A target
-# that declares a level is promising it built a list answering this description.
-LADDER = {
-    "L0": "cold. The exit meets the target for the first time at the probe, "
-          "which is how every row taken before 2026-08-26 was measured",
-    "L1": "one page of the target's own, before the probe",
-    "L2": "several of the target's own surfaces, on more than one host",
-    "L3": "L2, preceded by third-party pages that report the exit to the "
-          "target's infrastructure without a navigation to the target itself",
-    "N1": "L1's depth with none of L1's pages: one third-party page instead of "
-          "one of the target's own, so the two differ in whose page it was and "
-          "in nothing else",
-    "N3": "L3's depth with none of L3's target-owned pages: the same six "
-          "visits, four of them swapped for third-party pages that carry the "
-          "same check. N1's design at the depth where the ladder actually "
-          "separates",
-}
-
-# Rungs that are a control on composition rather than a step in depth, each
-# mapped to the rung it controls. They sit outside the L-chain's cumulativeness
-# - a control that were a superset of the rung it controls would be that rung
-# plus something, which is the confound it exists to remove - so anything
-# reasoning about the chain has to skip them.
-#
-# Named here and not inferred from the leading letter. A convention carried in
-# a string is exactly the kind of thing that survives until someone adds `N2`
-# meaning something else, and the cost of getting it wrong is an invariant that
-# quietly stops being checked.
-#
-# It is a mapping and not a set as of 2026-09-01, when N3 was added. The depth
-# invariant - a control matches the delivered depth of what it controls - lived
-# as `N1` and `L1` written into `tests/test_probe_and_hold.py`, so N3 would have
-# been added with that check silently applying to nothing. Which rung a control
-# answers is a property of the control, so it is declared with it.
-NEUTRAL_RUNGS = {"N1": "L1", "N3": "L3"}
-
-# Spellings accepted by --warm, mapped to the level they mean. `off` and `on`
-# are kept because they are what the rows already on disk were run with, and
-# they mean exactly L0 and L1 - the same two treatments under new names.
-WARM_LEVELS = {"off": "L0", "on": "L1"}
-WARM_LEVELS.update({level: level for level in LADDER})
-WARM_LEVELS.update({level.lower(): level for level in LADDER})
+# The rung vocabulary lives in `nmbench/ladder.py` as of 2026-09-23 and is
+# re-exported here, where it was defined from 2026-08-26. It moved when the
+# dashboard began offering the ladder as a thing you can launch: four modules
+# now need these spellings and none of them can import a script. It spent an
+# hour in `nmbench/warm.py` on the way, which is the module the constants are
+# *about*; that home would have cost `runqueue.py` its no-third-party-imports
+# test, because `warm` reaches `dotenv` through `.engines.base`. Read the note
+# beside the definition for the rest.
+LADDER = ladder.LADDER
+NEUTRAL_RUNGS = ladder.NEUTRAL_RUNGS
+WARM_LEVELS = ladder.WARM_LEVELS
 
 # The label that reaches every row's `identity` string. L0 and L1 keep the
 # spellings the 2026-08-26 runs carry: an arm that renamed its key would stop
 # grouping with the rows it is most worth being compared against, and the
 # rename would be doing that for cosmetic consistency alone.
 LEVEL_KEYS = {"L0": "off", "L1": "on"}
+
+# The verdicts that mean the target answered. Anything outside it failed below
+# the application layer and carries no judgement, so it is not in a denominator.
+#
+# A constant because this was written out twice as a literal tuple, and on
+# 2026-09-28 `throttle` was split out of `block` and both copies had to change
+# together. Two copies of a denominator is one copy too many: had only one been
+# updated, the two tables this file prints would have disagreed about the same
+# rows and neither would have looked wrong.
+JUDGED = ("ok", "captcha", "block", "throttle", "empty")
 
 
 class TransportLost(RuntimeError):
@@ -433,6 +410,21 @@ def parse_args():
                              "delays. Set it to make a run repeatable; left "
                              "unset the run records nothing that would let a "
                              "target key on the timing")
+    parser.add_argument("--stop-file", default=None, metavar="PATH",
+                        dest="stop_file",
+                        help="a path to watch. When it appears the run closes "
+                             "the session it is in, writes a run_stopped row "
+                             "and leaves. The file may carry "
+                             "{\"keep\": \"discard\"}, which deletes this run's "
+                             "rows and bodies on the way out; anything else "
+                             "files them under data/runs/stopped/, where no "
+                             "chart reads them. Worth more here than on the "
+                             "matrix runner: this probe is the longest thing "
+                             "the repository launches - `scripts/run_ladder.py` "
+                             "plans nine to thirteen hours at its default power "
+                             "- so the alternative to asking it to stop is "
+                             "killing a browser mid-session and paying the "
+                             "gateway for an identity that produced no row")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan, send nothing")
     parser.add_argument("--no-bodies", action="store_true")
@@ -1166,12 +1158,32 @@ def run_identity(active, page, counter, cell, target, queries, *, rng, args,
                 if error is None and cell.kinds is not None:
                     acted = warm.run(page, target, url, rng=rng, hand=hand,
                                      kinds=cell.kinds)
-                # A bookkeeping row: no `query`, so every analysis in this
-                # repository treats it as not an attempt and it can never reach
-                # a pass rate. It is written anyway because a warm arm whose
+                # A bookkeeping row. It is written because a warm arm whose
                 # warming silently failed would read as the warm-up not
                 # working, and because warming costs traffic that belongs in
                 # the price of the protocol.
+                #
+                # This said until 2026-09-22 that the row has no `query`, "so
+                # every analysis in this repository treats it as not an attempt
+                # and it can never reach a pass rate". The first half is a fact
+                # about this row and the second was a claim about code
+                # elsewhere, written from how the readers of the day happened
+                # to work. `scripts/analysis/dashboard.py` arrived later and
+                # selects attempts by the absence of a bookkeeping marker
+                # rather than by the presence of a query - a deliberate choice,
+                # because the query rule drops 672 real rows from the gateway,
+                # surfaces, param, dsl, sid and rtt probes. So every warm row
+                # did reach a pass rate there, and `report.tally` counts each
+                # one as judged and never as ok: 3792 of them on disk on
+                # 2026-09-22, moving the pooled probe-and-hold rate from 65% to
+                # 26%. Fixed in `attempts_of`, which now excludes this verdict.
+                #
+                # What the mistake looked like from the inside: the comment was
+                # true when written and it is phrased as a property of the row,
+                # which is the form that does not invite re-reading. A row can
+                # only carry facts about itself. "Every analysis treats it as
+                # X" is a statement about every analysis, and it goes stale the
+                # next time somebody writes one.
                 #
                 # That last clause was true of the comment and false of the
                 # row until 2026-09-01. The row carried `elapsed_ms` and no
@@ -1451,7 +1463,7 @@ def by_country(rows: list, attempts: list) -> None:
     """
     known = [r for r in attempts
              if r["phase"] == "probe" and r.get("exit_country")
-             and r["verdict"] in ("ok", "captcha", "block", "empty")]
+             and r["verdict"] in JUDGED]
     if not known:
         return
     print("\nWHERE THE EXITS WERE")
@@ -1506,7 +1518,7 @@ def summarise(rows: list) -> None:
         cell_rows = by_cell[key]
         probes = [r for r in cell_rows if r["phase"] == "probe"]
         judged = [r for r in probes
-                  if r["verdict"] in ("ok", "captcha", "block", "empty")]
+                  if r["verdict"] in JUDGED]
         good = sum(1 for r in judged if r["verdict"] == "ok")
         held = [r for r in cell_rows if r["phase"] == "hold"]
         held_ok = sum(1 for r in held if r["verdict"] == "ok")
@@ -1703,8 +1715,12 @@ def main() -> int:
                                       base_pause=args.pause) for c in cells}
     watch = TransportWatch()
     inert = InteractWatch()
+    stopper = StopWatch(args.stop_file)
+    stopped = False
     rows = []
     print(f"\nraw rows -> {sink.path}\n")
+    if stopper.path:
+        print(f"stop by creating {stopper.path}\n")
 
     # Process-wide and therefore the runner's job rather than `PointerHand`'s:
     # without it `time.sleep` on Windows quantises to the 15.625 ms scheduler
@@ -1751,6 +1767,14 @@ def main() -> int:
         redraw_budget = args.identities * len(cells)
         redraws_spent = 0
         while work:
+            # Before the identity is drawn, so a stop that arrives between two
+            # identities does not spend a fresh exit to be noticed. The other
+            # check is in `on_row` below and is the one that bounds the
+            # latency: an identity here is a warm-up plus a probe plus a hold
+            # and runs to 242 s on an L3, so waiting for the next one would
+            # make the button look broken for four minutes.
+            if stopper.check():
+                raise StoppedByOperator(stopper.reason)
             round_index, cell, redraw = work.popleft()
             breaker = breakers[cell.key]
             if breaker.tripped:
@@ -2061,6 +2085,15 @@ def main() -> int:
                                         "verdict": "run_stopped",
                                         "verdict_reason": inert.reason})
                             raise ArmInert(inert.reason)
+                        # Last of the three, and after the row is written
+                        # rather than before: the query has been sent and paid
+                        # for either way, so leaving without recording it would
+                        # discard a measurement to save nothing. The row is
+                        # written even under `keep: discard`, because `dispose`
+                        # deletes the file whole and a row that never reached
+                        # it is only missing from the `keep` answer.
+                        if stopper.check():
+                            raise StoppedByOperator(stopper.reason)
 
                     verdict, probe_error = run_identity(
                         active, page, counter, cell, target, queries,
@@ -2134,10 +2167,13 @@ def main() -> int:
                                         "target": cell.target,
                                         "verdict": "cell_stopped",
                                         "verdict_reason": breaker.reason})
-            except (TransportLost, ArmInert):
-                # Not this identity. Both end the run and both must reach the
-                # handlers below rather than the catch-all, which would record
-                # them as a session that failed and carry on spending exits.
+            except (TransportLost, ArmInert, StoppedByOperator):
+                # Not this identity. All three end the run and all three must
+                # reach the handlers below rather than the catch-all, which
+                # would record them as a session that failed and carry on
+                # spending exits. The third one is the worst to get wrong: a
+                # stop swallowed here is a button that was pressed, logged a
+                # session failure, and left the run going.
                 raise
             except engines.EngineUnavailable as exc:
                 breaker.trip(f"engine could not start: {exc}")
@@ -2181,12 +2217,31 @@ def main() -> int:
         print(f"\nrun stopped: {exc}")
         print("Check the transport before restarting: "
               "python scripts/probes/gateway_health.py")
+    except StoppedByOperator as exc:
+        # The session is closed by the time this is reached, which is what the
+        # exception was for. The row goes in here rather than at either raise
+        # site because one of them is between identities and has no cell to
+        # attribute it to.
+        print(f"\n{exc}")
+        sink.write({"verdict": "run_stopped", "verdict_reason": str(exc)})
+        stopped = True
     except KeyboardInterrupt:
         print("\ninterrupted. The answered queries are recorded.")
     finally:
         timer.close()
 
     summarise(rows)
+    if stopped:
+        # Summarised above like any other ending. A ladder stopped part way
+        # through is the case where the summary is worth most and trusted
+        # least: the rungs are interleaved, so a stop leaves every rung short
+        # by roughly the same fraction and the table still reads like a result.
+        # What it is not is a smaller experiment - `preflight` refuses below 40
+        # identities because a Fisher test cannot separate anything useful, and
+        # a stop is exactly how a run ends up under that line without ever
+        # being told so.
+        print(dispose(sink, store, keep=stopper.keep))
+        return EXIT_STOPPED
     print(f"raw rows: {sink.path}")
     print(store.summary())
     return 0

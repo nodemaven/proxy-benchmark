@@ -183,7 +183,8 @@ def parse_engine(spec: str) -> tuple:
 
 def build_cells(engines: list, targets: list, preset: str, countries: list,
                 direct: bool = False, headful: bool = False, geo: str = "off",
-                extra: dict = None, chosen: dict = None) -> list:
+                extra: dict = None, chosen: dict = None,
+                arms: list = None) -> list:
     """Cells for every provider, engine, target and country. Specs may carry
     `:direct`.
 
@@ -224,28 +225,67 @@ def build_cells(engines: list, targets: list, preset: str, countries: list,
     the `geo` rule and it is what makes the provider axis free to add: the
     interleaved multi-provider run - the only shape in which two providers are
     comparable - is also the only shape whose keys change.
+
+    `extra` is one set of gateway settings held fixed across the whole matrix.
+    `arms` is a list of such sets VARIED, one cell per arm, each merged over
+    `extra`. The difference is the whole reason the parameter exists: comparing
+    `filter=medium` against `filter=high` as two runs measures the hour between
+    them as well as the filter, and on these gateways the hour is not small -
+    Amazon refuses the first request from a fresh residential exit and relents
+    after, so an arm run while the pool is cold and an arm run while it is warm
+    are not the same experiment. As arms they interleave at batch granularity
+    through `plan`, which is what makes them comparable. `Cell.extra` is already
+    part of the key, so the two arms are two resume identities and neither is
+    read as the other's continuation.
+
+    An arm collapses for a provider whose definition does not know every name in
+    it, exactly as the country axis collapses for a gateway that sells no
+    country, and for the same reason: a NodeMaven filter comparison run beside
+    Oxylabs should still run Oxylabs, once, rather than refusing the matrix or
+    running Oxylabs twice under two labels it cannot tell apart. Whole or not at
+    all - an arm applied in part would send a request nobody asked for.
     """
     extra_items = tuple(sorted((extra or {}).items()))
+    arm_sets = [dict(a or {}) for a in (arms or [{}])]
     default = providers.default_name()
     chosen = dict(chosen or {default: providers.load(default)})
     cells, seen = [], set()
     for provider, definition in chosen.items():
         asked = countries if "country" in definition.known_params else [""]
+        # Collapsed here rather than inside the loop so the dedup below sees
+        # identical keys for two arms this gateway cannot tell apart, and keeps
+        # the first.
+        applicable = []
+        for arm in arm_sets:
+            if all(k in definition.known_params for k in arm):
+                applicable.append(tuple(sorted({**dict(extra_items),
+                                                **arm}.items())))
+            else:
+                applicable.append(extra_items)
         for spec in engines:
             name, spec_direct = parse_engine(spec)
             is_direct = direct or spec_direct
+            # The arm axis collapses for a direct cell for the third time in
+            # this function and for the same reason as the other two: nothing
+            # reaches a gateway, so no gateway setting can vary. Left on, two
+            # arms would produce two keys for one identical experiment and the
+            # copies would be drawn as a comparison. The dedup below cannot
+            # catch it, because the keys differ - that is exactly what makes it
+            # look like data.
+            varied = [extra_items] if is_direct else applicable
             for target in targets:
                 for country in asked:
-                    cell = Cell(
-                        engine=name, target=target, preset=preset,
-                        country=country, direct=is_direct, headful=headful,
-                        geo=geo, extra=extra_items,
-                        provider="" if is_direct or provider == default
-                                 else provider)
-                    if cell.key in seen:
-                        continue
-                    seen.add(cell.key)
-                    cells.append(cell)
+                    for settings in varied:
+                        cell = Cell(
+                            engine=name, target=target, preset=preset,
+                            country=country, direct=is_direct, headful=headful,
+                            geo=geo, extra=settings,
+                            provider="" if is_direct or provider == default
+                                     else provider)
+                        if cell.key in seen:
+                            continue
+                        seen.add(cell.key)
+                        cells.append(cell)
     return cells
 
 

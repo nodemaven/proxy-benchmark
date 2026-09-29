@@ -126,13 +126,24 @@ def echo(timeout: int = 30, provider=None, **params) -> dict:
     the operator, the region and the timezone the address belongs to, none of
     which the CONNECT header carries. The timezone is what a geoip-configured
     browser has to agree with.
+
+    `echo_ms` is the whole round trip: this host to the gateway, the gateway to
+    an exit, the exit to the echo service and back. It is deliberately NOT
+    reported as `connect_ms`, which the other path produces, because the two
+    measure different distances and a column that silently holds either one
+    would make a provider look faster or slower according to which backend
+    happened to answer its CONNECT. Kept under its own name so a reader can see
+    which instrument produced the number.
     """
     result = {"exit_ip": None, "org": None, "country": None, "region": None,
-              "city": None, "timezone": None, "source": "echo", "error": None}
+              "city": None, "timezone": None, "source": "echo",
+              "echo_ms": None, "error": None}
+    started = time.perf_counter()
     try:
         url = proxy.proxy_url(provider=provider, **params)
         resp = requests.get(ECHO_URL, proxies={"http": url, "https": url},
                             timeout=timeout)
+        result["echo_ms"] = round((time.perf_counter() - started) * 1000, 1)
         body = resp.json()
         result.update({k: body.get(k) for k in
                        ("org", "country", "region", "city", "timezone")})
@@ -284,8 +295,136 @@ def identify(provider=None, **params) -> dict:
             probe = exit_ip(provider=provider, **params)
             if probe["exit_ip"]:
                 _header_misses[provider.id] = 0
-                return {"exit_ip": probe["exit_ip"], "org": None, "country": None,
-                        "source": "connect-header", "error": None}
+                # The two timings are carried out rather than dropped, and that
+                # is the whole of the free half of the speed measurement: this
+                # CONNECT is opened by every session anyway and `open_tunnel`
+                # has already timed it. Until 2026-09-28 they were discarded on
+                # this line, which is why they sit on 486 of 21891 rows on disk -
+                # the few written by probes that call `open_tunnel` themselves.
+                # A latency series existed in the code and nowhere in the corpus.
+                return {"exit_ip": probe["exit_ip"], "org": None,
+                        "country": None, "source": "connect-header",
+                        "tcp_ms": probe.get("tcp_ms"),
+                        "connect_ms": probe.get("connect_ms"),
+                        "error": None}
             _header_misses[provider.id] = misses + 1
 
     return echo(provider=provider, **params)
+
+
+# Why a re-check cannot be `identify`, which already answers this question.
+#
+# `identify` falls back to `echo`, and `echo` sends a real request *through the
+# session*. `locate`'s docstring states the consequence for this harness: a
+# request through the exit is warming, so an exit re-checked by echo has been
+# given a page fetch the unchecked ones did not get. Calling it once at the top
+# of a session is already part of the treatment and is the same in every arm.
+# Calling it again in the middle would put an extra navigation into the middle of
+# the batch being measured - the instrument would be changing the thing it is
+# reading, and it would do so on exactly the sessions where the header is absent,
+# which are not a random half. `identify` itself measured that: `exit_timezone`
+# is present on 56 of 117 probes of `probehold_20260827T201123Z` and those
+# identities were served 14% against 28%.
+#
+# So the re-check is header-only and returns "not measured" rather than paying
+# for an answer. That is the trade and it is the right way round: a missing
+# column is a gap a reader can see, and a warmed exit is a number that looks fine
+# and is about a different experiment.
+RECHECK_NO_HEADER = "provider defines no exit-ip header"
+RECHECK_NOT_OFFERED = "backend answered without the header"
+RECHECK_GAVE_UP = "header source latched off for this provider"
+
+
+def recheck_exit(provider=None, **params) -> dict:
+    """Read the exit address of a live session again, without warming it.
+
+    Returns `{"exit_ip": str | None, "recheck_source": str,
+    "recheck_reason": str | None}`. `exit_ip` is None whenever the address could
+    not be read, and `recheck_reason` says which of the ways that happened.
+
+    **None is not "rotated".** The caller has to keep the two apart: a direct
+    cell, a provider with no header, and a backend that answered without one all
+    produce None, and none of them is evidence that the session moved. A column
+    that folded them together would report rotation on precisely the providers
+    this harness can say the least about.
+
+    It does not touch `_header_misses`. It reads the latch, so a provider whose
+    header has been given up on is not charged a handshake per check, but it
+    never increments it - a re-check must not be able to change how `identify`
+    behaves on the next session, because `identify`'s fallback costs traffic and
+    the cost model of a run would then depend on how many re-checks it ran.
+    `identify` runs once per session and latches on its own, so nothing is lost.
+
+    Limitation, stated because it cannot be fixed from here: `open_tunnel` opens
+    its own TCP connection to the gateway. On a sticky session that connection is
+    itself activity, so the check may refresh whatever TTL the gateway keeps. It
+    reads the session without fetching a page; it does not read it without being
+    seen.
+    """
+    provider = provider or providers.load()
+    result = {"exit_ip": None, "recheck_source": "connect-header",
+              "recheck_reason": None}
+
+    if not provider.exit_ip_header:
+        result["recheck_source"] = "none"
+        result["recheck_reason"] = RECHECK_NO_HEADER
+        return result
+    if _header_misses.get(provider.id, 0) >= _HEADER_GIVE_UP:
+        result["recheck_source"] = "none"
+        result["recheck_reason"] = RECHECK_GAVE_UP
+        return result
+
+    probe = exit_ip(provider=provider, **params)
+    if probe.get("exit_ip"):
+        result["exit_ip"] = probe["exit_ip"]
+        return result
+    result["recheck_reason"] = probe.get("error") or RECHECK_NOT_OFFERED
+    return result
+
+
+def summarise_identity(points) -> dict:
+    """Turn a session's identity readings into the columns a row carries.
+
+    `points` is an ordered sequence of `(when, exit_ip_or_None)`. `when` is a
+    label - "start", "middle", "end" - and the order is the order they were
+    taken in.
+
+    Returns `identity_points`, `identity_read`, `identity_stable` and
+    `identity_changed_at`.
+
+    **The rule that decides everything here: unread is not unchanged.** A
+    provider with no header, a backend that answered without one and a refused
+    handshake all produce None, and none of them is evidence the session held.
+    So `identity_stable` is:
+
+      - True  - two or more addresses were read and they all agree
+      - False - two or more were read and at least one differs
+      - None  - fewer than two were read, so the question was not answered
+
+    A boolean would have to fold the third case into one of the first two, and
+    both foldings are wrong in a way that matters. Folding into True claims
+    stability for every provider whose gateway does not offer the header, which
+    is the population this harness can say the least about and would then appear
+    to say the most about. Folding into False charges an instrument gap to the
+    provider. Three states, and the count of reads beside them so a reader can
+    see how much the verdict rests on.
+
+    `identity_changed_at` names the first label whose address differs from the
+    first one read, or None. It is deliberately the *first* divergence and not a
+    count of distinct addresses: with three points the distinction only shows up
+    on a session that moved twice, and "when did it first stop being the same
+    session" is the question a sticky-session claim is about.
+    """
+    read = [(when, ip) for when, ip in points if ip]
+    summary = {"identity_points": len(points), "identity_read": len(read),
+               "identity_stable": None, "identity_changed_at": None}
+    if len(read) < 2:
+        return summary
+    first = read[0][1]
+    summary["identity_stable"] = True
+    for when, ip in read[1:]:
+        if ip != first:
+            summary["identity_stable"] = False
+            summary["identity_changed_at"] = when
+            break
+    return summary

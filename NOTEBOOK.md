@@ -2379,6 +2379,110 @@ shared by the losers on both is **Chromium driven by Playwright or Patchright** 
 not Chromium as such, and not the handshake on its own. Obscura drives raw CDP,
 Camoufox is Playwright over Firefox, and both are served.
 
+**The throttle is now its own verdict, and splitting it showed that `block` was
+mostly this one page.** Measured 2026-09-28 across all 251 run files by
+`reports/_503split.py`: 747 rows carried verdict `block`, and **476 of them -
+64% - were the `ref=cs_503` throttle**. All 476 are `amazon_search`, and the
+reason string is one byte-identical value from `20260812T152451Z` to
+`20260917T100211Z`, which is the only reason a retroactive split was possible at
+all. A reason reworded mid-corpus cannot be used to reclassify what came before
+the rewording, and a verdict added now would have started a fresh series instead
+of continuing one.
+
+So for two thirds of the time this harness said `block`, it meant "Amazon is
+shedding load at this address" - and the other third, an address refused
+outright, is the reading everyone actually took from the word. That is the
+defect `targets.py`'s own docstring records for 2026-08-11 arriving a second
+time, in the same field, four weeks later.
+
+**It is called `throttle` and not `http503`, and that is a measurement rather
+than taste.** The same scan tallied the status on those 476 rows: **503 on 397,
+200 on 59, nothing recorded on 20.** A status-based rule would miss 12% of these
+pages, and a column named after a status would be asserting something false
+about one row in eight. It also has a direct consequence for lining up against
+any study that categorises by status: **our `throttle` is a superset of an
+`HTTP 503` category, not the same thing**, so the two columns are about the same
+page and are not interchangeable.
+
+Note what this corrects two sections above. The 2026-08-12 entry reports 47 of
+54 at 503 and 7 at 200 - 13% non-503 - against 12% corpus-wide. The small sample
+was right, and it was right about the whole corpus, which is the less common
+outcome to record.
+
+The split immediately showed something the pooled column had been hiding, in
+`RESULTS.md` and with no new run: on `amazon_search` the refusals are **not the
+same kind across engines**. `patchright/none` is 169 throttle and 0 block;
+`cloak/none` is 87 and 0; but `camoufox/none` is 17 block against 13 throttle
+and `seleniumbase` is 19 against 15. Under one name those read as one quantity.
+The pass rates are unchanged by the split - what changed is that two populations
+that were being averaged can now be counted apart. No claim is made here about
+why; it is one table and the arms differ in more than one thing.
+
+The 476 historical rows were relabelled by
+`scripts/tools/backfill_throttle_verdict.py`, which matches the reason string
+exactly rather than searching for "503", reports anything it cannot place
+instead of guessing, and writes `verdict_was` so the run files stay honest about
+having been rewritten. A read-time reclassifier was the other option and was
+rejected: there is no shared row loader here - a dozen analysis scripts call
+`json.loads` on their own - so it would have meant twelve insertions whose
+failure mode is a number that is quietly wrong rather than a crash.
+
+### Three points per session, and why the middle one may not send a request
+
+Added 2026-09-28. A sticky session is sold as one exit for the life of the
+session, and until now this harness read the exit **once**, at the top of the
+session, and then attributed ten attempts to it. Nothing in the corpus can say
+whether the address held, so every per-exit figure on disk rests on an
+assumption that was never instrumented.
+
+The check reads it three times - before the first query, before the query at
+`len(queries) // 2`, and after the last one while the session is still open -
+and writes `identity_points`, `identity_read`, `identity_stable` and
+`identity_changed_at` onto the `session_closed` row. `(cell, batch_index)` is
+the join back to the attempt rows.
+
+**The design constraint that decided the shape: `gateway.identify` may not be
+reused.** It falls back to `echo`, which fetches a page *through the session*,
+and `gateway.locate`'s docstring already records what that means here - a request
+through the exit is warming. Paying it once at the top of every session is part
+of the treatment in every arm and is fine. Paying it again mid-batch would not
+be, and the bias is not hypothetical: `identify` measured it on itself.
+`exit_timezone` is present on 56 of 117 probes of `probehold_20260827T201123Z`
+because those sessions took the echo path, and **those identities were served 14%
+against 28% for the ones without it**. An echo-based re-check would land on that
+same non-random half, mid-batch, and warm exactly the sessions that behave
+differently.
+
+So `gateway.recheck_exit` is header-only and returns *not measured* rather than
+paying for an answer. The trade is deliberate and it is the right way round: a
+missing column is a gap a reader can see, and a warmed exit is a number that
+looks fine and is about a different experiment.
+
+**Unread is not unchanged, and that is why `identity_stable` has three states.**
+A provider whose definition names no header, a backend that answered without one,
+and a refused handshake all produce a None address, and none of them is evidence
+the session held. `True` means two or more addresses were read and agreed;
+`False` means two or more were read and one differed; `None` means the question
+was not answered. Folding `None` into `True` would report the strongest
+stability on the providers this harness can say the least about, which is the
+shape of a probe reporting on itself.
+
+Two limitations, stated because neither can be fixed from here:
+
+- **The re-check opens its own TCP connection to the gateway.** On a sticky
+  session that connection is itself activity, so the check may refresh whatever
+  TTL the gateway keeps. It reads the session without fetching a page; it does
+  not read it without being seen.
+- **The direct arm is not checked at all**, deliberately. There is no gateway
+  and no sticky session there, so "did the exit rotate" is not a question that
+  arm can be asked - and a `stable=True` written for it would be a control that
+  agrees with every treatment by construction.
+
+Nothing has been measured with it yet. The three-state column, the two
+limitations and the cost - two extra CONNECT handshakes per session, no target
+traffic - are what the code does; no rotation rate is claimed anywhere until a
+run on the VPS produces one.
+
 ### The handshake was read, and it is not the discriminator
 
 Measured 2026-08-12 by `scripts/probes/tls_echo.py`, direct against a TLS echo,
@@ -2898,6 +3002,118 @@ would be exactly the confident wrong number this repository exists to avoid.
 Read the hours as an order of magnitude. Re-run calibrate after any run that
 changes the shape, and add a `MEASURED_BYTES` entry the first time a new target
 completes a real run.
+
+### The `filter` arms, and why the answer needs many short runs instead of one long one
+
+**The question.** `nodemaven.toml` records that `filter=high` and `filter=low`
+both answer 200 and are on the gateway's whitelist, and that every run in
+`data/runs/` used `filter=medium`. The parameter participates in the sticky
+session key, so an arm that adds it draws its exits from a genuinely different
+slice of the pool rather than formatting the same string differently. Whether
+that slice is better has never been measured.
+
+**Asked three times. The first two attempts were spoiled by the same mechanism
+and it is the mechanism, not the result, that is worth carrying.**
+
+| run | arm | ok / judged | rate |
+|---|---|---|---|
+| `20260813T202606Z` | none | 11/38 | 28.9% |
+| | `filter=medium` | 16/36 | 44.4% |
+| | `filter=high` | 10/36 | 27.8% |
+| `20260917T164112Z` | none | 1/7 | 14.3% |
+| | `filter=medium` | 5/23 | 21.7% |
+| | `filter=high` | 20/54 | 37.0% |
+| `20260918T070040Z` | none | 1/9 | 11.1% |
+| | `filter=medium` | 7/16 | 43.8% |
+| | `filter=high` | 3/12 | 25.0% |
+
+Pooled Cochran-Mantel-Haenszel over the two September sessions, probe phase,
+`scripts/analysis/filter_arms.py`: none vs medium z = -1.54, none vs high
+z = -1.41, medium vs high z = -0.52. **Nothing separates.** The ordering is not
+even stable - `none` is last in both September windows and sits above `high` in
+August.
+
+Three things made those runs unable to answer it:
+
+- **`--identities` does not set the sample size, the circuit breaker does.** The
+  September runs asked for 160 an arm. At a cold pass rate near 25% the expected
+  number of probes before six consecutive failures is `(1-q^6)/(p*q^6)` = 18.5
+  with q = 0.75, and the observed cells were 7, 23, 54 and 9, 16, 12. The dry
+  run printed "at most 960" and that upper bound was read as a plan. Raising
+  `--breaker` is not the fix and is refused: it is not an error handler, and
+  this is a shared production pool.
+- **`n` is an outcome variable.** A cell that passes more often survives the
+  breaker longer and collects the larger sample, so the luckiest arm is also the
+  best measured one. Above, the arm with 54 probes is the arm that passed most.
+- **Interleaving dissolves when a cell stops.** In `20260917T164112Z` the arms
+  lived 0-26.5, 1.9-77.1 and 3.0-121.1 minutes into the run, so the surviving
+  arm spent its tail alone. The hour is the largest effect in this notebook, and
+  an arm that outlives another is measured at a different time of day.
+
+**So the design since 2026-09-18 is many short sessions, not one long run.** The
+OVH Windows VPS fires `C:\Benchmark\run_filter.ps1` from three daily scheduled
+tasks - `nmbench_filter_09`, `_15`, `_21`, SYSTEM, `/sc daily` - at 09:00, 15:00
+and 21:00 local, each capped at `--identities 25`. Inside a short session the
+arms cannot drift far apart; across sessions the hour varies on purpose, and
+each session is one CMH stratum. That is what turns the hour from a confounder
+into a variable the analysis holds fixed.
+
+**The hours are chosen around another developer, and that is worth writing down
+because nothing else in this repository records that the box is shared.** The
+first registration put the slots at 02:00, 10:00 and 18:00 and the 02:00 one was
+moved within the hour. `C:\Proxy Regression Suite\` is a second developer's
+work running under the same `Administrator` account: a `proxy_regression.launcher`
+daemon up since 2026-09-16 that spawns jobs, and at 02:05 on 2026-09-18 it
+started a `blocklist` stage at `--concurrency 150` over 6985 addresses while our
+02:00 session was four minutes into its first probe. Its 13 job stamps run
+roughly 01:00-07:30 local, so 09:00, 15:00 and 21:00 clear the band and are
+evenly spaced, which samples the diurnal cycle more uniformly than the first
+attempt did.
+
+State that carefully. What is measured is the overlap: two processes, one NIC,
+one box, at the same wall clock. Whether a 150-way concurrent sweep changes our
+pass rate is **not** measured, and the move is a cheap precaution rather than a
+correction for a known effect. The 09:00 band is also inferred from job
+directory names and not from a schedule anybody read, so it can shift without
+notice.
+
+The cap is not a target. The breaker stops most cells first, so 25 costs nothing
+in expectation and bounds two things: worst-case traffic at 75 probes a session,
+against 9.06 MB for a probe that draws a captcha and 5.30 MB for one that
+passes, and how far the `n`-as-outcome asymmetry can run.
+
+`--warm off` because at L3 the pass rate is 84% and a ceiling is where a
+difference between arms hides; `--series 1` because the hold phase read 100% in
+every arm in all three runs so far and is 5.37 MB apiece of no information; one
+engine because the question is about the address pool.
+
+**`--countries any` is retained on the user's instruction, 2026-09-18, against
+the recommendation here, and it is an uncontrolled confounder.** The three arms
+drew 12, 26 and 31 distinct countries over 18, 44 and 68 probes in the two
+September sessions, so part of any difference between arms is a difference
+between baskets of countries. `filter_arms.py` prints the basket every time
+rather than leaving it to be remembered, and no pass rate from these runs may be
+quoted as if the country were held fixed.
+
+Two guards worth naming, because both were written after being needed:
+
+- The launcher refuses to start if a `probe_and_hold.py` process is already
+  running, so two firings cannot put two browsers and two proxy streams on the
+  box at once. The check is a live process and not a lock file, because a lock
+  file outlives a killed process and then blocks every run after it.
+- `filter_arms.py` refuses to report at all if an arm's label and its sent
+  parameters disagree. This gateway answers an unrecognised parameter with 200
+  and silently drops it, so an arm that never sent `filter` reads exactly like
+  one that sent it and got nothing, and the two are not separable after the
+  fact.
+
+**What the schedule is for, and when it stops.** At roughly 16 probes an arm per
+session and three sessions a day, a week is about 336 probes an arm, which
+detects a 9-point difference at 80% power against a 25% base; three days reaches
+about 14 points, which is the size of the August effect. It costs roughly
+100-230 MB of proxy traffic a session. This is a standing spend and not a
+background process to forget: re-read the pooled table after three days and
+decide then whether the remaining four are worth buying.
 
 ## Operational safety
 

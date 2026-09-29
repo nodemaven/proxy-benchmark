@@ -68,7 +68,8 @@ from nmbench.console import tolerate_unencodable_output
 # prevent, so it would be a poor joke to reintroduce it here.
 tolerate_unencodable_output()
 
-from nmbench import gateway
+from nmbench import gateway, ladder
+from nmbench.stop import EXIT_STOPPED, STOPPED_DIR
 
 ROOT = Path(__file__).resolve().parent.parent
 PROBE = ROOT / "scripts" / "probes" / "probe_and_hold.py"
@@ -81,88 +82,26 @@ LOGS = ROOT / "data" / "logs"
 # gateway handshake and far below any rung completing.
 EARLY_DEATH_S = 600
 
-# Below this the run cannot answer the question it is being launched to answer,
-# and it is refused rather than run.
+# The cost model and the rung vocabulary both live in `nmbench/ladder.py` and
+# are re-exported here, where the spans were measured and where all of this was
+# defined until 2026-09-23. They moved for the same reason on the same day: the
+# dashboard queue has to tell an operator what a ladder costs before he presses
+# the button, and the queue cannot import a script - `scripts/` is not a package
+# and importing this file would cost it `nmbench.gateway` and therefore `dotenv`,
+# which `tests/test_repository.py` refuses for everything under
+# `scripts/analysis/`.
 #
-# Measured on the first ladder run, `probehold_20260826T152748Z`, 12 identities
-# a rung. It printed four cells reading 3, 4, 3 and 3 served, which reads as a
-# clean negative until the denominators are looked at: errors left 11, 9, 7 and
-# 10 judged attempts, and at 11 against 9 the smallest difference Fisher can
-# separate at p<0.05 is 0/11 against 4/9. About 40 points. A test that coarse
-# returns "no effect" for almost anything put in front of it, and the run would
-# then have been quoted as evidence the warm-up does not work.
-#
-# This paragraph used to justify the floor by saying the ladder exists to test a
-# move from 20% to 75%, so a 40-point resolution would miss half of it. There is
-# no such effect size: 20% to 75% was never claimed by anyone, it was assembled
-# here out of an operator's single 75% and this harness's own baseline. Corrected
-# 2026-08-27, see NOTEBOOK.md. The floor is unchanged, because the argument for
-# it never needed the number - 40 points is too coarse to act on whatever the
-# effect turns out to be, and sizing an experiment against a guessed effect size
-# is how you end up measuring the guess.
-#
-# 40 identities a rung brings the detectable difference to roughly 20 points,
-# which is the smallest number worth acting on. The default is 60 because
-# errors and short warm-ups take a share off the top before the test sees it -
-# that first run lost 23% of its attempts that way.
-#
-# Overridable, because a deliberately underpowered smoke test is a legitimate
-# thing to want. It just should not be the thing that gets left running
-# overnight and then quoted.
-MIN_IDENTITIES = 40
-
-
-# Where the runtime figures in `--identities` help come from, so the next person
-# to change the ladder can redo them instead of guessing.
-#
-# Measured off `probehold_20260827T201123Z` on 2026-08-28: mean wall span per
-# identity was 15.3s at `off`, 102.2s at L1, 172.8s at L2 and 242.6s at L3, and
-# the run's total wall clock was 22% above the sum of those spans - browser
-# launch, the inter-identity gap and session setup, which the spans do not
-# cover. N1 is priced at L1's number because it is L1's depth.
-#
-# The method is checkable rather than asserted: applied to the four rungs that
-# run had, it gives 10.8h against the 11h this file already documented for 60
-# identities. Note that run stopped after 3h25m because three of its four rungs
-# tripped the breaker, so the per-identity spans are real and the totals are
-# extrapolations from them.
-#
-# Printed rather than left in this comment since 2026-09-03, and the cursor axis
-# is why. `--identities` is per *cell*, not per rung, which was the same thing
-# until an axis crossed the ladder: `--humanize off,trueman` doubles the cells
-# and therefore the hours, silently, with no flag in the command looking like it
-# costs anything. A number nobody sees before launching a thirteen-hour run is
-# not a warning.
-#
-# Everything here is `google_serp` at `--dwell 20,45`, so it is an estimate for
-# the shape the ladder is normally run in and not a general model. It ignores
-# `--series`, which the source run held at 3, and it prices the probe at the
-# rung's span rather than separately. `trueman` adds a walk of about a second
-# per query, which is inside the noise of these spans and is not modelled.
-SPAN_S = {"L0": 15.3, "L1": 102.2, "N1": 102.2, "L2": 172.8, "N3": 242.6,
-          "L3": 242.6}
-SETUP_OVERHEAD = 1.22
-# Mirrored from `probe_and_hold.WARM_LEVELS`, which is not importable from here -
-# it lives in `scripts/probes/` and is a script rather than a module. Two entries
-# is a cheap enough duplicate; the guard against it drifting is the fallback in
-# `estimate_hours`, which prices an unrecognised spelling at the deepest rung, so
-# a mapping that has gone stale makes the estimate pessimistic and never
-# flattering.
-WARM_ALIASES = {"off": "L0", "on": "L1"}
-
-
-def estimate_hours(args) -> float:
-    """Wall clock for the plan, from the spans measured above.
-
-    Multiplied by the number of cursor modes, because `--identities` is per cell
-    and a second mode is a second full pass over the ladder.
-    """
-    deepest = max(SPAN_S.values())
-    rungs = [r.strip() for r in args.warm.split(",") if r.strip()]
-    hands = [h.strip() for h in args.humanize.split(",") if h.strip()]
-    seconds = sum(SPAN_S.get(WARM_ALIASES.get(r, r).upper(), deepest)
-                  for r in rungs) * args.identities * max(len(hands), 1)
-    return seconds * SETUP_OVERHEAD / 3600
+# Re-exported rather than referenced through the module, so that the names this
+# file's own tests and comments have used since 2026-08-26 still resolve. Read
+# `nmbench/ladder.py` for the measurements behind SPAN_S and MIN_IDENTITIES -
+# they are long, they are what makes these numbers checkable, and they did not
+# get shorter by moving.
+MIN_IDENTITIES = ladder.MIN_IDENTITIES
+SPAN_S = ladder.SPAN_S
+SETUP_OVERHEAD = ladder.SETUP_OVERHEAD
+CELL_AXES = ladder.CELL_AXES
+WARM_ALIASES = ladder.WARM_LEVELS
+estimate_hours = ladder.estimate_hours
 
 
 # Why `--entry` defaults to `home` here and why it used to say `url`.
@@ -229,12 +168,15 @@ def build_command(args) -> list:
         "--dwell", args.dwell,
         "--breaker", str(args.breaker),
         "--redraws", str(args.redraws),
+        "--params", args.params,
         "--preset", args.preset,
     ]
     if args.headless:
         command.append("--headless")
     if args.seed is not None:
         command += ["--seed", str(args.seed)]
+    if args.stop_file:
+        command += ["--stop-file", str(args.stop_file)]
     return command
 
 
@@ -374,12 +316,30 @@ def main() -> int:
                              "below the application layer. See the note above "
                              "`build_command`: this is what stopped three of "
                              "the four rungs of the 2026-08-27 run")
+    parser.add_argument("--params", default="none",
+                        help="the gateway parameter axis, in the probe's own "
+                             "spelling: comma separated arms, each a '+' joined "
+                             "set of KEY=VALUE, and 'none' for the arm that "
+                             "passes nothing. `none,filter=medium` runs two "
+                             "slices of the pool across every rung of the "
+                             "ladder at once. Doubles the hours, like every "
+                             "other axis here, and the preflight prices it")
     parser.add_argument("--preset", default="none")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--retries", type=int, default=1,
                         help=f"restarts allowed, and only for an attempt that "
                              f"died inside {EARLY_DEATH_S}s")
+    parser.add_argument("--stop-file", default=None, metavar="PATH",
+                        dest="stop_file",
+                        help="forwarded to the probe, which watches it and "
+                             "leaves through its own summary when it appears. "
+                             "This is the flag that makes a thirteen-hour run "
+                             "endable: without it the only way to stop one is "
+                             "to kill it, which leaves a browser session the "
+                             "gateway still bills and a run file cut mid-line. "
+                             "The supervisor reads the exit code it produces "
+                             "and does not restart - see the loop in `main`")
     parser.add_argument("--direct-ok", action="store_true",
                         help="skip the gateway preflight")
     parser.add_argument("--underpowered-ok", action="store_true",
@@ -423,6 +383,17 @@ def main() -> int:
         elapsed = time.time() - started
         if code == 0:
             break
+        if code == EXIT_STOPPED:
+            # Before the early-death branch, and that order is the whole
+            # reason this clause exists. A stop is a non-zero exit, so without
+            # it a stop pressed inside the first ten minutes reads as a startup
+            # failure and the supervisor restarts the run the operator just
+            # asked it to end - and then waits 30 seconds and does it again on
+            # the next `--retries`. The probe has already filed or deleted its
+            # rows by this point; nothing here touches them.
+            print(f"\nattempt {attempts} was stopped on request after "
+                  f"{elapsed:.0f}s. Not restarted.")
+            break
         if elapsed >= EARLY_DEATH_S:
             print(f"\nattempt {attempts} exited {code} after {elapsed / 60:.0f} "
                   f"min. Not restarted: the rows it already wrote are worth "
@@ -440,6 +411,14 @@ def main() -> int:
 
     produced = sorted(p.name for p in RUNS.glob("probehold_*.jsonl")
                       if p.name not in before)
+    # Looked for in both places, because a stopped run that was kept is not in
+    # `data/runs/` any more - `dispose` files it one directory down, where no
+    # chart globs it. Without this the summary of a stop reads "run files :
+    # none. Read the log - nothing reached the target", which is wrong twice
+    # over: the run did reach the target, and its rows are on disk at a path
+    # the operator has just been given no way to find.
+    filed = sorted(p.name for p in STOPPED_DIR.glob("probehold_*.jsonl")
+                   if p.name not in before) if STOPPED_DIR.exists() else []
     print(f"\n{'=' * 70}")
     print(f"attempts  : {attempts}, last exit code {code}")
     print(f"log       : {log_path}")
@@ -451,7 +430,14 @@ def main() -> int:
             print("            more than one file: these are separate "
                   "attempts at different hours. Analyse them apart rather "
                   "than pooling them.")
-    else:
+    if filed:
+        print("stopped   :")
+        for name in filed:
+            print(f"            data/runs/stopped/{name}")
+        print("            kept raw and charted by nothing. A ladder stopped "
+              "part way is short on every rung at once, so it reads like a "
+              "result and is not one.")
+    if not produced and not filed:
         print("run files : none. Read the log - nothing reached the target.")
     return code
 

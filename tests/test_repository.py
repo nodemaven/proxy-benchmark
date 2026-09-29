@@ -389,11 +389,17 @@ def test_re_deriving_a_published_number_needs_nothing_installed(path):
     Read off the AST rather than by running the scripts, because an import that
     only fires inside a function would pass a smoke run on this machine - every
     third-party package the rest of the repository needs is installed here - and
-    fail on the fresh clone this is about. `nmbench` is ours and `report` is a
-    sibling in the same directory; everything else has to be in the standard
+    fail on the fresh clone this is about. `nmbench` is ours and so is anything
+    else in this directory; everything outside both has to be in the standard
     library that ships with the interpreter.
+
+    The sibling set is derived from the directory rather than written out. It
+    was the literal `{"nmbench", "report"}` until 2026-09-22, and that made
+    adding a second shared module here fail a test about third-party
+    dependencies - a refusal naming the wrong cause, which is worse than no
+    refusal because the reader believes it.
     """
-    ours = {"nmbench", "report"}
+    ours = {"nmbench"} | {p.stem for p in ANALYSIS}
     tree = ast.parse(path.read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
@@ -414,9 +420,16 @@ def test_re_deriving_a_published_number_needs_nothing_installed(path):
 # would not do: the machines this suite runs on have the whole of
 # `requirements-dev.txt` installed, so a `import requests` inside `nmbench` would
 # succeed here and fail only on the fresh clone the promise is written for.
+#
+# The allowed set is handed in on the command line rather than written into this
+# source, for the same reason the AST check above derives it: the siblings in
+# `scripts/analysis/` are whatever is in that directory, and a literal list here
+# turns "somebody added a shared module" into a failure that says "third-party
+# import".
 BLOCK_THIRD_PARTY = """
 import sys, runpy
-allowed = set(sys.stdlib_module_names) | {"nmbench", "report", "__main__"}
+allowed = set(sys.stdlib_module_names) | {"nmbench", "__main__"}
+allowed |= set(sys.argv[2].split(","))
 
 
 class Guard:
@@ -451,7 +464,9 @@ def test_nothing_the_analysis_scripts_reach_needs_installing_either(path):
     dependency two levels down inside `nmbench` would survive the AST and is
     caught here.
     """
-    result = subprocess.run([sys.executable, "-c", BLOCK_THIRD_PARTY, str(path)],
+    siblings = ",".join(sorted(p.stem for p in ANALYSIS))
+    result = subprocess.run([sys.executable, "-c", BLOCK_THIRD_PARTY,
+                             str(path), siblings],
                             capture_output=True, text=True, timeout=120, cwd=ROOT)
     assert result.returncode == 0, (
         f"{path.name} cannot run on a bare interpreter:\n"

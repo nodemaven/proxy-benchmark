@@ -1,6 +1,11 @@
 # NodeMaven. The only definition here anyone has run: every row in data/runs/
 # was produced through this gateway.
 label = "NodeMaven"
+# Measured, not transcribed. The matrix sends no `type`, so every row is the
+# gateway's default, and 5 echo requests on the unset arm drew Comcast,
+# Charter and the other consumer ASNs recorded in the notes below - which is
+# what `type=residential` drew too.
+network = "residential"
 status = "measured"
 source = "dashboard proxy generator, plus raw CONNECT probes recorded in data/runs/"
 source_read = "2026-08-12"
@@ -137,3 +142,99 @@ one account on 2026-08-26 and does not rule out the name being real on another
 product or plan - a name the gateway does not know is invisible by design, so
 this is the strongest negative the method can produce and it is not a proof.
 """
+
+# The tunable settings, as data rather than as prose. Everything below was
+# already written in `notes` above; what is new is that a form can read it.
+#
+# These blocks are at the end of the file and have to stay there. A TOML table
+# header captures every bare key that follows it, so a `[params.x]` block placed
+# above `notes` would silently make `notes` a field of that block and drop it
+# from the definition.
+#
+# Nothing here is a value somebody thought was plausible. Where the notes record
+# the value being sent and something observed, it is `measured`; where they
+# record only that the gateway refused to refuse it, it is `accepted`; where the
+# name came off a vendor surface and the legal values were never written down,
+# the block says so and offers no list at all. That last case is the one worth
+# being strict about - a dropdown of invented values is worse than no dropdown,
+# because this gateway answers an unrecognised setting with 200 and drops it,
+# and an hour of runtime then reports on a setting that was never applied.
+[params.filter]
+label = "IP quality filter"
+kind = "enum"
+measured = ["medium"]
+accepted = ["low", "high"]
+help = """\
+medium is the only one with rows behind it: every run in data/runs/ used it. \
+low and high answer 200 where a junk value answers 407, which puts them on the \
+gateway's whitelist and says nothing about what they do. Note that changing it \
+also moves you to a different sticky session - sessions key on the whole \
+parameter set, and filter participates where ttl does not."""
+
+[params.type]
+label = "Network type"
+kind = "enum"
+measured = ["mobile", "residential"]
+help = """\
+Measured 2026-08-26, 5 echo requests per arm, fresh sid, country=us. mobile \
+drew T-Mobile, Cellco and AS7018; residential and the unset arm drew Comcast, \
+Charter, Windstream and other wireline ASNs with no mobile among them. So this \
+selects a different pool rather than filtering the same one, and a mobile arm \
+is not comparable with a residential one. No row in data/runs/ has ever asked \
+for it - strict validation refused the name until 2026-08-26."""
+
+[params.ttl]
+label = "Sticky session TTL"
+kind = "text"
+placeholder = "10m"
+accepted = ["1m"]
+documented = ["60s", "1h", "24h"]
+help = """\
+Needs a unit. The vendor's help pages give TTL in seconds and they are wrong in \
+a way that costs an hour: ttl=60 is refused 407, which sends the operator off to \
+check credentials that are fine, while ttl=1m is accepted. Both SDKs emit the \
+unit form. Only 1m has actually been sent from here."""
+
+[params.region]
+label = "Region"
+kind = "text"
+placeholder = "california"
+help = """\
+A bare name on this gateway - california, not us_california and not ca. Three \
+other providers here spell the same thing three other ways, which is why the \
+name is not shared. A value it does not recognise answers 406. The legal set is \
+not enumerated anywhere here, so this is a text box and a wrong value costs the \
+cell."""
+
+[params.city]
+label = "City"
+kind = "text"
+placeholder = "chicago"
+help = """\
+A value the gateway does not recognise answers 500, which reads like a fault on \
+their side rather than as a rejected input. Not enumerated here."""
+
+[params.isp]
+label = "ISP"
+kind = "text"
+help = """\
+A recognised name, never sent from here, and no legal value written down \
+anywhere in this file. Find out what it takes before spending a run on it."""
+
+[params.speed]
+label = "Speed class"
+kind = "text"
+help = """\
+THE LEGAL VALUES ARE NOT WRITTEN DOWN. The name is recognised - it answers 407 \
+to a junk value where an unknown name answers 200 - and it was found by reading \
+the vendor's own dashboard generator, which builds three of its four IP filter \
+modes out of filter and speed together. Which values it builds them from was \
+never recorded. So anything typed here is a guess, and a guess this gateway \
+does not recognise is answered 200 and dropped."""
+
+[params.ipv4]
+label = "IPv4 only"
+kind = "text"
+help = """\
+Listed as recognised and never probed from here. No legal value is written \
+down, not even whether it takes true/false or 1/0."""

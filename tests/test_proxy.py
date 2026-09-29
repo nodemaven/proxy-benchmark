@@ -142,6 +142,70 @@ class TestParseParams:
             proxy.parse_params(["country="])
 
 
+class TestTheValueIsCheckedAndNotOnlyTheName:
+    """The name check above asks whether the gateway knows the NAME. This is the
+    same question one level down, and it is the one that has been missing.
+
+    It matters more than it looks, because a passing name check reads as
+    validation. NodeMaven answers a bad `filter` value with 407, which sends the
+    operator to check credentials that are correct, and answers an unrecognised
+    `speed` value with 200 and the setting dropped, which cannot be seen in the
+    rows afterwards at all.
+    """
+
+    def test_a_value_outside_a_closed_set_is_refused(self):
+        with pytest.raises(proxy.ParamError, match="not a value"):
+            proxy.parse_params(["filter=ultra"],
+                               provider=providers.load("nodemaven"))
+
+    def test_every_value_the_definition_lists_is_accepted(self):
+        """Including the ones that are `accepted` rather than `measured`. The
+        provenance is there to be shown to whoever picks a value, not to narrow
+        what may be sent - refusing `high` would make the filter comparison this
+        exists for impossible to run."""
+        nodemaven = providers.load("nodemaven")
+        for value in ("medium", "low", "high"):
+            assert proxy.parse_params([f"filter={value}"],
+                                      provider=nodemaven) == {"filter": value}
+
+    def test_the_refusal_says_which_evidence_stands_behind_each_value(self):
+        """An operator choosing between `medium` and `high` is choosing between
+        a value 1240 rows were measured through and one that is on a whitelist,
+        and the difference decides whether the result is a comparison or a first
+        measurement."""
+        with pytest.raises(proxy.ParamError, match=r"medium \(measured\)"):
+            proxy.parse_params(["filter=ultra"],
+                               provider=providers.load("nodemaven"))
+
+    def test_a_free_form_parameter_takes_what_it_is_given(self):
+        """`ttl` is `text`, and its listed values are examples with evidence
+        attached rather than a whitelist. `45m` is legal and nobody here has
+        sent it; refusing it would refuse the legal values this harness has not
+        happened to use yet."""
+        assert proxy.parse_params(["ttl=45m"],
+                                  provider=providers.load("nodemaven")) == {
+            "ttl": "45m"}
+
+    def test_a_parameter_with_no_vocabulary_written_down_is_not_guessed_at(self):
+        """`speed` is recognised by the gateway and its legal values were never
+        recorded, so this cannot refuse and must not pretend to. The protection
+        is the definition's own help text saying so, and the honest behaviour
+        here is to let it through rather than to invent a set to check against.
+        """
+        assert proxy.parse_params(["speed=fast"],
+                                  provider=providers.load("nodemaven")) == {
+            "speed": "fast"}
+
+    def test_a_definition_with_no_vocabulary_at_all_still_works(self):
+        """Every provider file had empty `params` until 2026-09-22 and three of
+        the five still describe only some of their names. An unlisted name falls
+        through to the name check alone, which is what the whole harness did
+        before this existed."""
+        assert proxy.parse_params(["country=us"],
+                                  provider=providers.load("oxylabs")) == {
+            "country": "us"}
+
+
 class TestProxyStrings:
     def test_url_percent_encodes_the_credentials(self, fake_credentials):
         url = proxy.proxy_url(country="us")

@@ -8,6 +8,11 @@
 # compares the two companies - it compares two product classes. Any output that
 # puts this row in a column beside a residential one has to say ISP next to it.
 label = "Bright Data (ISP)"
+# The zone is ISP and this field is what stops the row being drawn beside a
+# residential one. The label has said so since this file was written and a
+# label is a string nothing can group on, which is how the comparison kept
+# being drawn anyway.
+network = "isp"
 status = "measured"
 source = "probe_competitor_dialects.py phases 3/5/6/7, plus docs.brightdata.com"
 source_read = "2026-09-10"
@@ -176,3 +181,45 @@ name, and 407 with the zone-permissions sentence for a name this zone does not
 sell. A 407 for a documented name and a 407 for an invented one are the same
 integer and are separated only by the phrase.
 """
+
+# The tunable settings as data. Two of the four names, because `country` is a
+# column of the matrix and `sid` is drawn per identity, so neither is a free
+# setting. These blocks sit at the end of the file and have to stay there: a TOML
+# table header captures every bare key after it, so one placed above `notes`
+# would make `notes` a field of that block and drop it from the definition.
+#
+# Both are `text` with one accepted value each, which reads oddly and is honest.
+# The value is the one the probe sent and got a 200 for; the documentation lists
+# others and none of them was sent from here, so listing them would put a
+# transcription and a measurement side by side in one dropdown with nothing
+# marking the difference. `enum` is wrong for the same reason - a closed set is a
+# claim, and what is known is one point in the set.
+#
+# Note that acceptance means more on this gateway than anywhere else in this
+# directory. Bright Data answers an unknown NAME with 407, where NodeMaven,
+# Oxylabs and Decodo all answer 200 and drop it - so here a 200 is evidence and
+# there it is the absence of evidence.
+[params.dns]
+label = "DNS resolution"
+kind = "text"
+placeholder = "remote"
+accepted = ["remote"]
+help = """\
+Parsed and its value validated, measured 2026-09-10: `remote` answers 200 `OK` \
+and a junk value answers 407 `Invalid Auth`. Nothing checked where the name was \
+actually resolved, so `applied` is not claimed - what is known is that the \
+gateway recognises the value. The documentation names a second setting and it \
+has never been sent from here, so it is not offered."""
+
+[params.os]
+label = "Exit operating system"
+kind = "text"
+placeholder = "windows"
+accepted = ["windows"]
+help = """\
+Parsed and its value validated, measured 2026-09-10: `windows` answers 200 `OK` \
+against 407 `Invalid Auth` for a junk value. Nobody checked that an exit \
+actually ran the operating system asked for, which on an ISP zone of static \
+carrier addresses is the part worth doubting - so this is a recognised value and \
+not an observed effect. Other operating systems are documented and none was \
+sent from here."""

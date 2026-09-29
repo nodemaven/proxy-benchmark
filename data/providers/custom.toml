@@ -33,6 +33,13 @@ label = "Your own proxy"
 # a fork: the rows in this repository's `data/runs/` were not produced through
 # your gateway, and a definition claiming otherwise would be the one field a
 # reader checks first, wrong.
+# `network` is deliberately absent and this is the definition it is absent from
+# by design. This file describes whatever proxy the reader already owns, and
+# nothing here can know what is behind it - a pool sold as residential that
+# answers with a hosting ASN is a thing the notes below already warn about. An
+# unstated network is grouped on its own, so a fork that fills this in gets its
+# arm compared, and a fork that does not gets it drawn alone rather than
+# silently pooled with a class it may not be.
 status = "documented"
 source = "no vendor format to read: this describes a plain authenticating HTTP proxy, which takes no settings in the username"
 source_read = "2026-08-19"

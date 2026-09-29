@@ -218,6 +218,99 @@ class TestProviderAxis:
         assert built[0].provider_id == ""
 
 
+class TestTheSettingsAxis:
+    """`extra` holds a gateway setting fixed; `arms` varies it.
+
+    The distinction is the point. The question this was built for is whether
+    NodeMaven's `filter=high` reaches a target more often than `filter=medium`,
+    and run as two jobs an hour apart the answer includes the hour. That is not
+    a small term here: Amazon refuses the first request from a fresh residential
+    exit and relents afterwards, measured 3 to 52 on nodemaven and 16 to 52 on
+    oxylabs, so an arm run against a cold pool and an arm run against a warm one
+    are different experiments wearing one label.
+    """
+
+    def test_two_arms_are_two_cells(self):
+        built = cells(("camoufox",), chosen=picked("synth", sells=("filter",)),
+                      arms=[{"filter": "medium"}, {"filter": "high"}])
+        assert [c.key.split("/")[-2] for c in built] == \
+            ["filter-medium", "filter-high"]
+
+    def test_the_arms_interleave_rather_than_running_end_to_end(self):
+        """Which is what makes them comparable, and it is a property of `plan`
+        that `build_cells` has to leave reachable: two arms end to end measure
+        the time between them as much as the setting."""
+        built = cells(("camoufox",), chosen=picked("synth", sells=("filter",)),
+                      arms=[{"filter": "medium"}, {"filter": "high"}])
+        batches = matrix.plan(built, QUERIES, batch_size=5)
+        seen = [b.cell.extra[0][1] for b in batches]
+        assert seen == ["medium", "high", "medium", "high"]
+
+    def test_no_arms_is_the_key_that_is_already_on_disk(self):
+        """1240 comparable rows were recorded before this axis existed and
+        `--resume` matches on the key. An axis that appended a segment
+        unconditionally would make every one of them unresumable."""
+        assert cells(("camoufox",))[0].key == \
+            cells(("camoufox",), arms=None)[0].key == \
+            cells(("camoufox",), arms=[{}])[0].key
+
+    def test_an_arm_is_merged_over_the_fixed_settings(self):
+        """`--param` holds something across the whole matrix and an arm varies
+        something else. Both reach the wire, so both have to reach the key."""
+        built = cells(("camoufox",),
+                      chosen=picked("synth", sells=("ttl", "filter")),
+                      extra={"ttl": "10m"}, arms=[{"filter": "high"}])
+        assert dict(built[0].extra) == {"ttl": "10m", "filter": "high"}
+
+    def test_an_arm_may_override_a_fixed_setting(self):
+        """Otherwise the two would contradict each other and the cell would
+        carry a value nobody asked for. The arm is the more specific of the two
+        and wins."""
+        built = cells(("camoufox",), chosen=picked("synth", sells=("filter",)),
+                      extra={"filter": "medium"}, arms=[{"filter": "high"}])
+        assert dict(built[0].extra) == {"filter": "high"}
+
+    def test_a_gateway_that_does_not_sell_the_setting_runs_once(self):
+        """The shape this is for: compare two NodeMaven filters while Oxylabs
+        runs in the same window as a reference. Oxylabs has no `filter`, so it
+        gets one cell rather than two labelled copies of one experiment - and
+        rather than the whole matrix being refused, which would make the
+        comparison impossible to run beside anything."""
+        chosen = {**picked("has", sells=("filter",)),
+                  **picked("hasnot", sells=("country",))}
+        built = cells(("camoufox",), chosen=chosen,
+                      arms=[{"filter": "medium"}, {"filter": "high"}])
+        keys = [c.key for c in built]
+        assert sum("provider-hasnot" in k for k in keys) == 1
+        assert sum("filter-" in k for k in keys) == 2
+
+    def test_an_arm_is_applied_whole_or_not_at_all(self):
+        """A gateway knowing one name of a two-name arm would otherwise be sent
+        a request nobody asked for, and the row would record it as the arm."""
+        built = cells(("camoufox",), chosen=picked("synth", sells=("filter",)),
+                      arms=[{"filter": "high", "speed": "fast"}])
+        assert built[0].extra == ()
+
+    def test_a_direct_cell_does_not_run_once_per_arm(self):
+        """Nothing reaches a gateway, so no gateway setting can vary. Left on,
+        two arms would produce two keys for one identical experiment, and the
+        dedup cannot catch it because the keys genuinely differ - which is
+        exactly what makes the copies look like a comparison."""
+        built = cells(("chromium:direct",),
+                      chosen=picked("synth", sells=("filter",)),
+                      arms=[{"filter": "medium"}, {"filter": "high"}])
+        assert len(built) == 1
+        assert built[0].extra == ()
+
+    def test_two_arms_a_gateway_cannot_tell_apart_are_one_cell(self):
+        """Both collapse to the same settings, so they collapse to one key. The
+        dedup already there is what catches it, and it has to: two cells with
+        one key would make the second a silent resume of the first."""
+        built = cells(("camoufox",), chosen=picked("synth", sells=("country",)),
+                      arms=[{"filter": "medium"}, {"filter": "high"}])
+        assert len(built) == 1
+
+
 class TestAGatewayThatSellsNoCountry:
     """A proxy somebody already owns is one endpoint with one exit behind it,
     and that is the shape most proxies actually have. It is a definition with an

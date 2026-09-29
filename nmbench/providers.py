@@ -57,9 +57,102 @@ SELECT_VAR = "NMBENCH_PROVIDER"
 TRANSPORTS = ("username",)
 STATUSES = ("measured", "documented")
 
+# What kind of addresses the gateway hands out. This is not a marketing label
+# and it is not decoration on a chart: it decides which arms may be put in one
+# column at all.
+#
+# An ISP pool is static addresses on carrier ranges and a residential pool is
+# peers, so a gap between an ISP arm and a residential arm is a difference
+# between two product classes and not between two companies. In multi-gateway
+# Amazon runs the ISP arm stood well clear of every residential arm while the
+# residential arms could not be ordered against each other once clustering was
+# accounted for. Reading the ISP row as "this vendor is better" is the easiest
+# wrong conclusion to draw from a chart that puts them in one column.
+#
+# `""` is the honest default and means nobody wrote it down. It is NOT read as
+# residential: an unstated network puts the arm in its own group, because
+# pooling it with a group it may not belong to is the failure this field exists
+# to stop, and a guess that happens to be right looks identical to one that is
+# not.
+NETWORKS = ("residential", "isp", "datacenter", "mobile")
+
 
 class ProviderError(RuntimeError):
     """Raised for a definition that cannot be used, naming what will not work."""
+
+
+PARAM_KINDS = ("enum", "text")
+
+# What is behind one legal value of one parameter. Three and not two, because
+# the `notes` in these files already draw the distinction and a two-way split
+# would have to throw one of the readings away.
+#
+#   measured   the value has been sent from here and its effect observed. That
+#              is rows in data/runs/ for NodeMaven's `filter=medium`, and a
+#              probe with an ASN readout for `type=mobile`. Both are the value
+#              doing something visible, which is the claim; where it was seen
+#              belongs in `help`.
+#   accepted   the gateway was probed and answered in a way only a recognised
+#              value produces, but nothing has been run through it. On these
+#              gateways that is its own reading rather than a weak `measured`:
+#              an unknown parameter is answered 200 and silently dropped, so
+#              acceptance means nothing until it is established against a
+#              control. `filter=high` is here - it answers 200 where a junk
+#              value answers 407, which puts it on the whitelist and says
+#              nothing whatever about what it does to the exits.
+#   documented read off a vendor surface - help pages, the dashboard generator,
+#              an SDK - and never probed. This is not a weaker form of the other
+#              two, it is the one that has been wrong before: these same notes
+#              record that `ttl` is documented in seconds and refused in
+#              seconds, and that `norotate` came off the vendor's own generator
+#              and does nothing on this account.
+VALUE_STATUSES = ("measured", "accepted", "documented")
+
+
+@dataclass(frozen=True)
+class ParamValue:
+    """One legal value of one parameter, carrying what is behind it."""
+
+    value: str
+    status: str = "documented"
+
+    @property
+    def measured(self) -> bool:
+        return self.status == "measured"
+
+
+@dataclass(frozen=True)
+class ParamSpec:
+    """One tunable setting of one gateway, in a form a form can be built from.
+
+    This exists because the legal values were prose. `known_params` has always
+    been machine-readable and it only ever said which NAMES the gateway knows;
+    which VALUES are legal lived in the `notes` string, where a person could
+    read them and nothing else could. So anything offering these settings to an
+    operator - a web form, a completion, a `--help` - had either to carry a
+    second copy of the vocabulary or to offer a free-text box. A second copy
+    goes stale silently. A free-text box on these gateways costs an hour of
+    runtime on a value that was answered 200 and dropped, which is the one
+    failure that cannot be seen in the rows afterwards.
+
+    `kind` is `enum` when the legal values are a closed set and `text` when they
+    are not. A sticky TTL is `text` because `1m`, `45m` and `3h` are all legal
+    and nobody will enumerate them; its `values` are then examples rather than a
+    whitelist. That is a field rather than something inferred from the list
+    being short, because "short list" and "closed set" are different claims and
+    only one of them may be enforced.
+    """
+
+    name: str
+    label: str = ""
+    kind: str = "enum"
+    help: str = ""
+    placeholder: str = ""
+    values: tuple = ()
+
+    @property
+    def measured_values(self) -> tuple:
+        return tuple(v for v in self.values if v.measured)
 
 
 @dataclass(frozen=True)
@@ -106,10 +199,32 @@ class Provider:
     host: str = ""
     port: int = 0
     exit_ip_header: str = ""
+    # One of NETWORKS, or empty for "not written down". See the comment there:
+    # this is the axis a comparison may be drawn along, so it is a property of
+    # the definition and not something a chart infers from the id.
+    network: str = ""
     status: str = "documented"
     source: str = ""
     source_read: str = ""
     notes: str = ""
+    # The tunable settings, as `ParamSpec`s sorted by name. A tuple rather than
+    # a dict so the ordering a form renders in is decided here and is the same
+    # every time; `tunable` below is the lookup.
+    #
+    # Empty is the honest default and means the legal values have not been
+    # written down as data yet - which was true of every definition here until
+    # 2026-09-22. It is NOT read as "this gateway takes no settings": that is
+    # what an empty `known_params` says, and the two are different claims. A
+    # caller offering a form gets nothing to offer and says so, rather than
+    # offering a free-text box it cannot validate.
+    params: tuple = ()
+
+    def tunable(self, name: str):
+        """The spec for one parameter, or None."""
+        for spec in self.params:
+            if spec.name == name:
+                return spec
+        return None
 
     @property
     def env_prefix(self) -> str:
@@ -140,6 +255,91 @@ def _read(path: Path) -> dict:
             f"{path.name} is not valid TOML ({exc}), so the gateway dialect it "
             f"describes is unavailable and no request can be built for it"
         ) from exc
+
+
+def _build_params(raw_params, raw: dict, path: Path) -> tuple:
+    """`[params.<name>]` tables into `ParamSpec`s, refusing what cannot be used.
+
+    Every refusal here is a setting that would otherwise be offered to an
+    operator and then not applied. That is the failure this whole layer exists
+    to prevent, so a definition that describes a setting wrongly does not load
+    at all - the alternative is a form with a control on it that spends an hour
+    of runtime and changes nothing.
+    """
+    if not isinstance(raw_params, dict):
+        raise ProviderError(
+            f"{path.name} has a 'params' that is not a table of settings. Write "
+            f"one [params.<name>] block per tunable parameter")
+
+    known = raw.get("known_params") or frozenset()
+    session = raw.get("session_param", "sid")
+    specs = []
+    for name in sorted(raw_params):
+        body = raw_params[name]
+        if not isinstance(body, dict):
+            raise ProviderError(
+                f"{path.name} writes params.{name} as {body!r} rather than a "
+                f"table. Write [params.{name}] with a kind and its values")
+        if name not in known:
+            # Offering a name the gateway does not know produces a username
+            # `build_username` refuses, so the run dies at the start of the
+            # matrix instead of here - much further from the typo.
+            raise ProviderError(
+                f"{path.name} describes params.{name} but does not list it in "
+                f"known_params, so nothing could ever send it. Add it there, or "
+                f"drop the block")
+        if name == "country" or (session and name == session):
+            # Both are axes of the run in their own right - country is a column
+            # of the matrix and the session id is drawn per identity. A form
+            # offering them as free settings would let one run pin a country on
+            # the country axis and a different one here, and the row would
+            # record both.
+            raise ProviderError(
+                f"{path.name} describes params.{name}, which is not a free "
+                f"setting: the harness owns that axis. 'country' is a column of "
+                f"the matrix and {session!r} is drawn per identity, so a value "
+                f"set here would contradict the one the run already chose")
+
+        kind = body.get("kind", "enum")
+        if kind not in PARAM_KINDS:
+            raise ProviderError(
+                f"{path.name} gives params.{name} kind {kind!r}. Use "
+                f"{list(PARAM_KINDS)}: 'enum' is a closed set that may be "
+                f"enforced, 'text' is one that may not")
+
+        seen, values = {}, []
+        for status in VALUE_STATUSES:
+            listed = body.get(status, [])
+            if isinstance(listed, str):
+                raise ProviderError(
+                    f"{path.name} gives params.{name}.{status} as a string. It "
+                    f"is a list of values, and a string here would be read one "
+                    f"character at a time")
+            for value in listed:
+                value = str(value)
+                if value in seen:
+                    # The whole point of the field is which evidence stands
+                    # behind the value, so two answers is no answer.
+                    raise ProviderError(
+                        f"{path.name} lists params.{name} value {value!r} as "
+                        f"both {seen[value]!r} and {status!r}. One value has one "
+                        f"provenance; say which, and put the rest in 'help'")
+                seen[value] = status
+                values.append(ParamValue(value=value, status=status))
+        if kind == "enum" and not values:
+            raise ProviderError(
+                f"{path.name} gives params.{name} kind 'enum' and lists no "
+                f"values, so the only thing it can offer is an empty choice. "
+                f"List what the gateway takes, or make it kind = \"text\"")
+
+        specs.append(ParamSpec(
+            name=name,
+            label=body.get("label") or name,
+            kind=kind,
+            help=body.get("help", ""),
+            placeholder=body.get("placeholder", ""),
+            values=tuple(values)))
+    return tuple(specs)
 
 
 def _build(name: str, raw: dict, path: Path) -> Provider:
@@ -176,6 +376,13 @@ def _build(name: str, raw: dict, path: Path) -> Provider:
             f"readable. Use one of {list(STATUSES)}: 'measured' means rows in "
             f"data/runs/ came through it, 'documented' means nobody here has run it"
         )
+    if raw.get("network", "") not in ("", *NETWORKS):
+        raise ProviderError(
+            f"{path.name} has network {raw['network']!r}, which names no product "
+            f"class this repository can group on. Use one of {list(NETWORKS)}, or "
+            f"leave it out - an unstated network is grouped on its own and never "
+            f"pooled with a class it might not belong to"
+        )
     transport = raw.get("param_transport", "username")
     if transport not in TRANSPORTS:
         raise ProviderError(
@@ -191,6 +398,8 @@ def _build(name: str, raw: dict, path: Path) -> Provider:
         )
     if "known_params" in raw:
         raw["known_params"] = frozenset(raw["known_params"])
+    if "params" in raw:
+        raw["params"] = _build_params(raw["params"], raw, path)
     if raw.get("country_any") and "country" not in raw.get("known_params", ()):
         raise ProviderError(
             f"{path.name} spells an unpinned country as "

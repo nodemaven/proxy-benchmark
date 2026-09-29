@@ -25,6 +25,18 @@ status = "documented"
 source = "URL of the vendor page this was read from"
 source_read = "YYYY-MM-DD"
 
+# "residential", "isp", "datacenter", "mobile", or left out.
+#
+# This decides which arms are allowed in one column, so it is worth more care
+# than it looks. An ISP pool and a residential pool are two product classes:
+# put an ISP row next to a residential one and the chart reads as one vendor
+# beating another, when what it is showing is the class.
+#
+# Leaving it out is a real answer and often the right one. An unstated network
+# is grouped on its own rather than assumed residential, because a guess that
+# happens to be correct is indistinguishable from one that is not.
+# network = "residential"
+
 # How a setting is spelled inside the proxy username. Most gateways take
 #     <prefix><separator><key><pair_separator><value><separator>...
 # which for `prefix = "{login}"`, both separators `-` gives

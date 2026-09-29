@@ -46,13 +46,14 @@ from nmbench.console import tolerate_unencodable_output
 # and the wrapper has no reconfigure of its own.
 tolerate_unencodable_output()
 
-from nmbench import config, engines, gateway, matrix, providers, proxy
+from nmbench import config, engines, gateway, matrix, providers, proxy, speed
 from nmbench import queries as querylist
 from nmbench.artifacts import ArtifactStore
 from nmbench.breaker import SessionBreaker, TransportWatch
 from nmbench.engines.base import validate_preset
 from nmbench.relay import Relay
 from nmbench.sink import RUNS_DIR, JsonlSink
+from nmbench.stop import EXIT_STOPPED, StoppedByOperator, StopWatch, dispose
 from nmbench.targets import TARGETS
 
 
@@ -154,10 +155,33 @@ def parse_args():
                              "recognised parameter belongs to the sticky "
                              "session key, so adding one selects a different "
                              "session and possibly a different slice of the pool")
+    parser.add_argument("--arm", action="append", default=[],
+                        metavar="KEY=VALUE[,KEY=VALUE]",
+                        help="a gateway setting to VARY rather than to hold, "
+                             "repeatable, one arm per flag. `--arm "
+                             "filter=medium --arm filter=high` runs both "
+                             "interleaved in one time window, which is the only "
+                             "way the difference between them is the filter and "
+                             "not the hour: a fresh residential exit is refused "
+                             "by some targets on its first requests and let in "
+                             "afterwards. An arm collapses for a gateway whose "
+                             "definition does not know every name in it, so a "
+                             "NodeMaven filter comparison can run beside a "
+                             "provider that has no filter")
     parser.add_argument("--resume", nargs="?", const="auto", default=None,
                         metavar="PATH",
                         help="skip attempts already judged, in the given file "
                              "or in the newest benchmark run")
+    parser.add_argument("--stop-file", default=None, metavar="PATH",
+                        dest="stop_file",
+                        help="a path to watch between attempts. When it "
+                             "appears the run closes the session it is in, "
+                             "writes a run_stopped row and leaves. The file may "
+                             "carry {\"keep\": \"discard\"}, which deletes this "
+                             "run's rows and bodies on the way out; anything "
+                             "else files them under data/runs/stopped/, where "
+                             "no chart reads them. Written by the dashboard's "
+                             "stop button and usable by hand")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and its cost, send nothing")
     parser.add_argument("--no-bodies", action="store_true",
@@ -184,7 +208,62 @@ def parse_args():
                              "incomparable with them without any column saying "
                              "so. Engines that cannot take a binary are refused "
                              "rather than run unpinned")
+    parser.add_argument("--speed-sessions", default=str(speed.DEFAULT_SESSIONS),
+                        metavar="N|all|off",
+                        help="download a fixed-size body through the first N "
+                             "sessions of the run and record the throughput. "
+                             "Bounded rather than unlimited because the cost is "
+                             "per session and session counts here run from 20 "
+                             "on a median run to 7627 on the largest, so a flat "
+                             "per-session download is 20 MB on a typical run "
+                             "and 7.6 GB on the big one. `all` lifts the cap, "
+                             "which is the arm for studying throughput itself "
+                             "rather than carrying it along; `off` disables it")
+    parser.add_argument("--speed-bytes", type=int, default=speed.DEFAULT_BYTES,
+                        metavar="N",
+                        help="size of that download in bytes. Changing it makes "
+                             "the new rows incomparable with the old ones on "
+                             "rate as well as on volume - a 1 MB transfer spends "
+                             "a larger share of its time in setup than a 10 MB "
+                             "one - so it is recorded on every row rather than "
+                             "assumed from this default")
+    parser.add_argument("--no-identity-recheck", action="store_true",
+                        help="stop re-reading the session's exit address at the "
+                             "middle and the end of each batch. The check is on "
+                             "by default because it is header-only: it opens a "
+                             "CONNECT, reads the reply and closes, which is the "
+                             "same handshake the run already pays once per "
+                             "session to resolve the exit, and it fetches no "
+                             "page - so it cannot warm the exit the way an echo "
+                             "request would. Two extra handshakes per session is "
+                             "what it costs. Turn it off when the question is "
+                             "the gateway's own connection count rather than "
+                             "what the exits did")
     return parser, parser.parse_args()
+
+
+def resolve_speed_budget(value: str) -> speed.Budget:
+    """`--speed-sessions` as a budget, refusing anything ambiguous.
+
+    A string rather than an int because two of the three useful settings are not
+    numbers, and spelling "no cap" as -1 or as 0 is exactly the kind of sentinel
+    that gets read the wrong way round by whoever writes the next caller. `off`
+    and `all` say which they are.
+    """
+    text = (value or "").strip().lower()
+    if text in ("off", "none", "no"):
+        return speed.Budget(0)
+    if text in ("all", "every", "unlimited"):
+        return speed.Budget(None)
+    try:
+        count = int(text)
+    except ValueError:
+        raise SystemExit(
+            f"--speed-sessions takes a number, `all` or `off`, not {value!r}"
+        ) from None
+    if count < 0:
+        raise SystemExit("--speed-sessions cannot be negative; use `off`")
+    return speed.Budget(count)
 
 
 def resolve_resume(value: str) -> list:
@@ -735,6 +814,51 @@ def main() -> int:
         parser.error("--direct sends nothing through the gateway, so --param "
                      "has nothing to act on")
 
+    # One arm per flag, comma-separated inside it. Validated per provider and
+    # not once, because the value vocabulary is a property of the definition -
+    # `filter=high` is on NodeMaven's whitelist and means nothing to Oxylabs.
+    arms = []
+    for item in args.arm:
+        pairs = [p for p in item.split(",") if p.strip()]
+        applicable = []
+        for name, provider in chosen.items():
+            try:
+                arm = proxy.parse_params(pairs, flag="--arm", provider=provider)
+            except proxy.ParamError as exc:
+                # Not every refusal is fatal here, and which one this is decides
+                # everything. A name the gateway does not know means the arm
+                # collapses for it, which is the designed behaviour and is how a
+                # filter comparison runs beside a provider that has no filter. A
+                # value the gateway does not take is a mistake in the request
+                # and is refused outright, because the arm would otherwise run
+                # and be answered 407 - or 200 with the setting dropped, which
+                # is worse, since the rows would describe a comparison that
+                # never happened.
+                if "unknown parameter" not in str(exc):
+                    parser.error(f"{exc} (provider {name})")
+                continue
+            applicable.append(arm)
+        if not applicable:
+            parser.error(
+                f"--arm {item!r} names nothing any selected gateway knows, so "
+                f"it would collapse for every one of them and the run would "
+                f"report a comparison that was never made. Selected: "
+                f"{sorted(chosen)}")
+        if applicable[0] in arms:
+            parser.error(
+                f"--arm {item!r} was given twice. Two identical arms are one "
+                f"cell after deduplication, so the run would look like a "
+                f"comparison and be a single measurement")
+        arms.append(applicable[0])
+    if args.direct and arms:
+        parser.error("--direct sends nothing through the gateway, so --arm has "
+                     "nothing to vary and every arm would be the same cell")
+    if len(arms) == 1:
+        parser.error(
+            "--arm given once varies nothing - it is --param with an extra "
+            "cell key. Give it twice to compare two settings in one window, or "
+            "use --param to hold one setting across the matrix")
+
     # One list per target, not one per run. Amazon asked "playwright vs
     # puppeteer" answers that it sells nothing of the sort, and that verdict
     # would be read as the shop letting us in or not.
@@ -756,7 +880,7 @@ def main() -> int:
     cells = matrix.build_cells(engine_names, target_names, preset=args.preset,
                                countries=countries, direct=args.direct,
                                headful=args.headful, geo=args.geo, extra=extra,
-                               chosen=chosen)
+                               chosen=chosen, arms=arms or None)
     resumed = resolve_resume(args.resume)
     # The one place a provider can change without `build_cells` seeing it. A cell
     # on the default gateway carries no provider segment in its key, so a run
@@ -812,8 +936,19 @@ def main() -> int:
     # see a transport failure. A cell breaker stops a cell and moves on, which
     # is the wrong reaction when what broke is shared by every cell.
     watch = TransportWatch()
+    stopper = StopWatch(args.stop_file)
+    # One budget for the run and not one per cell. Per cell it would multiply by
+    # the size of the matrix, which is the number that varies most between runs
+    # here - a 4-provider 3-engine 2-target matrix is 24 cells, and a 20-session
+    # cap would quietly become 480 downloads.
+    speed_budget = resolve_speed_budget(args.speed_sessions)
+    stopped = False
     rows = []
-    print(f"\nraw rows -> {sink.path}\n")
+    print(f"\nraw rows -> {sink.path}")
+    print(f"{speed_budget.describe()}, "
+          f"{args.speed_bytes / 1024 / 1024:.2f} MB each\n")
+    if stopper.path:
+        print(f"stop by creating {stopper.path}\n")
 
     try:
         for batch in batches:
@@ -821,6 +956,13 @@ def main() -> int:
             breaker = breakers[cell.key]
             if breaker.tripped:
                 continue
+            # Asked here as well as after each attempt, and the second place is
+            # not redundant. A batch opens a browser and an exit before it sends
+            # anything, so a stop that only fired after an attempt would pay for
+            # a whole session launch - the expensive part - after the operator
+            # had already pressed the button.
+            if stopper.check():
+                raise StoppedByOperator(stopper.reason)
 
             target = TARGETS[cell.target]
             # The cell names the provider only when the axis is varied, so the
@@ -850,6 +992,43 @@ def main() -> int:
             else:
                 identity = gateway.identify(provider=provider, **params)
             identity.update(registry.record(identity.get("exit_ip")))
+
+            # Point one of three. The reading is free: it is whatever `identify`
+            # already resolved above, so the start of the session costs nothing
+            # extra and only the middle and the end add a handshake.
+            #
+            # Off on the direct arm, and that is not a limitation being worked
+            # around. There is no gateway there and no sticky session to hold,
+            # so "did the exit rotate" is not a question the arm can be asked -
+            # writing a stable=True for it would put a control in the column
+            # that agrees with every treatment by construction, which is the
+            # shape of a probe that reports on itself.
+            checking = not args.no_identity_recheck and not cell.direct
+            identity_seen = ([("start", identity.get("exit_ip"))]
+                             if checking else [])
+
+            # The throughput reading, on this session's exit and before the
+            # browser starts, so the download and the page fetches are not
+            # competing for the same line. It is taken here rather than after
+            # the batch because a session's exit can change under a gateway that
+            # does not honour the sticky id, and a rate measured at the end
+            # would then belong to an address no row names.
+            #
+            # A refused budget writes nothing at all - not a zero and not a
+            # null-filled set of speed columns - so `speed_bytes` being absent
+            # means "not measured" and can never be read as "measured as slow".
+            measured_speed = {}
+            if speed_budget.take():
+                measured_speed = speed.measure(
+                    provider=None if cell.direct else provider,
+                    size=args.speed_bytes, direct=cell.direct, params=params)
+                if measured_speed.get("speed_error"):
+                    # Not fed to the breaker. A failed download says the
+                    # measurement did not happen; the session may still fetch
+                    # pages perfectly, and stopping a cell over an instrument
+                    # would throw away the run to protect a side channel.
+                    print(f"  {cell.key}: no speed reading - "
+                          f"{measured_speed['speed_error'][:80]}")
 
             timezone_id = identity.get("timezone")
             if aligning and not timezone_id:
@@ -939,7 +1118,27 @@ def main() -> int:
                                         "verdict_reason": reason})
                             continue
 
-                    for query in batch.queries:
+                    for position, query in enumerate(batch.queries):
+                        # The middle point of the three-point identity check,
+                        # taken before the attempt rather than after it so the
+                        # two ends of the batch are symmetric: the first reading
+                        # is also taken before any page was fetched. Taken after
+                        # a page would mean the middle reading and the end
+                        # reading both follow a fetch and the first does not,
+                        # which is a different interval on either side of it.
+                        #
+                        # `len // 2` and not a fraction of elapsed time. A batch
+                        # is a fixed list of queries and the sessions being
+                        # compared run the same list, so an index puts the
+                        # reading at the same place in every session; a clock
+                        # would put it earlier in a fast session, which is
+                        # exactly the sessions whose exits behave differently.
+                        if (checking and position
+                                and position == len(batch.queries) // 2):
+                            identity_seen.append(
+                                ("middle",
+                                 gateway.recheck_exit(provider=provider,
+                                                      **params)["exit_ip"]))
                         # Differenced across the attempt rather than reset,
                         # because a browser holds tunnels open on keep-alive and
                         # a reset would post one page's bytes to the next row.
@@ -961,7 +1160,25 @@ def main() -> int:
                             "exit_prefix": identity.get("exit_prefix"),
                             "exit_label": identity.get("exit_label"),
                             "exit_org": identity.get("org"),
+                            # The CONNECT timings, which cost nothing: this
+                            # handshake happened anyway to resolve the exit.
+                            # Absent on the echo path, which measures a
+                            # different distance and reports `echo_ms` instead -
+                            # see `gateway.echo`. A single column holding
+                            # whichever one the backend happened to produce
+                            # would make a provider's latency depend on which
+                            # of its two CONNECT implementations answered.
+                            "tcp_ms": identity.get("tcp_ms"),
+                            "connect_ms": identity.get("connect_ms"),
+                            "echo_ms": identity.get("echo_ms"),
                         })
+                        # Session-level, so it is copied onto every row of the
+                        # batch rather than onto the first. Repeated on each row
+                        # because the analysis groups by provider and cell and
+                        # would otherwise have to reconstruct which rows shared
+                        # a session - which is exactly the join this corpus
+                        # already gets wrong when a sid is missing.
+                        row.update(measured_speed)
                         if spent is not None:
                             # Sockets, not framework events, so this counts the
                             # same way for every engine and includes the header
@@ -1020,6 +1237,15 @@ def main() -> int:
                                         "verdict_reason": watch.reason})
                             raise TransportLost(watch.reason)
 
+                        # After the row is written, never before it. The attempt
+                        # has been sent and billed by the time this is reached,
+                        # so leaving without recording it would spend a request
+                        # and throw away its answer - which is the one thing a
+                        # stop must not do, since the question it asks the
+                        # operator is what to do with the rows.
+                        if stopper.check():
+                            raise StoppedByOperator(stopper.reason)
+
                         # The error string and not only the verdict: `error`
                         # covers both a target that would not answer and a
                         # tunnel that never opened, and telling those apart is
@@ -1028,11 +1254,28 @@ def main() -> int:
                         # the rest of a batch is always sent and the exit is
                         # always given its ten attempts.
                         time.sleep(breaker.record(row["verdict"], row["error"]))
-            except TransportLost:
+
+                    # Point three, inside the ExitStack so the session is still
+                    # open. Reading the exit after the browser has been torn down
+                    # would open a fresh tunnel against a session the gateway may
+                    # already have released, and a rotation found there would be
+                    # an artefact of the teardown rather than of the batch.
+                    if checking:
+                        identity_seen.append(
+                            ("end", gateway.recheck_exit(provider=provider,
+                                                         **params)["exit_ip"]))
+            except (TransportLost, StoppedByOperator):
                 # The transport, not this session. It ends the run, and it must
                 # reach the handler below rather than the catch-all added under
                 # it - a catch-all that swallowed this would leave the guard
                 # printing its verdict and the run carrying on regardless.
+                #
+                # The stop rides here for the same reason and it is the sharper
+                # case: the catch-all below costs one batch and continues, so a
+                # swallowed stop would be a button that ends the current session
+                # and then starts the next one. The operator would see the run
+                # carry on and press it again, and it would do the same thing
+                # again - a stop that is indistinguishable from doing nothing.
                 raise
             except engines.EngineUnavailable as exc:
                 # Preflight already refused the engines that cannot run at all,
@@ -1105,7 +1348,24 @@ def main() -> int:
                         "verdict_reason": outcome,
                         "exit_prefix": identity.get("exit_prefix"),
                         "exit_label": identity.get("exit_label"),
-                        "exit_org": identity.get("org")})
+                        "exit_org": identity.get("org"),
+                        # The three-point identity check, on the session row
+                        # rather than on the attempt rows, because the answer
+                        # does not exist until the session is over. Copying it
+                        # onto the attempts the way `speed` is copied would mean
+                        # either buffering the whole batch before writing any of
+                        # it - and losing every row if the process dies - or
+                        # writing early rows with a verdict about their own
+                        # session that was not known yet. `(cell, batch_index)`
+                        # is the join, and it is the same one the attempt rows
+                        # already carry.
+                        #
+                        # Written on every session including the ones where it
+                        # could not be measured, so `identity_read` is a column
+                        # with a denominator in it rather than a field that is
+                        # simply missing on the sessions that would be most
+                        # interesting to count.
+                        **gateway.summarise_identity(identity_seen)})
             if outcome == "unreachable":
                 # Said out loud at the session that produced it rather than
                 # only in the summary, because it is the reading the console
@@ -1123,12 +1383,27 @@ def main() -> int:
         # Already reported where it was detected, with the state that justified
         # it. Reaching here only means the browser has been closed.
         pass
+    except StoppedByOperator as exc:
+        # The browser is closed by the time this is reached, which is what the
+        # exception was for. The row goes in here rather than at the raise
+        # because there are two raise sites and one of them - the batch head -
+        # has no session to attribute it to.
+        print(f"\n{exc}")
+        sink.write({"verdict": "run_stopped", "verdict_reason": str(exc)})
+        stopped = True
     except KeyboardInterrupt:
         print("\ninterrupted. Nothing is lost: rerun the same command with")
         print(f"  --resume {sink.path}")
 
     if rows:
         summarise(rows, breakers)
+    if stopped:
+        # The summary above runs for a stopped run too. The operator has paid
+        # for those attempts whichever answer he gave, and a console that prints
+        # nothing after a stop makes "discard" look like it also discarded the
+        # question of what was measured.
+        print(dispose(sink, store, keep=stopper.keep))
+        return EXIT_STOPPED
     print(f"raw rows: {sink.path}")
     print(store.summary())
     return 0

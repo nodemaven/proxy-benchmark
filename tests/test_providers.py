@@ -71,14 +71,24 @@ def _value(value) -> str:
     return json.dumps(str(value))
 
 
-def define(directory, name, **fields):
-    """Write a definition and return its path. `None` removes a base field."""
+def define(directory, name, params="", **fields):
+    """Write a definition and return its path. `None` removes a base field.
+
+    `params` is appended as raw text rather than built from a mapping, and that
+    is deliberate: the `[params.<name>]` blocks are table headers, a TOML table
+    header captures every bare key that follows it, and their placement at the
+    end of a file is the thing that keeps `notes` from silently becoming a field
+    of the last block. A helper that assembled them from a dict would decide the
+    placement itself and no test could ever get it wrong.
+    """
     body = {**BASE, **fields}
     aliases = body.pop("aliases", None)
     lines = [f"{key} = {_value(v)}" for key, v in body.items() if v is not None]
     if aliases:
         lines.append("[aliases]")
         lines += [f"{key} = {_value(v)}" for key, v in aliases.items()]
+    if params:
+        lines.append(params)
     path = directory / f"{name}.toml"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -286,6 +296,26 @@ class TestRefusals:
         with pytest.raises(providers.ProviderError, match="measured"):
             providers.load("synth")
 
+    def test_a_network_outside_the_four_is_refused(self, definitions):
+        """A misspelling here does not fail, it puts the arm in a group of one
+        and the chart above it still draws. `resedential` would read as a
+        vendor nobody can compare rather than as a typo."""
+        define(definitions, "synth", **DIALECT, network="resedential")
+        with pytest.raises(providers.ProviderError, match="product class"):
+            providers.load("synth")
+
+    def test_an_unstated_network_loads_and_is_empty(self, definitions):
+        """Not a default of residential. The empty string is what every
+        consumer groups on its own, so a definition nobody has classified is
+        never pooled into a class it might not be in."""
+        define(definitions, "synth", **DIALECT)
+        assert providers.load("synth").network == ""
+
+    @pytest.mark.parametrize("value", providers.NETWORKS)
+    def test_each_named_network_loads(self, definitions, value):
+        define(definitions, "synth", **DIALECT, network=value)
+        assert providers.load("synth").network == value
+
     def test_an_unimplemented_transport_is_refused_rather_than_ignored(
             self, definitions):
         """A gateway taking its settings by port or by control API needs code. A
@@ -316,6 +346,215 @@ class TestRefusals:
         define(definitions, "synth", **DIALECT)
         with pytest.raises(providers.ProviderError, match="synth"):
             providers.load("nope")
+
+
+class TestTheLegalValuesAreData:
+    """`known_params` says which NAMES a gateway knows. `params` says which
+    VALUES it takes, which until 2026-09-22 lived only in the `notes` string.
+
+    The difference matters because of how these gateways answer a setting they
+    do not recognise. NodeMaven answers 200 and drops it, measured 2026-08-26
+    against a negative control carrying a name nobody implemented. So a form
+    offering a free-text box does not fail on a wrong value - it runs for an
+    hour and reports on a setting that was never applied, which is the one
+    failure that cannot be seen in the rows afterwards.
+    """
+
+    ENUM = """
+[params.ttl]
+label = "Sticky session TTL"
+kind = "enum"
+measured = ["1m"]
+accepted = ["5m"]
+documented = ["1h"]
+help = "Needs a unit."
+"""
+
+    def test_a_value_carries_the_evidence_behind_it(self, definitions):
+        """Three statuses and not a bool, because these files already draw the
+        distinction and a two-way split has to throw one reading away. `1m` was
+        sent and its effect seen; `5m` was answered in a way only a recognised
+        value produces and nothing was run through it; `1h` came off a vendor
+        page and was never probed - and on this gateway the vendor page has
+        been wrong, so that last one is not a weaker `measured`."""
+        define(definitions, "synth", **DIALECT, params=self.ENUM)
+        spec = providers.load("synth").tunable("ttl")
+        assert [(v.value, v.status) for v in spec.values] == [
+            ("1m", "measured"), ("5m", "accepted"), ("1h", "documented")]
+        assert [v.value for v in spec.measured_values] == ["1m"]
+
+    def test_the_values_are_ordered_by_evidence_and_not_by_the_file(
+            self, definitions):
+        """A form renders them in this order, so the strongest value is the
+        first one an operator reaches for. Written backwards in the file to
+        prove the order is the loader's and not the author's."""
+        backwards = ("\n[params.ttl]\nkind = \"enum\"\n"
+                     "documented = [\"1h\"]\naccepted = [\"5m\"]\n"
+                     "measured = [\"1m\"]\n")
+        define(definitions, "synth", **DIALECT, params=backwards)
+        spec = providers.load("synth").tunable("ttl")
+        assert [v.value for v in spec.values] == ["1m", "5m", "1h"]
+
+    def test_a_setting_whose_legal_values_nobody_wrote_down_offers_none(
+            self, definitions):
+        """`kind = "text"` with an empty `values` is the honest shape for a
+        recognised name whose vocabulary was never recorded. The alternative is
+        a dropdown of plausible-looking guesses, which is worse than no
+        dropdown on a gateway that answers a guess with 200."""
+        text = "\n[params.ttl]\nkind = \"text\"\nplaceholder = \"10m\"\n"
+        define(definitions, "synth", **DIALECT, params=text)
+        spec = providers.load("synth").tunable("ttl")
+        assert spec.values == () and spec.placeholder == "10m"
+
+    def test_a_definition_that_lists_no_values_says_so_rather_than_guessing(
+            self, definitions):
+        """Empty `params` is "the vocabulary has not been written down as data",
+        which was true of every file here until 2026-09-22. It is NOT "this
+        gateway takes no settings" - that is what an empty `known_params` says,
+        and reading the first as the second would hide every tunable a
+        competitor has."""
+        define(definitions, "synth", **DIALECT)
+        provider = providers.load("synth")
+        assert provider.params == ()
+        assert provider.known_params and provider.tunable("ttl") is None
+
+    def test_a_name_the_gateway_does_not_know_is_refused(self, definitions):
+        """Left to load, it reaches `build_username`, which refuses - so the run
+        dies at the start of the matrix, an hour and a redeploy away from the
+        typo that caused it."""
+        define(definitions, "synth", **DIALECT,
+               params="\n[params.filter]\nkind = \"text\"\n")
+        with pytest.raises(providers.ProviderError, match="known_params"):
+            providers.load("synth")
+
+    @pytest.mark.parametrize("name", ["country", "sid"])
+    def test_an_axis_the_harness_owns_is_refused(self, definitions, name):
+        """Both are already decided by the run: country is a column of the
+        matrix and the session id is drawn per identity. Offered as free
+        settings, one run could pin a country on the axis and a different one
+        here, and the row would record both."""
+        define(definitions, "synth", **DIALECT,
+               params=f"\n[params.{name}]\nkind = \"text\"\n")
+        with pytest.raises(providers.ProviderError, match="owns that axis"):
+            providers.load("synth")
+
+    def test_the_session_axis_is_refused_under_its_own_name(self, definitions):
+        """`sid` is not a literal here. A gateway spelling its session
+        parameter `session` has the same conflict, and a check written against
+        the NodeMaven spelling would miss it."""
+        define(definitions, "synth", **RENAMED_SESSION,
+               params="\n[params.session]\nkind = \"text\"\n")
+        with pytest.raises(providers.ProviderError, match="owns that axis"):
+            providers.load("synth")
+
+    def test_an_enum_with_no_values_is_refused(self, definitions):
+        """It can only render an empty choice. Either the values are known, in
+        which case list them, or they are not, in which case the honest kind is
+        `text` and the help says so."""
+        define(definitions, "synth", **DIALECT,
+               params="\n[params.ttl]\nkind = \"enum\"\n")
+        with pytest.raises(providers.ProviderError, match="empty choice"):
+            providers.load("synth")
+
+    def test_a_kind_outside_the_two_is_refused(self, definitions):
+        """`enum` may be enforced against the value an operator sends and
+        `text` may not, so a third spelling is a control nothing knows how to
+        validate."""
+        define(definitions, "synth", **DIALECT,
+               params="\n[params.ttl]\nkind = \"dropdown\"\nmeasured = [\"1m\"]\n")
+        with pytest.raises(providers.ProviderError, match="dropdown"):
+            providers.load("synth")
+
+    def test_a_status_written_as_a_string_is_refused(self, definitions):
+        """It is iterable, so it loads, and `measured = "1m"` becomes the three
+        values `1`, `m` and nothing else. A silently wrong vocabulary is the
+        exact failure this layer exists to stop."""
+        define(definitions, "synth", **DIALECT,
+               params="\n[params.ttl]\nkind = \"enum\"\nmeasured = \"1m\"\n")
+        with pytest.raises(providers.ProviderError, match="one character"):
+            providers.load("synth")
+
+    def test_one_value_under_two_statuses_is_refused(self, definitions):
+        """The whole point of the field is which evidence stands behind the
+        value, so two answers is no answer."""
+        define(definitions, "synth", **DIALECT,
+               params=("\n[params.ttl]\nkind = \"enum\"\n"
+                       "measured = [\"1m\"]\naccepted = [\"1m\"]\n"))
+        with pytest.raises(providers.ProviderError, match="one provenance"):
+            providers.load("synth")
+
+    def test_a_block_that_is_not_a_table_is_refused(self, definitions):
+        define(definitions, "synth", **DIALECT,
+               params="\n[params]\nttl = \"1m\"\n")
+        with pytest.raises(providers.ProviderError, match="rather than a"):
+            providers.load("synth")
+
+
+class TestTheShippedVocabularies:
+    """What the files actually offer. These pin the vocabulary against being
+    widened from a vendor page, which is the way it has gone wrong here before:
+    `norotate` came off the same dashboard generator as `speed` and `type`, and
+    of those three the gateway knows two."""
+
+    @pytest.mark.parametrize("name", providers.names())
+    def test_every_described_setting_is_one_the_gateway_knows(self, name):
+        provider = providers.load(name)
+        for spec in provider.params:
+            assert spec.name in provider.known_params
+
+    @pytest.mark.parametrize("name", providers.names())
+    def test_every_setting_says_something_a_reader_can_act_on(self, name):
+        """A control with no help on it is a control an operator sets from the
+        name alone, and these names do not carry their own meaning - `filter`
+        is an IP quality class and `type` chooses a carrier pool, which is a
+        different set of addresses and not a filter over the same one."""
+        for spec in providers.load(name).params:
+            assert spec.help.strip(), f"{name}.{spec.name} has no help"
+
+    @pytest.mark.parametrize("name", providers.names())
+    def test_a_measured_value_only_appears_on_a_measured_definition(self, name):
+        """A definition nobody has run cannot have seen a value do anything.
+        This is the cheap half of the provenance claim: it cannot confirm that
+        a `measured` value was measured, but it catches the whole class where a
+        transcribed file was filled in from a vendor page."""
+        provider = providers.load(name)
+        for spec in provider.params:
+            if spec.measured_values:
+                assert provider.measured, f"{name} is {provider.status}"
+
+    def test_the_filter_arm_names_the_one_value_the_corpus_was_run_through(self):
+        """Every run in data/runs/ used `filter=medium`. `low` and `high` answer
+        200 where a junk value answers 407, which puts them on the gateway's
+        whitelist and says nothing whatever about what they do to the exits - so
+        a filter comparison is a measurement to be made, not one to be quoted."""
+        spec = providers.load("nodemaven").tunable("filter")
+        assert spec.kind == "enum"
+        assert [v.value for v in spec.measured_values] == ["medium"]
+        assert sorted(v.value for v in spec.values) == ["high", "low", "medium"]
+
+    def test_speed_offers_no_values_because_none_were_ever_recorded(self):
+        """The name is recognised - 407 to a junk value where an unknown name
+        answers 200 - and it was found by reading the vendor's own dashboard
+        generator, which builds three of its four IP filter modes out of
+        `filter` and `speed` together. Which values it builds them from was
+        never written down. So this is the one place where an invented list is
+        most tempting and most expensive: the gateway answers a guess with 200
+        and drops it, and the run reports on a setting never applied."""
+        spec = providers.load("nodemaven").tunable("speed")
+        assert spec.kind == "text" and spec.values == ()
+
+    def test_the_documented_ttl_is_carried_as_documented_and_not_as_legal(self):
+        """The vendor's help pages give TTL in seconds and `ttl=60` is refused
+        407, which sends the operator to check credentials that are fine. The
+        unit forms are what both SDKs emit; only `1m` has been sent from here.
+        So the seconds spelling is absent and the rest are `documented`."""
+        spec = providers.load("nodemaven").tunable("ttl")
+        assert spec.kind == "text"
+        assert [v.value for v in spec.measured_values] == []
+        statuses = {v.value: v.status for v in spec.values}
+        assert statuses["1m"] == "accepted"
+        assert statuses["1h"] == "documented"
+        assert "60" not in statuses
 
 
 class TestSelection:
@@ -427,6 +666,25 @@ class TestTheShippedDefinitions:
         provider = providers.load(name)
         if provider.measured:
             assert provider.host and provider.port
+
+    @pytest.mark.parametrize("name", providers.names())
+    def test_a_measured_definition_states_its_network(self, name):
+        """A gateway rows exist for is a gateway that will appear in a column
+        beside another one, and `network` is the only thing deciding whether
+        that column is legitimate. An unstated network is allowed in general -
+        it is what `custom.toml` is - but not for a definition that has already
+        produced data, because that arm is already being drawn."""
+        provider = providers.load(name)
+        if provider.measured:
+            assert provider.network in providers.NETWORKS
+
+    def test_the_isp_arm_is_not_declared_residential(self):
+        """The one pinned pairing, and the reason the field exists: an ISP arm
+        and a residential arm in one column read as a vendor ranking when the
+        difference is the product class."""
+        assert providers.load("brightdata").network == "isp"
+        for name in ("nodemaven", "oxylabs", "decodo"):
+            assert providers.load(name).network == "residential"
 
     def test_the_template_is_itself_loadable(self):
         """It is excluded from `names()`, so nothing else would ever read it -

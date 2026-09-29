@@ -1,5 +1,8 @@
 # Decodo, residential. Formerly Smartproxy.
 label = "Decodo"
+# The vendor's word, read 2026-09-10, and unverified here for the same reason
+# as Oxylabs: no ASN was resolved behind this gateway from this tree.
+network = "residential"
 status = "measured"
 source = "probe_competitor_dialects.py phases 3/5/6/7, plus help.decodo.com/docs"
 source_read = "2026-09-10"
@@ -104,3 +107,64 @@ the caller can fix and which points at the request. NodeMaven answers 406 for
 paragraphs of `nodemaven.toml` exist purely to talk a reader out of the diagnosis
 our own status code gives them.
 """
+
+# The tunable settings as data. `country` and `sid` are absent because the run
+# already owns both axes. These blocks sit at the end of the file and have to
+# stay there: a TOML table header captures every bare key after it, so one placed
+# above `notes` would make `notes` a field of that block and drop it.
+#
+# All four are `text`. Only `state` has values behind it - two of fifty-odd - and
+# `city`, `zip` and `continent` have none at all, so there is no closed set here
+# to enforce. `continent` is the one where a guess looks safest and is not: the
+# spelling was never recorded, and a value this gateway does not recognise is
+# answered 400, which costs the cell rather than the hour but costs it silently
+# if the value happens to parse.
+[params.state]
+label = "State"
+kind = "text"
+placeholder = "us_texas"
+measured = ["us_california", "us_texas"]
+help = """\
+Decodo spells this `us_texas` where NodeMaven spells it `louisiana` and Bright \
+Data spells it `ny`, which is why the name is provider-native. Both values here \
+were measured 2026-09-10, phase 7: five rounds with a fresh session id each, \
+`us_california` landed in California 5/5 and `us_texas` in Texas 5/5, against a \
+no-region control that spread over 5 distinct states of 5. Worth knowing how \
+that reading was reached - phase 5 had found the name indistinguishable from one \
+nobody implemented, because its junk value was not refused, and only an \
+instrument that reads exits rather than status codes could separate \
+`free-form` from `dropped`. Any other state is untested."""
+
+[params.city]
+label = "City"
+kind = "text"
+placeholder = "los_angeles"
+accepted = ["los_angeles"]
+help = """\
+Parsed and value-checked - a junk value answers 400 where a good one answers \
+200, which is a positive on a gateway that answers 200 to anything it does not \
+know. `los_angeles` is the value that drew that 200 on 2026-09-10. It is \
+`accepted` and not `measured` because no run has asked for a city and no exit \
+was ever checked against one, so the gateway is known to recognise the value and \
+not to honour it."""
+
+[params.zip]
+label = "ZIP code"
+kind = "text"
+placeholder = "10001"
+accepted = ["10001"]
+help = """\
+Same reading as `city`: `10001` answered 200 on 2026-09-10 where a junk value \
+answers 400, and no run has ever sent one. Which countries it is accepted for is \
+not written down."""
+
+[params.continent]
+label = "Continent"
+kind = "text"
+placeholder = "na"
+accepted = ["na"]
+help = """\
+Same reading again, and the one where a guess looks safest and is not: `na` is \
+the only spelling that has ever drawn a 200 here, on 2026-09-10, and `europe`, \
+`eu` and `EU` are three guesses with nothing between them. The two-letter form \
+is what was sent, so start from that rather than from the word."""

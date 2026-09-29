@@ -1,5 +1,9 @@
 # Oxylabs, residential.
 label = "Oxylabs"
+# The vendor's own word for this endpoint, read 2026-09-10. Nothing here has
+# resolved the ASNs behind it, so this is transcription and the exit_org column
+# would be the thing that checks it.
+network = "residential"
 status = "measured"
 source = "probe_competitor_dialects.py phases 3/5/6/7, plus developers.oxylabs.io"
 source_read = "2026-09-10"
@@ -102,3 +106,48 @@ Oxylabs is on a subscription rather than pay-as-you-go traffic as of 2026-09-10,
 so a per-gigabyte comparison against the other two is shaped differently here and
 that has not been worked out.
 """
+
+# The tunable settings as data. `country` and `sid` are absent on purpose: both
+# are axes the run already owns, and a form offering them would let one run pin
+# a country on the matrix axis and a different one here.
+#
+# These blocks sit at the end of the file and have to stay there - a TOML table
+# header captures every bare key after it, so a `[params.x]` above `notes` would
+# make `notes` a field of that block and drop it from the definition.
+#
+# Both are `text` and not `enum`, and that is a claim about what is written down
+# rather than about the gateway: two US states were measured out of fifty-odd and
+# no city value was ever sent, so neither list is closed and neither may be
+# enforced. The measured values are offered as examples with their evidence
+# attached.
+[params.st]
+label = "State or region"
+kind = "text"
+placeholder = "us_california"
+measured = ["us_california", "us_texas"]
+help = """\
+Oxylabs spells this `us_california`, Decodo spells it `us_california`, Bright \
+Data spells it `ca` and NodeMaven spells it `california`, which is why the name \
+is provider-native and not shared - one value sent to four gateways would be \
+applied by one of them and answered 200 by the rest. Both values here were \
+measured 2026-09-10, phase 7: five rounds with a fresh session id each, \
+`us_california` landed in California 5/5 and `us_texas` in Texas 5/5, against a \
+no-region control that spread over 5 distinct states of 5. The control is what \
+makes those two readable - a concentrated pool would otherwise read as \
+obedience. Any other state is untested and this gateway answers a name it does \
+not know with 200 `OK`."""
+
+[params.city]
+label = "City"
+kind = "text"
+placeholder = "los_angeles"
+accepted = ["los_angeles"]
+help = """\
+Recognised and value-checked - a junk value answers 400 `Bad Request` where the \
+baseline answers 200, which is a positive on a gateway that answers 200 to \
+anything it does not know. `los_angeles` is the value that drew that 200, on \
+2026-09-10, and it is `accepted` and not `measured`: no run has asked for a city \
+and no exit was ever checked against one, so what is known is that the gateway \
+recognises the value, not that it honours it. The fold is an underscore here and \
+Bright Data writes the same city `sanfrancisco` with the space removed, which is \
+why this name is not shared."""
