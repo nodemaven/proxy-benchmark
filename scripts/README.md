@@ -8,8 +8,10 @@ Three folders, split by one question: **can this file spend money?**
 | `analysis/` | never | aggregation over `data/runs/`, offline, no credentials |
 | `tools/` | never | generators and repair passes for committed inputs |
 
-`benchmark.py` sits at the top level of this folder because it is the matrix
-runner and belongs to neither half.
+Three files sit at the top level because they belong to neither half:
+`benchmark.py`, the matrix runner; `run_ladder.py`, which supervises an
+unattended warm-up ladder; and `engine_table.py`, which writes the engine table
+in the top-level README.
 
 The split is the point. A reader deciding whether to run something should not
 have to read it first, and a folder name is the cheapest place to put that.
@@ -57,7 +59,10 @@ reproduce the tables quoted in [NOTEBOOK.md](../NOTEBOOK.md) on a fresh clone wi
 account, which is what makes those tables checkable rather than believable.
 
 `peek.py` prints one run file. `calibrate.py` is what `--dry-run` quotes
-megabytes from.
+megabytes from. `results_tables.py` writes `RESULTS.md` and the generated blocks
+of the top-level README - `make docs` runs it. `filter_arms.py` reads short
+`filter` runs as strata rather than pooling one long run whose arms drift apart
+in time.
 
 ## tools/
 
@@ -68,5 +73,8 @@ same inputs.
 `redact_runs.py` replaces exit addresses with their /24 in rows written before
 that was enforced at the single point every live row now passes through. Run it
 before pushing a fork, and again after adding anything that stores a gateway
-reply: the guard has failed twice, and both times the address arrived nested
-inside a field nothing walked.
+reply, because an address nested inside a stored reply is the case to check.
+
+`backfill_throttle_verdict.py` relabels historical Amazon rows from `block` to
+`throttle` by their verdict reason, which did not change, so rows written before
+and after the split carry one spelling.

@@ -1,16 +1,15 @@
 # The rows
 
-Every measurement this repository has ever made, one JSONL row per attempt, one
-file per run. Counted 2026-08-19: 143 files, 3,701 rows, 4.3 MB, covering
-2026-08-10 to 2026-08-18. Every count on this page carries that date because the directory
-grows, and a number without a date is the thing this repository is against.
+Every measurement this repository publishes, one JSONL row per attempt, one file
+per run: 251 files and 18,838 rows, plus 4 quarantined files under `invalid/`,
+23.6 MB in all, covering 2026-08-10 to 2026-09-17.
 
 ## Contents
 
 - [Why they are here when you are going to measure your own](#why-they-are-here-when-you-are-going-to-measure-your-own)
-- [Masking](#masking) - what is replaced, and the two times the guard failed
+- [Masking](#masking) - what is replaced, and how it is enforced
 - [Filename prefixes](#filename-prefixes) - which script wrote which file
-- [invalid/](#invalid) - the quarantined run, kept rather than deleted
+- [invalid/](#invalid) - the quarantined runs, kept rather than deleted
 - [Reading a run](#reading-a-run) - four offline commands, and the four columns
   that are easy to misread
 
@@ -19,9 +18,7 @@ not a baseline for you to compare your own numbers against.
 
 They are committed on purpose. Every claim in `NOTEBOOK.md` and in the top-level
 README names the run it came from, and a claim whose evidence is not in the
-repository is a claim a forker has to take on trust. Several of those claims are
-corrections of an earlier one in the same file, and the corrections were only
-possible because the original rows were still there to re-read.
+repository is a claim a forker has to take on trust.
 
 ## Why they are here when you are going to measure your own
 
@@ -69,12 +66,9 @@ Nothing analytic is lost. No analysis script reads a full address back out; they
 read `exit_prefix` and `exit_label`, and every claim that counts distinct exits
 counts distinct /24s.
 
-Two facts about that guard are worth knowing before trusting it. It has failed
-twice. The first time, the rule was documented and not enforced and five scripts
-wrote the full address anyway. The second time, both the guard and the repair
-tool walked only the top level of the row, so twelve `dsl_probe` rows storing the
-gateway's CONNECT reply under `headers` published four addresses under a check
-that asserted none existed. Both are fixed and both are pinned by a test.
+The check walks nested fields as well as the top level of every row, because a
+stored gateway reply - a CONNECT response kept under `headers` - is where an
+address hides.
 
 If you fork this and run your own experiments, run `redact_runs.py` before you
 push, and run it again after adding a script that touches a gateway reply.
@@ -83,14 +77,20 @@ push, and run it again after adding a script that touches a gateway reply.
 
 | Prefix | Files | Written by | What it holds |
 |---|---|---|---|
-| `benchmark_` | 44 | `scripts/benchmark.py` | the matrix runs: engine x target x gateway parameters, interleaved, one row per attempt |
-| `gateway_health_` | 45 | `probes/gateway_health.py` | CONNECT probes with no browser: is the gateway usable right now |
-| `probehold_` | 19 | `probes/probe_and_hold.py` | the front-page entry protocol: one exit per identity, probe, then hold |
-| `engine_fingerprint_` | 10 | `probes/engine_fingerprint.py` | 21 markers per engine, read on `about:blank`, sends nothing |
+| `benchmark_` | 50 | `scripts/benchmark.py` | the matrix runs: engine x target x gateway parameters, interleaved, one row per attempt |
+| `gateway_health_` | 49 | `probes/gateway_health.py` | CONNECT probes with no browser: is the gateway usable right now |
+| `probehold_` | 60 | `probes/probe_and_hold.py` | the front-page entry protocol: one exit per identity, probe, then hold |
+| `engine_fingerprint_` | 18 | `probes/engine_fingerprint.py` | 21 markers per engine, read on `about:blank`, sends nothing |
 | `availability_` | 7 | a script that no longer exists | Camoufox pass rates, 2026-08-10 and 11 |
-| `google_429_` | 6 | `probes/google_429.py` | the five-step layer isolation against Google |
-| `tls_echo_` | 3 | `probes/tls_echo.py` | JA4, JA3, HTTP/2 fingerprint and cipher counts per engine |
+| `google_429_` | 5 | `probes/google_429.py` | the five-step layer isolation against Google |
+| `tls_echo_` | 6 | `probes/tls_echo.py` | JA4, JA3, HTTP/2 fingerprint and cipher counts per engine |
+| `marketplace_recon_` | 23 | `probes/marketplace_recon.py` | candidate targets: bodies captured before any verdict rule was written for them |
+| `surfaces_` | 14 | `probes/google_surfaces.py` | which Google surfaces answer a pool exit, and which do not |
+| `b2b_recon_` | 3 | `probes/b2b_recon.py` | business-directory sites: bodies captured before verdict rules were written |
+| `tls_clienthello_` | 3 | `probes/tls_clienthello.py` | each engine's ClientHello read by a local listener, no live host |
 | `walmart_recon_` | 2 | `probes/walmart_recon.py` | 33 bodies captured before any Walmart verdict rule was written |
+| `param_order_` | 2 | `probes/param_order.py` | does the sticky session key on the parsed parameter set or on the username |
+| `sid_separator_` | 2 | `probes/sid_separator.py` | does a value carrying the separator reach the gateway whole |
 | `dsl_probe_` | 2 | a script that no longer exists | the gateway parameter DSL: what each malformed input returns |
 | `screen_override_` | 1 | `probes/screen_override.py` | device metrics override on and off, alternating by session |
 | `rtt_gap_` | 1 | `probes/rtt_gap.py` | TCP-versus-TLS round trip gap |
@@ -120,7 +120,7 @@ went would hide the evidence rather than tidy it.
 
 ## invalid/
 
-One quarantined file, with its own README explaining the defect. Rows produced
+Four quarantined files, with their own README explaining each defect. Rows produced
 by a broken instrument are kept, because deleting them hides the defect, and
 moved, because `analyze_429.py` must not read them as evidence.
 
@@ -136,9 +136,9 @@ All four are offline. None of them sends anything or needs credentials.
 The columns are defined by `ROW_FIELDS` in `nmbench/engines/base.py`, and the
 comments there say why each one exists. Four are easy to misread:
 
-- **`verdict`** is `ok, captcha, consent, block, empty, error` and never a
-  boolean. `empty` means our client came up short, `block` means the target
-  refused, and `error` means the attempt never produced evidence at all.
+- **`verdict`** is `ok, captcha, consent, block, throttle, empty, error` and
+  never a boolean. `empty` means our client came up short, `block` means the
+  target refused the address, `throttle` is Amazon's throttle page, and `error` means the attempt never produced evidence at all.
 - **`bytes`** is two different measurements and `relayed` says which: socket
   counts from the relay, or page-resource counts from `page.route`. Never pool
   them, and do not treat the second as a slightly smaller version of the first.

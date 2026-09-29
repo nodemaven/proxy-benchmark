@@ -60,7 +60,7 @@ baseline here.
 reCAPTCHA page arrived once as 429 and once as 200; a run judged by status would
 have scored the second as a success. There is no boolean `success` column
 anywhere and there must not be one - the enum is `ok, captcha, consent, block,
-empty, error`, and `judge` returns the reason alongside it so a disagreement is
+throttle, empty, error`, and `judge` returns the reason alongside it so a disagreement is
 settled by re-reading rows rather than by asking the target again.
 
 **`error` is ours and `block` is the target's.** An attempt that threw produced no
@@ -151,9 +151,9 @@ it answers both with a status that names neither.
 
 **`status` is load-bearing, not bookkeeping.** `documented` means the dialect was
 transcribed from the vendor's own fetched documentation on the date recorded and
-nothing here has ever sent a byte through it. `measured` means rows exist in
-`data/runs/`. Promote it in the same commit that adds the first run and not
-before. Never write a dialect from memory: an invented username format is an
+nothing here has ever sent a byte through it. `measured` means traffic has been
+sent through it with this dialect and the gateway was seen to honour it. Promote
+it then and not before. Never write a dialect from memory: an invented username format is an
 invented technical claim about somebody else's product, and it fails silently,
 because at least one gateway answers an unrecognised parameter name with 200 and
 the setting quietly dropped.
@@ -167,8 +167,8 @@ attempt draws a fresh exit while every row records one held session.
 
 This is a shared production pool on a company account, not a lab.
 
-**The circuit breaker is not an error handler.** N consecutive failures stop a
-cell and it stays stopped. There is no "error, new sid, retry" path in this
+**The circuit breaker is not an error handler.** N consecutive sessions with
+nothing served stop a cell and it stays stopped. There is no "error, new sid, retry" path in this
 repository and a patch adding one will not be merged: every retry after a refusal
 confirms automation to the target and degrades the exit ranges for every other
 customer on the account.

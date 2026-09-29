@@ -180,8 +180,8 @@ def parse_args():
                              "carry {\"keep\": \"discard\"}, which deletes this "
                              "run's rows and bodies on the way out; anything "
                              "else files them under data/runs/stopped/, where "
-                             "no chart reads them. Written by the dashboard's "
-                             "stop button and usable by hand")
+                             "no chart reads them. Written by a supervisor "
+                             "or by hand")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and its cost, send nothing")
     parser.add_argument("--no-bodies", action="store_true",

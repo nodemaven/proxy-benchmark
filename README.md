@@ -100,8 +100,13 @@ This asks the question with a control instead:
 The output that matters is not "this request passed". It is: this variable
 changed, these did not, and the outcome moved with it.
 
-Three of the answers that came back, each with its denominator and its run file:
+Four of the answers that came back, each with its denominator and its run file:
 
+- **Warming an exit took Google from 20% to 84%.** Six pages of warm-up before
+  the query, interleaved with a cold arm inside the same runs: 20.0% (33/165)
+  cold against 84.4% (152/180) at the deepest rung, pooled over three separate
+  days, z = 12.0. One page of warm-up moved nothing.
+  [The ladder](#the-warm-up-ladder)
 - **The unmodified browser finished in the leading group on Amazon.** Stock
   Chromium 96% (419/436) against 63% (288/457) for the lowest anti-detect
   engine, over 3530 judged attempts. Six engines sit within four points at the
@@ -118,8 +123,7 @@ Three of the answers that came back, each with its denominator and its run file:
   no target ever sees.
   [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
 
-[The rest of them](#research-findings), including the five that replaced an
-earlier conclusion of ours.
+[The rest of them](#research-findings).
 
 ## Contents
 
@@ -132,16 +136,13 @@ earlier conclusion of ours.
 | **The experiments** | [Front-page entry](#entering-through-the-front-page) · [The warm-up ladder](#the-warm-up-ladder) · [Bringing your own proxy](#bringing-your-own-proxy) · [Adding a provider](#adding-a-provider) · [The axes](#the-axes) |
 | **Checking the work** | [Reproduce these numbers](#reproduce-these-numbers) · [Repository layout](#repository-layout) · [Contributing](#contributing) |
 
-All 22 sections are here rather than the popular ones, because the sections a
-reader most needs are usually the ones a hand-picked list leaves out. Every
-anchor above is checked by `test_every_link_inside_the_repository_resolves`,
-which exists because an earlier index in this file spent a day pointing at a
-heading that had been deleted.
+All 22 sections are listed, and every anchor above is checked by
+`test_every_link_inside_the_repository_resolves`.
 
 ## Quickstart
 
 A real measurement, no proxy account, no browser download. Three packages, and
-31 s to run on a fresh clone measured 2026-08-27.
+about 30 s to run on a fresh clone.
 
     git clone https://github.com/nodemaven/proxy-benchmark && cd proxy-benchmark
     python -m venv .venv
@@ -176,14 +177,13 @@ to be read before the first run:
 |---|---|
 | `README.md` | what the harness does, how the experiment is structured, the headline findings, and every command |
 | [`RESULTS.md`](RESULTS.md) | the full tables: denominators, Wilson intervals, Fisher tests, run ids, engine by engine and day by day. Generated from the rows |
-| [`NOTEBOOK.md`](NOTEBOOK.md) | how each result was arrived at, what was varied and what was silently held fixed, **and where an earlier conclusion of ours turned out to be wrong** |
+| [`NOTEBOOK.md`](NOTEBOOK.md) | how each result was arrived at: what was varied, what was held fixed, and the run behind every number |
 | [`docs/quickstart.md`](docs/quickstart.md) | an empty machine to a first measurement, step by step: Python, git, venv, dry-run, browsers, proxies, reading verdicts |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | adding an engine, a target or a provider, and the rules that are not obvious from the code |
 
-Want the numbers - `RESULTS.md`. Want to know how they were arrived at, including
-the ones we got wrong first - `NOTEBOOK.md`. Never used a terminal -
-`docs/quickstart.md` assumes nothing; this file assumes you know what a
-ClientHello is.
+Want the numbers - `RESULTS.md`. Want to know how they were arrived at -
+`NOTEBOOK.md`. Never used a terminal - `docs/quickstart.md` assumes nothing;
+this file assumes you know what a ClientHello is.
 
 ## What it measures
 
@@ -213,7 +213,7 @@ Only the first is per-attempt; the other two are per-engine and are the ones to
 re-run after a browser upgrade. `tls-echo` is the only route to `obscura`, which
 refuses to navigate to `localhost` at all, and the only route to the HTTP/2
 SETTINGS hash and header order, which a listener that answers nothing cannot
-provoke. Cross-checked 2026-09-02 on this host: the eight engines both probes
+provoke. Cross-checked on one host: the eight engines both probes
 reach agree character for character.
 
 ## How the experiment is structured
@@ -263,10 +263,12 @@ Any of them takes a `:direct` suffix, which runs that engine around the gateway 
 
 <!-- ENGINES:END -->
 
-Six targets, chosen because they fail differently rather than because they are
-popular: `google_serp`, `bing_serp`, `ddg_serp`, `amazon_search`,
-`walmart_search`, and `ipinfo` - which is not a target but an echo service, used
-to prove the path works before anything is concluded from a refusal.
+Four targets carry the published results, chosen because they fail differently
+rather than because they are popular: `google_serp`, `amazon_search`,
+`bing_serp` and `ddg_serp`. `ipinfo` sits beside them and is not a target but an
+echo service, used to prove the path works before anything is concluded from a
+refusal. The registry in `nmbench/targets.py` holds a few more that do not yet
+have enough rows to say anything.
 
 ## What the rows carry
 
@@ -286,8 +288,9 @@ scores the second as a success. There is no boolean `success` column:
 |---|---|
 | `ok` | the target returned the page that was asked for |
 | `captcha` | a challenge stood in front of the result |
-| `consent` | a consent or cookie wall stood in front of the result |
-| `block` | the target refused explicitly |
+| `consent` | a consent or cookie wall stood in front of the result and could not be cleared |
+| `block` | the target refused the address outright |
+| `throttle` | Amazon's throttle page: the address is refused rather than the browser challenged |
 | `empty` | a body arrived and the result was not in it |
 | `error` | the attempt never completed - the harness, never the target |
 
@@ -302,17 +305,24 @@ The last two are the ones that decide whether a benchmark measures anything:
   verdict. A harness that counts its own crashes as target refusals can
   manufacture a very convincing result while measuring almost nothing.
 
-Seven more columns are easy to misread:
+`throttle` is kept apart from `block` because on Amazon it is most of what a
+refusal is: 476 of the 704 refused Amazon rows are the throttle page
+(`ref=cs_503`). It arrives with status 503 on 397 of them and 200 on 59, so it is
+read from the body like every other verdict.
 
-- **`host` was added on 2026-09-02, so an absent one means "nobody wrote it
-  down", not "the machine was unknown".** Every row before that date is
-  attributed to a machine by its timestamp, which works only because the two
-  machines here happened to run at different times - host and date are one
-  variable under two names in every table built from those rows. This matters
+A consent page is cleared where the target declares how, by pressing its reject
+button, and `consent_dismissed` on the row says it happened. `consent` is what is
+left when it could not be.
+
+Nine more columns are easy to misread:
+
+- **An absent `host` means "not recorded", not "the machine was unknown".**
+  Older rows carry no `host` and are attributed to a machine by their timestamp,
+  so on those rows host and date are one variable under two names. It matters
   more than a provenance column usually would: the largest unexplained result in
   this repository is a difference between two computers, 39% (24/61) against 0%
   (0/84) at p = 3.7e-11 on the same target, engine, entry shape and gateway
-  parameters, and nothing on disk could name which computer. `host_os` and
+  parameters. `host_os` and
   `host_cpus` sit beside it because a label groups rows and does not explain
   them. Set `NMBENCH_HOST` to the machine's name in the notes; unset, the column
   holds a hash of the hostname, because these files are public and a hostname
@@ -323,10 +333,11 @@ Seven more columns are easy to misread:
   `zendriver`, `seleniumbase` and `botasaurus`. The Playwright-driven engines
   take proxy credentials directly and never send a handshake through this
   process, so their rows carry `null` and the `relayed` column beside it says
-  why. Measured 2026-09-02 over `data/runs/`, that is 3815 of 16579 attempt
-  rows. The fingerprint is computed in `nmbench/tlsfp.py` rather than asked of
-  an echo service, and it was checked against one: on the same client,
-  `tls.peet.ws` and this repository agree character for character.
+  why. The column postdates every committed benchmark run, so there it is
+  empty; the marketplace recon rows carry it. The fingerprint is computed in
+  `nmbench/tlsfp.py` rather than asked of an echo service, and it was checked
+  against one: on the same client, `tls.peet.ws` and this repository agree
+  character for character.
 
   Every engine can still be fingerprinted, off the run, with
   `python scripts/probes/tls_clienthello.py`. It points each engine in turn at
@@ -334,7 +345,7 @@ Seven more columns are easy to misread:
   spends no traffic, and it reaches the Playwright-driven engines the relay
   route cannot.
 - **A JA4 is a property of the browser build at least as much as of the
-  engine.** Measured 2026-09-02 with the `chromium` engine and nothing varied
+  engine.** Measured with the `chromium` engine and nothing varied
   but the binary: Playwright's bundled Chromium 151.0.7922.34 gives
   `t13d1516h2_8daaf6152771_806a8c22fdea`, and the installed Chrome
   149.0.7827.201, reached with `--channel chrome`, gives
@@ -354,10 +365,8 @@ Seven more columns are easy to misread:
   nothing has to know a target's name.
 - **A batch is one session, and a session is the unit.** Ten queries through one
   browser is one identity doing ten searches; ten browsers doing one query each
-  is a different experiment. The claim has been false once - until 2026-08-11
-  Camoufox opened a fresh context per query and discarded its cookie jar while
-  every other engine carried one - and `session-continuity` is the offline probe
-  that caught it.
+  is a different experiment. `session-continuity` is the offline probe that
+  checks every engine keeps one cookie jar across a batch.
 - **`bytes` is two measurements and `relayed` says which.** Playwright engines
   count through `page.route` and see page resources; the relay counts sockets and
   sees request headers and TLS overhead as well. Never pool them. The relay figure
@@ -369,6 +378,17 @@ Seven more columns are easy to misread:
   rate cannot be told apart from the target letting everything through.
   `tests/test_engines.py` reads the source of `ChromiumEngine.open` and fails if
   `args=` or `user_agent` appear.
+- **Whether the exit held is on the `session_closed` row, not on the
+  attempts.** The exit is read before the first query, before the middle one
+  and after the last; `identity_stable` and `identity_changed_at` say whether
+  it moved, and `(cell, batch_index)` joins the answer back to the attempts.
+- **`speed_*` is sampled, and `connect_ms` is not `echo_ms`.** The first 20
+  sessions of a run time a fixed 1 MB download (`--speed-sessions`) and their
+  rows carry it; the rest carry null. `tcp_ms` is the distance to the gateway
+  and `connect_ms` what the gateway took to reach an exit, and both exist only
+  where the gateway reports the exit in its CONNECT reply. Where the exit is
+  read through an echo service the row has `echo_ms`, a longer path kept under
+  its own name.
 
 **Response bodies are kept, gzipped.** A verdict is one word about 92 KB of
 markup, and the question that decides a report is usually asked after the run.
@@ -414,7 +434,7 @@ generated from the files and a test fails when the badge and the files disagree.
 
 ## Research findings
 
-Everything below was measured with this harness between 10 August and 1 September
+Everything below was measured with this harness between 10 August and 17 September
 2026, and none of it is a standing fact about the internet: a target's defences
 move, so a rate measured in that window is evidence about that window. The dates
 sit here once rather than on each line, because a reader deciding whether to
@@ -427,6 +447,12 @@ section each line links to along with the date it stopped being true.
   At one profile per attempt that is about 43 GB per thousand attempts, billed
   as residential traffic, for a file no target ever sees.
   [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
+- **On Amazon, most refusals were one throttle page, not a refused address.**
+  476 of the 704 refused Amazon rows are Amazon's throttle page. It arrives with
+  status 503 on 397 of them, 200 on 59 and no status on 20, so a count by status
+  misses one in six. It is its own verdict here, `throttle`, and `block` is what
+  is left: an address refused outright.
+  [The verdicts](#what-the-rows-carry)
 - **On Amazon the unmodified browser finished in the leading group.** Stock
   Chromium 96% (419/436) against 63% (288/457) for the lowest anti-detect
   engine, over 3530 judged Amazon attempts in one 7630-row run. Six engines sit
@@ -455,7 +481,7 @@ section each line links to along with the date it stopped being true.
   per connection, so a JA3 difference between two Chromium engines is noise.
   [What was read](NOTEBOOK.md#the-handshake-was-read-and-it-is-not-the-discriminator)
 - **None of the Chromium-driving engines changes its TLS fingerprint, and the
-  fingerprint tracks the Chrome version instead.** Measured 2026-09-02 over nine
+  fingerprint tracks the Chrome version instead.** Measured over nine
   engines on one host: `rebrowser` on Chrome 136, `cloak` on 146 and
   `seleniumbase` on 149 emit one identical JA4, `chromium` and `patchright` on
   151 emit a different one, and the split follows the browser version with
@@ -470,16 +496,13 @@ section each line links to along with the date it stopped being true.
   57% down to 9%, p = 0.0008. Two engines is a thin basis for a rule, but
   nothing measured here argues for switching it on.
   [Both arms](NOTEBOOK.md#the-axes-and-the-capabilities-that-are-refused-rather-than-dropped)
-- **Our own harness was getting the pool banned.** One unauthenticated CONNECT
-  per session, sent by the browser before anything else, was tripping an IP ban
-  that looked like a gateway floor for days.
+- **The harness tripped the gateway's IP ban by itself.** One unauthenticated
+  CONNECT per session, sent by the browser before anything else, is counted by
+  the gateway and banned on a threshold, and it reads as a failure floor of the
+  gateway.
   [How it was found](NOTEBOOK.md#the-floor-was-an-ip-ban-and-this-harness-was-tripping-it-itself)
 - **One page of warm-up moved nothing in our window.** 32% against 30%,
-  intervals almost coincident. This refutes nobody: the protocol came to us from
-  an operator, and the 75% that travels with it was mentioned in conversation as
-  a figure once reached - not as a before-and-after pair, and with no
-  denominator behind it. What our arm rules out is one page, which is what the
-  ladder now goes past.
+  intervals almost coincident. The ladder below goes past one page.
   [The ladder](#the-warm-up-ladder)
 - **Six pages of warm-up moved a great deal, and it held on three separate
   days.** Four rungs interleaved inside one run, because the hour is the largest
@@ -500,15 +523,6 @@ section each line links to along with the date it stopped being true.
   `data/runs/probehold_20260831T222129Z.jsonl`,
   `data/runs/probehold_20260901T210934Z.jsonl`,
   `data/runs/probehold_20260904T000605Z.jsonl`
-
-**Five of these eleven replaced an earlier claim of ours, and both versions are
-still in the notebook** - Amazon, the warm-up, the Google levels, the idle
-traffic and the ban. The Amazon one reversed outright: on a workstation in early
-August, Camoufox was served 90% while every Chromium engine met the throttle,
-which read as a Firefox-against-Chromium result. On the server the unmodified
-control came out on top and the Firefox reading was gone. A number here is a
-reading of the hours it was taken in, and the ones that changed are labelled
-rather than quietly edited.
 
 ## Setup
 
@@ -608,15 +622,7 @@ is served. Read the result with `scripts/analysis/held.py`.
 ### The warm-up ladder
 
 The operator's protocol above includes opening a page or two on the target before
-asking it anything, and a figure of 75% travels with it. Measured here, one page
-moved 32% to 30%.
-
-Be careful what that is being compared against, because this document was not for
-two days. The 75% reached us in conversation, as a number an operator had once
-seen on their own pool, country mix and hour. It was never stated as a
-before-and-after pair, so there is no 20%-to-75% effect to fail to replicate and
-no claim of anyone's to refute. What this arm has is its own denominator, and
-that is all it has.
+asking it anything. Measured here, one page moved 32% to 30%.
 
 That result has two readings and one arm cannot tell them apart: either warming
 does nothing, or **one page is not warming**. `--warm` is a ladder rather than a
@@ -624,7 +630,7 @@ switch so the second reading gets a denominator.
 
 | rung | what it opens | what a gap to the rung below isolates |
 |---|---|---|
-| `L0` | nothing. The exit meets the target for the first time at the probe | the baseline every row taken before 2026-08-26 was measured at |
+| `L0` | nothing. The exit meets the target for the first time at the probe | the baseline |
 | `L1` | one page of the target's own | whether being seen once before the query is worth anything |
 | `L2` | several of the target's surfaces, on more than one host | one visit against several. Separates "seen at all" from "seen more than once" |
 | `L3` | `L2`, preceded by third-party pages | whether an exit is better off arriving from somewhere else. The third-party pages carry the target's own analytics and ad tags, so the exit is reported to its infrastructure without a navigation to it |
@@ -743,9 +749,9 @@ names. So it is a file rather than a module - data cannot branch, and
 `tests/test_repository.py` reads the runner's source and fails if it ever compares
 against a provider name.
 
-    cp data/providers/_template.toml data/providers/oxylabs.toml
-    # fill in the dialect, then set OXYLABS_LOGIN and OXYLABS_PASSWORD in .env
-    python scripts/benchmark.py --providers nodemaven,oxylabs \
+    cp data/providers/_template.toml data/providers/yourvendor.toml
+    # fill in the dialect, then set YOURVENDOR_LOGIN and YOURVENDOR_PASSWORD in .env
+    python scripts/benchmark.py --providers nodemaven,yourvendor \
         --engines patchright --targets google_serp --queries 40 --batch 1
 
 `--providers` is an axis like every other one: cells interleave at batch
@@ -754,19 +760,25 @@ afternoon. The cell key names the provider only when the axis is varied, so runs
 recorded before the axis existed still match `--resume`.
 
 **Every definition declares its provenance, and it is the first field to read.**
-`status = "measured"` means rows in `data/runs/` came through that gateway;
-`status = "documented"` means the dialect was transcribed from the vendor's
-documentation and never sent a byte. `--dry-run` prints it.
+`status = "measured"` means traffic has been sent through that gateway with this
+dialect and the gateway was seen to honour it; `status = "documented"` means the
+dialect was transcribed from the vendor's documentation and never sent a byte.
+Each legal value of each parameter carries the same kind of mark - `measured`,
+`accepted` (the gateway recognises it, nothing has been run through it) or
+`documented` - and `network` says what kind of addresses the gateway sells, so an
+ISP arm is never drawn in one column with residential ones. `--dry-run` prints all
+of it.
 
-That is load-bearing because **a wrong username is invisible**. The gateway
-measured here answers an unrecognised parameter name with HTTP 200 and the setting
+That is load-bearing because **a wrong username is invisible**. NodeMaven's
+gateway answers an unrecognised parameter name with HTTP 200 and the setting
 silently dropped, so the run completes and every row claims a setting that was
 never applied. A name outside `known_params` is refused before a request exists,
 and `--param` is validated against every provider in the matrix before the first
 cell opens.
 
-Only `nodemaven.toml` ships, and it is the only gateway any number here was
-measured through.
+Definitions ship for NodeMaven, Decodo, Oxylabs, Bright Data (an ISP zone) and
+`custom`. Every number published in this repository was measured through
+NodeMaven.
 
 ### The axes
 
@@ -808,12 +820,10 @@ this whole section is built against.
 
 **Pass both arms at once - `--humanize off,trueman` - rather than running two
 commands.** It takes a comma list there the way `--warm`, `--geo` and `--entry`
-do, and the arms interleave at identity granularity inside one window. It was a
-single value until 2026-09-03, which meant the only way to get a control was to
-run it again afterwards, and on this target the hour between two runs moves the
-yield further than any flag in this table has: 69% to 52% between two windows of
-one afternoon. A sequential pair would have measured that and called it the
-cursor. The mode joins the cell key as `/hand-off` or `/hand-trueman` only when
+do, and the arms interleave at identity granularity inside one window. On this
+target the hour between two runs moves the yield further than any flag in this
+table has: 69% to 52% between two windows of one afternoon, so a sequential pair
+would measure the hour and call it the cursor. The mode joins the cell key as `/hand-off` or `/hand-trueman` only when
 more than one is asked for, so a run with a single mode still matches `--resume`
 against every file taken before the axis existed.
 
@@ -832,7 +842,7 @@ statement and a reachable one: a walk of zero length emits no paced points, so
 `pointer_points = 0` means the cursor was already on the target.
 
 **Pair it with `--headful`, or half the model does not reach the page.**
-Measured 2026-09-03 on a local Chromium and a `data:` URL, four arms of 18 paced
+Measured on a local Chromium and a `data:` URL, four arms of 18 paced
 points: headful the delivered interval median is 7.00-7.15 ms against a model
 asking 7.11-7.22, with 1 overrun of 18; headless it is 16.65 ms with 14-16
 overruns, because `page.mouse.move()` awaits a CDP reply that is frame-bound at
@@ -877,7 +887,7 @@ labelled `-pinned` and `engine_version` carries the build that actually launched
 so the intent and the outcome are separate columns and can be checked against each
 other.
 
-The size of what it controls, measured 2026-09-02 by `probes/tls_clienthello.py`:
+The size of what it controls, measured by `probes/tls_clienthello.py`:
 unpinned, the engines run Chrome majors 136 to 151 and their TLS fingerprints
 split by major and not by library. Pinned to one Chrome, all six land on one
 value, and three of them changed build to get there. See "The TLS handshake,
@@ -921,9 +931,9 @@ and two of them are worth knowing before a first run.
 | Flag | Values | Default | What it changes |
 |---|---|---|---|
 | `--engines` | any of `http`, `curlcffi`, `chromium`, `patchright`, `rebrowser`, `cloak`, `camoufox`, `obscura`, `seleniumbase`, `zendriver`, `botasaurus`, comma separated, each optionally with `:direct` | `camoufox` | the frameworks under test. `:direct` runs that one around the gateway in the same matrix |
-| `--targets` | `google_serp`, `bing_serp`, `ddg_serp`, `amazon_search`, `walmart_search`, `ipinfo` | `google_serp,bing_serp,ddg_serp` | who is asked. `ipinfo` is the cheap one: it answers with your exit address and judges nothing |
+| `--targets` | `google_serp`, `amazon_search`, `bing_serp`, `ddg_serp`, `ipinfo`, or any other name in `nmbench/targets.py` | `google_serp,bing_serp,ddg_serp` | who is asked. `ipinfo` is the cheap one: it answers with your exit address and judges nothing |
 | `--queries` | a number, or `all` | `30` | how many strings are drawn from the target's list |
-| `--query-list` | `serp_1000`, `amazon_1000`, `smoke` | each target's own | forces one list on the whole matrix. Only when that is the question - a shop asked a physics question answers with an empty shelf |
+| `--query-list` | `serp_1000`, `amazon_1000`, `places_1000`, `smoke` | each target's own | forces one list on the whole matrix. Only when that is the question - a shop asked a physics question answers with an empty shelf |
 | `--batch` | a number | `10` | queries per browser. **This is the session**, and it is the unit every number describes |
 | `--countries` | comma separated, `any` allowed | `us` | an axis. See the warning below |
 | `--providers` | ids of files in `data/providers/` | `nodemaven` | an axis, interleaved at batch granularity |
@@ -935,17 +945,22 @@ and two of them are worth knowing before a first run.
 | `--channel` | e.g. `chrome` | bundled build | which Chromium build. It reaches the cell key, so two builds stay separable |
 | `--chrome-binary` | a path | each engine's own | one browser for every engine that can take one. Refused for a matrix holding one that cannot, and mutually exclusive with `--channel` |
 | `--param` | `KEY=VALUE`, repeatable | none | an extra gateway parameter. Every recognised one joins the sticky session key, so adding one moves you to a different exit |
-| `--breaker` | a number | `10` | consecutive failures that stop a cell. A pool-safety setting, not a patience one |
+| `--arm` | `KEY=VALUE[,KEY=VALUE]`, repeatable | none | a gateway setting to vary rather than hold: each `--arm` is one interleaved cell, so `--arm filter=medium --arm filter=high` compares them in one window. An arm collapses for a gateway that does not know its names |
+| `--breaker` | a number | `3` | consecutive sessions with nothing served that stop a cell. One session is one exit, so this is also how many exits have to fail. A pool-safety setting, not a patience one |
 | `--pause` | seconds | `5.0` | between attempts. This is a shared production pool |
 | `--resume` | nothing, or a path | off | skips attempts already judged in that file, or in the newest run |
 | `--dry-run` | flag | off | prints the plan and the cost, sends nothing |
+| `--stop-file` | a path | none | watched between attempts: when it appears the run closes its session, writes a `run_stopped` row and leaves. Kept rows go to `data/runs/stopped/`, or none with `{"keep": "discard"}` |
+| `--speed-sessions` | a number, `all` or `off` | `20` | sessions per run that time a fixed download. Bounded so a large run is not a bandwidth bill |
+| `--speed-bytes` | bytes | `1048576` | the size of that download |
+| `--no-identity-recheck` | flag | off | stops re-reading the exit at the middle and end of each session. The check is header-only and on by default |
 | `--no-bodies` | flag | off | stops keeping response bodies, and gives up re-judging this run offline forever |
 | `--sample-ok` | a number | `2` | passing bodies kept per engine and target. Failures are always kept in full |
 
 **`--countries` defaults to `us`, and `us` is the worst setting measured** - 13%
 of US exits served against 58% on `any`. A first run on the defaults looks worse
 than this pool actually is. The default is not a recommendation: country is part
-of the cell key, so changing it would stop all 44 committed benchmark files from
+of the cell key, so changing it would stop all 50 committed benchmark files from
 matching `--resume`. Pass `--countries any`, or both if the country is the
 question - `us` and `any` in one window is what turns the gap into a finding
 rather than into a flattering number.
@@ -963,17 +978,18 @@ More requests do not make a better experiment, and past a point they stop making
 an experiment at all - once a target is reacting to the harness, what is being
 measured is the harness.
 
-**The circuit breaker is not an error handler.** N consecutive failures stop a
-cell and it stays stopped: every retry after a refusal confirms automation to the
+**The circuit breaker is not an error handler.** N consecutive sessions with
+nothing served stop a cell and it stays stopped: every retry after a refusal confirms automation to the
 target and degrades the exit ranges for every other customer on the account. There
 is no "error, new sid, retry" path here.
 
 N is measured. Over 129 cells and 1464 attempts, the chance an attempt succeeds
 given the failures before it in its own cell is 75% at zero, 5.8% at five and 1.6%
-from the sixth onward. Stopping at 5 records a partial refusal as a total one;
-running past 10 spends about 98 retries per delivered page. `--breaker` defaults
-to 10, and `CircuitBreaker` stays at 5 because every `google_429` run on disk was
-measured there.
+from the sixth onward. `--breaker` counts sessions rather than attempts: at the
+default of 3 and `--batch 10`, a cell that is served nothing is given up after
+three exits and about thirty attempts. `CircuitBreaker` in the probes counts
+attempts and stays at 5, because every `google_429` run on disk was measured
+there.
 
 **Pause between requests.** 3-5 seconds minimum.
 
@@ -985,11 +1001,10 @@ the username identifies the account. Masking happens at the one choke point ever
 row passes through, and `tests/test_runs_are_publishable.py` fails if a full
 address ever reaches disk.
 
-It is committed because every claim above names the run it came from, and several
-of those claims are corrections that were only possible because the original rows
-were still there. They are **not** a baseline for your own numbers: a rate here is
+It is committed because every claim above names the run it came from. The rows
+are **not** a baseline for your own numbers: a rate here is
 a reading of the hours it was taken in. `data/runs/README.md` says what each
-filename prefix holds and what the masking guard has already missed twice.
+filename prefix holds and how the masking is enforced.
 
 **Estimate anything above ~100 requests.** `--dry-run` prices traffic from
 per-target constants calibrated by `scripts/analysis/calibrate.py`, each carrying
@@ -1015,12 +1030,11 @@ Where each headline lands:
 | DuckDuckGo, 0 of 50 for the engines announcing the mode | `report.py --all`, `WHOSE FAILURE WAS IT`, the `ddg_serp` block: chromium 0/8 and 0/19, patchright headless 0/9 and 0/14 |
 | DuckDuckGo, 95 of 95 for the ones that do not | `PASS RATE`, the `ddg_serp` column: camoufox 7/7 and 37/37, obscura 34/34 and 10/10, patchright headful 7/7. The winning side reads here rather than in the block above, because Obscura records no HTTP status and is absent from every served-versus-refused split |
 | For Google the address is the whole of it | `WHOSE FAILURE WAS IT`, the `google_serp` block. `P(live)` is the address and `P(pass\|live)` is the engine, and it is the second column that does not move |
-| Amazon used to invert it | same block, `amazon_search`: camoufox live on 47/48, 42/42 and 25/25, against no Chromium-family cell above 33%. This is the August workstation reading and it is the one that did not survive |
-| Amazon no longer separates the engines | `report.py data/runs/benchmark_20260819T055927Z.jsonl`, the `amazon_search` block: chromium 419/436 live at 100% pass, camoufox 431/446, patchright 313/457. Read this one against the row above - the two are six days and one machine apart, and the notebook keeps both |
+| Amazon does not separate the top engines | `report.py data/runs/benchmark_20260819T055927Z.jsonl`, the `amazon_search` block: chromium 419/436 live at 100% pass, camoufox 431/446, patchright 313/457 |
 | The hold is real | `held.py`, `HOW LONG A GOOD EXIT LASTS`: 96%, 98% and 99% at positions 2, 3 and 4 |
-| One page of warming moved nothing | `held.py`, `BY WARM-UP`. The 75% an operator mentioned is not a before-and-after pair, so this cell is read against its own denominator and against nothing else |
+| One page of warming moved nothing | `held.py`, `BY WARM-UP` |
 | Geo alignment costs yield | `held.py`, `BY GEO ALIGNMENT` |
-| The unanswered-CONNECT floor | `report.py --all`, `DID THE RUN MEASURE THE TARGETS OR THE PATH TO THEM`: 23% of proxied attempts against 0% direct. Read the third caveat before reading that as anyone's - the cause turned out to be in the harness's own traffic |
+| The unanswered-CONNECT floor | `report.py --all`, `DID THE RUN MEASURE THE TARGETS OR THE PATH TO THEM`: 23% of proxied attempts against 0% direct. The cause is the harness's own traffic - see the third caveat |
 
 Four caveats the tools print and a table cannot:
 
@@ -1032,19 +1046,15 @@ Four caveats the tools print and a table cannot:
   0% there would hand the pool's condition to the framework, which is why the
   DuckDuckGo losers are quoted out of the served block and not the pass-rate table.
 - **The CONNECT floor was the harness's own traffic, and every row above it
-  predates the fix.** 23% against 0% put the failures on the proxied path rather than on a
-  flaky local link, and a second machine on another line in another datacentre
-  read 25%, which looked like proof that the path was the provider's problem. It
-  was not that simple. HTTP proxy authentication is challenge-response, so a
+  predates the fix.** HTTP proxy authentication is challenge-response, so a
   browser handed credentials opens the **first CONNECT of each session without
   one**, takes the 407 and retries; the gateway counts unauthenticated requests
   per address and bans on a threshold. At one session per attempt the harness
-  generated one such CONNECT per attempt and banned itself, on both machines
-  equally - which is why a second network could not see it. Measured inside one
-  uninterrupted run either side of the gateway-side fix: `ERR_EMPTY_RESPONSE`
-  207 of 1131 attempts before, 1 of 1004 after. `probes/proxy_auth_shape.py`
-  reproduces the client half against a proxy on loopback and spends nothing.
-  Full account in `NOTEBOOK.md`.
+  sent one such CONNECT per attempt and banned itself, on every machine alike.
+  Inside one uninterrupted run either side of the gateway-side fix:
+  `ERR_EMPTY_RESPONSE` on 207 of 1131 attempts before, 1 of 1004 after.
+  `probes/proxy_auth_shape.py` reproduces the client half against a proxy on
+  loopback and spends nothing. Details in `NOTEBOOK.md`.
 - **`held.py` with no argument pools every probe-and-hold window**, where
   `NOTEBOOK.md` quotes the three that varied geo. The aligned arm is the same 45
   probes either way; the unaligned arm picks up rows from windows where geo was not
@@ -1082,7 +1092,7 @@ If a number cannot be traced back to a run, it does not belong here.
 ## Repository layout
 
 ```text
-nmbench/                     the reusable package - this is what gets published
+nmbench/                     the harness package
 ├── config.py                credentials from .env, per provider, on first use
 ├── providers.py             loads data/providers/*.toml: one gateway's dialect each
 ├── proxy.py                 username DSL builder + client-side validation
@@ -1097,6 +1107,14 @@ nmbench/                     the reusable package - this is what gets published
 ├── stats.py                 the Wilson interval every rate here is quoted with
 ├── sink.py                  JSONL output, one file per run
 ├── artifacts.py             gzipped response bodies, so a verdict can be re-read
+├── host.py                  which machine a row was produced on
+├── pointer.py               pointer and wheel models behind --humanize trueman
+├── humanize.py              drives a Playwright pointer along that model
+├── tlsfp.py                 JA4 from a raw ClientHello, computed here
+├── warm.py                  what a warm-up page does once it has loaded
+├── ladder.py                the rungs of the warm-up ladder
+├── speed.py                 the sampled download and its budget
+├── stop.py                  ending a run between attempts, and what its rows become
 ├── __main__.py              python -m nmbench <command>, one entry point
 └── engines/                 one module per framework, one shared contract
     ├── base.py              the row schema and the contract every engine implements
@@ -1113,6 +1131,8 @@ nmbench/                     the reusable package - this is what gets published
 
 scripts/                     README: which of these can spend money
 ├── benchmark.py             the matrix runner: engines x targets, one time window
+├── run_ladder.py            supervisor for an unattended warm-up ladder
+├── engine_table.py          writes the engine table in this README
 ├── probes/                  one file per question, each cheap and single-purpose
 ├── analysis/                aggregation over data/runs/, sends nothing
 └── tools/                   generators for committed inputs
@@ -1121,6 +1141,7 @@ data/
 ├── providers/               README: one .toml per gateway, and why it is not code
 ├── queries/                 README: committed inputs, one seed, two lists
 └── runs/                    README: masking, filename prefixes, how to read a row
+    └── invalid/             quarantined runs, each with the defect that put it there
 
 docs/                        README: quickstart and the two findings write-ups
 tests/                       offline suite: verdicts, scheduler, DSL, hygiene
@@ -1135,9 +1156,8 @@ happens to send nothing says so, and `python -m nmbench` marks it `[offline]`.
 
 ## Contributing
 
-`CONTRIBUTING.md` has the rules that are not obvious from the code, most of them
-there because the instrument has already been broken that exact way by a commit
-that passed every test at the time. The two that catch people first: do not harden
+`CONTRIBUTING.md` has the rules that are not obvious from the code. The two that
+catch people first: do not harden
 the unmodified control, and nothing branches on an engine, provider or target name.
 
 When adding an engine, a target or an experiment: keep the variable under test

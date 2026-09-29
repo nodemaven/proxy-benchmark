@@ -30,13 +30,14 @@ measurable through such a gateway; engines and targets are, which is most of wha
 this repository measures.
 
 **A definition carries its own provenance, and the field is not decoration.**
-`status = "measured"` means rows in `data/runs/` were produced through this
-gateway from this machine. `status = "documented"` means the dialect was read
+`status = "measured"` means traffic has been sent through this gateway with this
+dialect and the gateway was seen to honour it. `status = "documented"` means the
+dialect was read
 off the vendor's own documentation, on the date recorded, and nothing here has
 ever sent a byte through it. The distinction lives on the definition rather than
 in a README because it is the first thing a reader needs and the last thing
-anyone remembers to write down - and because a wrong username is invisible: the
-one gateway measured here answers an unknown parameter name with 200 and the
+anyone remembers to write down - and because a wrong username is invisible:
+NodeMaven's gateway answers an unknown parameter name with 200 and the
 setting silently dropped, so a mistake in one of these files does not fail, it
 quietly produces rows describing settings that were never applied.
 """

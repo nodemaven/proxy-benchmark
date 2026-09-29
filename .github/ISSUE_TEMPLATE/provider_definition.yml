@@ -11,7 +11,7 @@ body:
         wrong, so a competitor costs a `.toml` and never a code change.
 
         **A wrong username format is invisible, which is why the provenance
-        fields below are required.** The one gateway measured here answers an
+        fields below are required.** NodeMaven's gateway answers an
         unrecognised parameter name with HTTP 200 and the setting silently
         dropped: the connection succeeds, the run completes, and every row claims
         a setting that was never applied. Nothing the gateway replies can catch

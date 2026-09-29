@@ -22,7 +22,4 @@ Where to start depends on what is wanted.
   easy to misread.
 
 A findings document is written when one question has been answered end to end
-and the answer is worth reading without the notebook around it. Both of the ones
-here are corrections in part: the Google write-up ends with two sufficient causes
-where it started with one, and the Obscura write-up withdraws a detail it got
-wrong. That is the intended shape rather than an accident of drafting.
+and the answer is worth reading without the notebook around it.

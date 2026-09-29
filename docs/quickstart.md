@@ -198,7 +198,7 @@ You get one line per attempt:
     ------------------------------------------------------------------
     http    bing_serp  -        ok        200   183422  result list present
 
-**`verdict` is the whole point of this repository.** It has six possible values
+**`verdict` is the whole point of this repository.** It has seven possible values
 and none of them is "success":
 
 | verdict | meaning |
@@ -207,6 +207,7 @@ and none of them is "success":
 | `captcha` | there was something to solve or click before results |
 | `consent` | a cookie or consent wall was in the way and was not cleared |
 | `block` | the target refused |
+| `throttle` | Amazon's throttle page: the address is refused rather than the browser challenged |
 | `empty` | the page came back but the parser could not make anything of it. **A harness shortcoming, not a refusal** |
 | `error` | the attempt never completed. **Ours, always. Never counted against the target** |
 
