@@ -12,7 +12,30 @@ without re-reading the raw markup.
 from typing import NamedTuple
 from urllib.parse import quote_plus
 
-VERDICTS = ("ok", "captcha", "consent", "block", "empty", "error")
+VERDICTS = ("ok", "captcha", "consent", "block", "throttle", "empty", "error")
+
+# The Amazon throttle page, split out of `block` on 2026-09-28.
+#
+# Why it is a verdict and not a sub-label: it is 476 of the 747 `block` rows in
+# the corpus, so for two thirds of the time `block` was pronounced it meant this
+# one page, and the other third - an address refused outright - is the reading
+# everybody actually took from the word. Two causes under one name, which is the
+# defect this module's own docstring records for 2026-08-11 happening a second
+# time.
+#
+# Why it is NOT called `http503`, which is the obvious name and is what the
+# study we are lining up against calls its equivalent category. Measured over
+# the 251 run files on 2026-09-28, the 476 rows carry status 503 on 397, **200
+# on 59** and nothing on 20. So a status-based rule would miss 12% of these
+# pages, and a column named after a status would assert something false about
+# one row in eight. The rule reads the body - `ref=cs_503` is Amazon's own tag
+# on that page - and the name follows the rule rather than the usual outcome.
+#
+# The consequence for any comparison with a status-based taxonomy: our
+# `throttle` is a superset of their `HTTP 503`, and the two are not
+# interchangeable even though they are about the same page.
+THROTTLE_REASON = ("503 throttle page, the address is refused rather than the "
+                   "browser challenged")
 
 
 class Judgement(NamedTuple):
@@ -686,10 +709,16 @@ class AmazonSearch:
         # that page with, so it names the throttle rather than describing the
         # symptom - the previous rule matched the alt text of an image on it by
         # coincidence and would have survived Amazon rewording the sentence.
+        #
+        # The "HTTP 200" in the paragraph above was true of the bodies it was
+        # written from and is not true of the category. Measured 2026-09-28 over
+        # the 476 rows this rule has produced across 251 run files: status 503 on
+        # 397, 200 on 59, nothing recorded on 20. So 200 is the minority shape,
+        # the rule is right to read the body rather than the status, and a
+        # status-named verdict would be false for one row in eight - which is why
+        # this is `throttle` and not `http503`. See VERDICTS at the top.
         if "ref=cs_503" in low or "dogsofamazon" in low:
-            return Judgement("block", "503 throttle page, the address is "
-                                      "refused rather than the browser "
-                                      "challenged")
+            return Judgement("throttle", THROTTLE_REASON)
         if "/errors/" in low_url or "something went wrong on our end" in low:
             return Judgement("block", "error page instead of a result list")
         if "s-search-result" in low or "s-main-slot" in low:

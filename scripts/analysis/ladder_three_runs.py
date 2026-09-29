@@ -28,7 +28,10 @@ RUNS = [
     ("run 3  secured 5G  stopped", "probehold_20260831T084544Z.jsonl"),
     ("run 2  free wi-fi  stopped", "probehold_20260831T222129Z.jsonl"),
 ]
-JUDGED = {"ok", "block", "captcha", "empty"}
+# `throttle`, split out of `block` on 2026-09-28, is listed so that the
+# denominator does not shrink when the backfill relabels these three files. This
+# script names its runs by filename, so it reads rows the backfill rewrites.
+JUDGED = {"ok", "block", "throttle", "captcha", "empty"}
 RUNGS = ["L0", "L1", "N1", "L2", "L3"]
 
 

@@ -131,15 +131,15 @@ One row per engine. Sorted by pass rate.
 
 | engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
 |---|---|---|---|---|---|
-| `chromium/none` | 96% (419/436) | 487 | 51 | block 17 | 1.81 |
-| `rebrowser/none` | 95% (420/440) | 488 | 48 | block 20 | 2.63 |
-| `botasaurus` | 94% (419/444) | 468 | 24 | block 23, empty 2 | 8.21 |
-| `camoufox/none` | 92% (412/446) | 474 | 28 | block 30, captcha 4 | 2.06 |
-| `zendriver` | 92% (371/404) | 466 | 62 | block 29, empty 4 | 5.64 |
-| `seleniumbase` | 92% (426/464) | 465 | 1 | block 34, empty 4 | 6.89 |
-| `cloak/none` | 80% (352/439) | 479 | 40 | block 87 | 1.75 |
-| `patchright/none` | 63% (288/457) | 489 | 32 | block 169 | 1.80 |
-| **all** | **88% (3107/3530)** | 3816 | 286 | block 409, empty 10, captcha 4 | |
+| `chromium/none` | 96% (419/436) | 487 | 51 | throttle 17 | 1.81 |
+| `rebrowser/none` | 95% (420/440) | 488 | 48 | throttle 20 | 2.63 |
+| `botasaurus` | 94% (419/444) | 468 | 24 | throttle 16, block 7, empty 2 | 8.21 |
+| `camoufox/none` | 92% (412/446) | 474 | 28 | block 17, throttle 13, captcha 4 | 2.06 |
+| `zendriver` | 92% (371/404) | 466 | 62 | block 15, throttle 14, empty 4 | 5.64 |
+| `seleniumbase` | 92% (426/464) | 465 | 1 | block 19, throttle 15, empty 4 | 6.89 |
+| `cloak/none` | 80% (352/439) | 479 | 40 | throttle 87 | 1.75 |
+| `patchright/none` | 63% (288/457) | 489 | 32 | throttle 169 | 1.80 |
+| **all** | **88% (3107/3530)** | 3816 | 286 | throttle 351, block 58, empty 10, captcha 4 | |
 
 ### `google_serp` - 3811 attempts
 
@@ -244,9 +244,9 @@ These are the small runs that accumulated between 2026-08-11 and 2026-08-18 whil
 
 | target | host | path | pass | attempts | errors | what came back instead |
 |---|---|---|---|---|---|---|
-| `amazon_search` | vps | gateway | 81% (157/195) | 300 | 105 | block 37, empty 1 |
-| `amazon_search` | workstation | direct | 58% (68/118) | 118 | 0 | block 50 |
-| `amazon_search` | workstation | gateway | 38% (127/333) | 393 | 60 | block 206 |
+| `amazon_search` | vps | gateway | 81% (157/195) | 300 | 105 | throttle 21, block 16, empty 1 |
+| `amazon_search` | workstation | direct | 58% (68/118) | 118 | 0 | block 32, throttle 18 |
+| `amazon_search` | workstation | gateway | 38% (127/333) | 393 | 60 | block 121, throttle 85 |
 | `bing_serp` | workstation | direct | 87% (96/110) | 110 | 0 | captcha 10, block 4 |
 | `bing_serp` | workstation | gateway | 94% (135/143) | 262 | 119 | block 6, captcha 2 |
 | `ddg_serp` | workstation | direct | 58% (76/131) | 131 | 0 | captcha 55 |

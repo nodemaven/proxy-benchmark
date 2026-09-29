@@ -20,7 +20,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from nmbench.sink import RUNS_DIR
 
-ORDER = ["ok", "js-required", "captcha", "consent", "block", "empty", "error", "skipped"]
+# `throttle` cannot be produced by a google_429 run - only the Amazon judge
+# returns it - so this entry is dead today and is here anyway, because
+# `verdict_summary` drops any verdict missing from this list without saying so.
+# A verdict that goes uncounted is worse than one that is always zero.
+ORDER = ["ok", "js-required", "captcha", "consent", "block", "throttle",
+         "empty", "error", "skipped"]
 
 
 def refine(row: dict) -> str:

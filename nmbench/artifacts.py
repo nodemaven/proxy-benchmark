@@ -33,7 +33,13 @@ ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "data" / "artifacts"
 
 # Kept in full. These are the rows a reader will question, and the ones a
 # classifier change is most likely to reinterpret.
-ALWAYS_KEEP = {"captcha", "block", "empty", "consent", "error"}
+#
+# `throttle` joined the set on 2026-09-28 when it was split out of `block`. It
+# is the clearest case this comment describes rather than an addition to it:
+# those rows were being kept in full under the old name, so leaving the new name
+# out would have silently stopped archiving 476 rows' worth of page per corpus -
+# and the split was made precisely so that this page can be re-read.
+ALWAYS_KEEP = {"captcha", "block", "throttle", "empty", "consent", "error"}
 
 
 def slug(text: str) -> str:

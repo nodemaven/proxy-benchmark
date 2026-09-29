@@ -199,7 +199,10 @@ print("=" * 76)
 for label, _ in RUNS:
     rows = DATA[label]
     v = collections.Counter(r.get("verdict") for r in rows)
-    judged = v["ok"] + v["block"] + v["captcha"] + v["empty"]
+    # `throttle` was split out of `block` on 2026-09-28; without it here the
+    # backfill would quietly raise every yield printed below by shrinking the
+    # denominator rather than by changing anything that was measured.
+    judged = (v["ok"] + v["block"] + v["throttle"] + v["captcha"] + v["empty"])
     print(f"  {label:<20} ok {v['ok']:<4} captcha {v['captcha']:<4} "
           f"judged {judged:<4} yield "
           f"{100*v['ok']/judged if judged else 0:.0f}%   "

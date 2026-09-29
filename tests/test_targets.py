@@ -8,7 +8,13 @@ below are built from bodies actually observed on 2026-08-10 and 2026-08-11.
 import pytest
 
 from nmbench import warm
-from nmbench.targets import NEEDS_SCRIPT, TARGETS, VERDICTS, fingerprint
+from nmbench.targets import (
+    NEEDS_SCRIPT,
+    TARGETS,
+    THROTTLE_REASON,
+    VERDICTS,
+    fingerprint,
+)
 
 GOOGLE = TARGETS["google_serp"]
 BING = TARGETS["bing_serp"]
@@ -383,15 +389,41 @@ class TestAmazon:
     continue-shopping cases still pin the logic without confirming the markers -
     they have never fired, and no number resting on them may be published."""
 
-    def test_the_503_throttle_page_is_a_block(self):
+    def test_the_503_throttle_page_has_its_own_verdict(self):
         """Read off 20 distinct archived bodies on 2026-08-12, every one HTTP
         200 and 2,317 bytes. This is the only Amazon refusal shape ever
-        captured here, and through the pool it was the dominant verdict."""
+        captured here, and through the pool it was the dominant verdict.
+
+        It answered `block` until 2026-09-28. The split is not cosmetic: over
+        the 251 run files it was 476 of the 747 `block` rows, so two thirds of
+        every `block` this harness has ever printed was this one page and the
+        other third was an address refused outright. The word was carrying two
+        causes, which is the defect targets.py's own docstring records for
+        2026-08-11 arriving a second time.
+
+        The reason string is asserted unchanged on purpose. It is the join key
+        the backfill uses to relabel the 476 historical rows, so reasons written
+        before and after the split have to be byte-identical or the corpus ends
+        up with two spellings of one category."""
         judgement = AMAZON.judge(
             "https://www.amazon.com/s?k=air+fryer&language=en_US",
             "Sorry! Something went wrong!", AMAZON_THROTTLE)
-        assert judgement.verdict == "block"
+        assert judgement.verdict == "throttle"
+        assert judgement.reason == THROTTLE_REASON
         assert "503" in judgement.reason
+
+    def test_the_throttle_verdict_is_not_named_after_a_status(self):
+        """Why it is `throttle` and not `http503`, which is the obvious name and
+        is what the study we are lining up against calls its category.
+
+        Measured 2026-09-28 over the 476 rows this rule has produced: status 503
+        on 397, **200 on 59**, nothing recorded on 20. So the page arrives as a
+        200 for one row in eight, and a column named after a status would be
+        asserting something false about those. This pins the consequence rather
+        than the count - the verdict is reached with no status in the call at
+        all, because `judge` is never given one."""
+        assert "503" not in AMAZON.judge(
+            "https://www.amazon.com/s?k=x", "", AMAZON_THROTTLE).verdict
 
     def test_the_throttle_is_named_rather_than_matched_by_prose(self):
         """The rule that caught these before was a coincidence: it matched the
@@ -401,7 +433,17 @@ class TestAmazon:
         stripped = AMAZON_THROTTLE.replace(
             "Sorry! Something went wrong on our end.", "We are sorry.")
         assert AMAZON.judge("https://www.amazon.com/s?k=x", "",
-                            stripped).verdict == "block"
+                            stripped).verdict == "throttle"
+
+    def test_the_throttle_verdict_is_in_the_vocabulary(self):
+        """`VERDICTS` is what every consumer builds its columns, its colour map
+        and - the one that bites - its denominators from. A verdict a judge can
+        return but the tuple does not list is dropped silently by some of them
+        and counted as unjudged by others, which raises a pass rate without
+        changing anything that was measured."""
+        assert "throttle" in VERDICTS
+        assert AMAZON.judge("https://www.amazon.com/s?k=x", "",
+                            AMAZON_THROTTLE).verdict in VERDICTS
 
     def test_the_throttle_is_not_scored_as_a_challenge(self):
         """It carries no captcha and nothing to solve. Filing it as one would

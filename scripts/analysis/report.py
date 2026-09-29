@@ -61,7 +61,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from nmbench.sink import RUNS_DIR
 
-VERDICT_ORDER = ["ok", "captcha", "consent", "block", "empty", "error"]
+VERDICT_ORDER = ["ok", "captcha", "consent", "block", "throttle", "empty",
+                 "error"]
 LABEL_WIDTH = 30
 CELL_WIDTH = 16
 
