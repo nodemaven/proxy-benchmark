@@ -500,7 +500,26 @@ class GoogleSerp:
     # account. Which one is clicked is a state difference the target can read,
     # so it is a choice recorded here and not a measurement - an accept-all arm
     # is a separate run, not a silent default.
-    consent_dismiss = ("button#W0wltc", "button#L2AGLb")
+    #
+    # The middle selector is the REDIRECT form of the same wall, added
+    # 2026-09-29 and not yet measured on this target. `google_maps` from it, gb
+    # and de was sent to `consent.google.com/m?continue=...` on 25 of 25
+    # attempts (`benchmark_20260929T031705Z`), a separate page whose reject
+    # button is found by the form's hidden `set_eom=true` - see
+    # `GoogleMapsSearch.consent_dismiss`. The line above says `/search?q=`
+    # never carried the wall, and that was measured from exits outside the EU:
+    # this target has never been run from an EU exit, so whether `/search` is
+    # redirected the same way is unknown. The selector costs one failed lookup
+    # where the form is absent, which is every row written so far - 0 of 5819
+    # `google_serp` rows in the corpus ever returned `consent`. Placed between
+    # the two ids so the order still reads reject before accept on either
+    # shape of wall.
+    consent_dismiss = (
+        "button#W0wltc",
+        'form[action="https://consent.google.com/save"]'
+        ':has(input[name="set_eom"][value="true"]) button',
+        "button#L2AGLb",
+    )
 
     def url(self, query: str) -> str:
         return f"https://www.google.com/search?q={quote_plus(query)}&hl=en"
@@ -929,6 +948,42 @@ class GoogleMapsSearch:
     # trap `google_serp` documents at `ready_selector`.
     ready_selector = "div[role='feed']"
     needs_script = True
+    # Google redirects an EU or UK exit to a consent interstitial before Maps
+    # is served, and until 2026-09-29 nothing here cleared it. Measured that
+    # day by the nine-country sweep, `benchmark_20260929T031705Z`: it, gb and
+    # de returned `consent` on 25 of 25 attempts for decodo, nodemaven and
+    # oxylabs alike, 221 rows in all, while us, br, mx, ua, ar and ru returned
+    # none. Three of nine countries were therefore unmeasured, and identically
+    # so for every gateway - which is the signature of our own client failing
+    # rather than of a pool being refused.
+    #
+    # It is a REDIRECT and not an overlay, which is what makes it different
+    # from `GoogleSerp`'s wall below. `final_url` on those rows is
+    # `consent.google.com/m?continue=...&gl=IT`, the title is "Before you
+    # continue to Google Maps", and the body is 660 053 characters of its own
+    # page. So the `consent.` url rule in `judge` sees it correctly; there was
+    # simply no path that cleared it.
+    #
+    # **The selector is the form's hidden input and not the button's class.**
+    # Both buttons carry names like `AeBiU-LgbsSe-OWXEXe-Bz112c-M1Soyc`, which
+    # is the obfuscated-class trap this class's own docstring is about, and the
+    # page ships four forms - two "Reject all", two "Accept all" - with
+    # identical markup apart from what they POST. What separates them is
+    # stable and semantic: `set_eom=true` alone rejects, while `set_sc=true`
+    # plus `set_aps=true` plus `set_eom=false` accepts.
+    #
+    # **Reject is a recorded choice, not a default.** The same paragraph under
+    # `GoogleSerp.consent_dismiss` applies and is worth repeating here because
+    # this is a separate page: which button is pressed is a state difference
+    # the target can read afterwards, an accept-all arm is a different run, and
+    # rejecting is the option this harness can defend having pressed from a
+    # shared company account. It is also the more conservative arm for the
+    # measurement - accepting sets cookies that make the next request a
+    # different client.
+    consent_dismiss = (
+        'form[action="https://consent.google.com/save"]'
+        ':has(input[name="set_eom"][value="true"]) button',
+    )
 
     def url(self, query: str) -> str:
         # The query rides in the path, not in a query string, which is the URL

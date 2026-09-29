@@ -74,6 +74,7 @@ from .base import (
     EngineUnavailable,
     await_ready,
     blank_row,
+    clear_entry_wall,
     entry_row_url,
     keep_body,
     record_error,
@@ -252,6 +253,7 @@ class ObscuraSession:
             response = page.goto(url, wait_until="domcontentloaded",
                                  timeout=ENTRY_TIMEOUT_MS)
             row["status"] = response.status if response else navigation["status"]
+            clear_entry_wall(page, target, row)
             row["ready"] = await_ready(page, target, self.ready_timeout_ms)
             html = page.content()
             row["html_len"] = len(html)

@@ -584,10 +584,27 @@ def dismiss_consent(page, target, *, hand=None,
     overlays that stay in the document after they are cleared - the button is
     still there, and a presence test would click a hidden control on every
     subsequent query.
+
+    **Every match of a selector is tried, not just the first, corrected
+    2026-09-29.** This walked `query_selector`, which returns match one and
+    nothing else, so a selector whose first match was hidden was abandoned
+    while a visible second match sat on the page. That was invisible for as
+    long as the only wall here was Google's front-page overlay, whose two
+    selectors are ids; it surfaced with `google_maps`, whose interstitial
+    ships four `consent.google.com/save` forms - two reject, two accept - so
+    one selector legitimately matches twice. WHICH of the two is visible is
+    not measured, and that is the point: with one match tried, a layout that
+    puts the hidden copy first fails silently and a layout that does not
+    works, which is a coin this has no reason to toss. The shape of defect
+    worth naming: the loop read as "try each selector until one works" and it
+    was "try the first element of each selector", and those two agree on every
+    id, which is every case it had ever been given.
     """
     for selector in getattr(target, "consent_dismiss", None) or ():
-        handle = page.query_selector(selector)
-        if handle is None or not handle.is_visible():
+        for handle in page.query_selector_all(selector):
+            if handle.is_visible():
+                break
+        else:
             continue
         if hand is None:
             handle.click(timeout=timeout_ms)
@@ -605,6 +622,68 @@ def dismiss_consent(page, target, *, hand=None,
         page.wait_for_timeout(500)
         return True
     return False
+
+
+def clear_entry_wall(page, target, row: dict, *, timeout_ms: int = 10000):
+    """Clear a consent wall met on the URL-entry path, and record it. Playwright.
+
+    Exists because `dismiss_consent` above was reachable only from
+    `run_search`, the typed-query path, and every matrix cell in this
+    repository enters by URL. So the harness had a consent mechanism and no
+    run could use it. Measured 2026-09-29 on the nine-country sweep
+    `benchmark_20260929T031705Z`: `google_maps` from it, gb and de returned
+    `consent` on 25 of 25 attempts for all three gateways, 221 rows, while the
+    six non-EU codes returned none.
+
+    What made it hard to see is that it reads as a result. A cell at 0% with a
+    named verdict looks like a target refusing a pool, and it was our own
+    client stopping at a door it knew how to open. The tell was that all three
+    gateways scored identically to the row - a pool difference that survives
+    three vendors is not a pool difference.
+
+    Kept separate from `dismiss_consent` rather than folded into it, because
+    the two run at different moments against different things. That one runs
+    on the entry page before a query is typed and clears an overlay; this one
+    runs after `goto` has already landed on whatever the target returned, and
+    on Maps that is a redirect to another host. Sharing the click and the
+    target's selectors is the part worth sharing; sharing the call site would
+    put a consent check in front of a page that has not been fetched yet.
+
+    Writes `consent_dismissed` on the row for the reason `run_search` gives:
+    clearing a wall is an interaction the target sees, so an attempt that met
+    one is not the same client as an attempt that did not, and a run where
+    this silently stopped working would otherwise look like the target getting
+    harder. The column already exists and already means this.
+
+    Returns nothing and raises nothing. A wall that cannot be cleared leaves
+    the page where it was, the verdict is read off it as before, and the row
+    still says `consent` - the outcome this replaces, reached honestly.
+
+    One column changes meaning on rows where this fires and it is worth
+    knowing before reading them: `status` is written by the caller from the
+    ENTRY response, so on a cleared row it is the interstitial's 200 and not
+    the served page's. Left that way on purpose - `status` has always been
+    "what the navigation this harness made returned", and rewriting it here
+    would make one verdict's rows disagree with every other verdict's about
+    what the column means. `consent_dismissed` is the flag that says the two
+    have come apart, which is why it is written on the row at all. `bytes`
+    covers both pages, which is correct: the wall is a cost the exit paid.
+    """
+    if not getattr(target, "consent_dismiss", None):
+        return
+    try:
+        row["consent_dismissed"] = dismiss_consent(page, target,
+                                                   timeout_ms=timeout_ms)
+    except Exception:
+        # Deliberately swallowed, and not because the failure is unimportant.
+        # This is one attempt of a cell and the alternative is an `error` row,
+        # which prices the attempt as our fault when the evidence for that is
+        # exactly the thing that just failed. The page is untouched, so the
+        # judgement below reads the wall and records `consent`, which is both
+        # true and the pre-2026-09-29 behaviour. `consent_dismissed` stays
+        # absent rather than False, so "tried and failed" is distinguishable
+        # from "never tried" in the corpus.
+        pass
 
 
 def await_ready(page, target, timeout_ms: int = 8000):

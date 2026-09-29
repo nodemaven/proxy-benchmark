@@ -15,6 +15,7 @@ from .base import (
     EngineUnavailable,
     await_ready,
     blank_row,
+    clear_entry_wall,
     entry_row_url,
     humanize_mode,
     keep_body,
@@ -128,6 +129,7 @@ class CamoufoxSession:
                                  timeout=ENTRY_TIMEOUT_MS)
             if response:
                 row["status"] = response.status
+            clear_entry_wall(page, target, row)
             row["ready"] = await_ready(page, target, self.ready_timeout_ms)
             html = page.content()
             row["html_len"] = len(html)
