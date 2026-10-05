@@ -41,7 +41,7 @@ them.
      link does not contain its own evidence is the kind of thing this repository
      exists to not do. -->
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue?style=flat-square)](.github/workflows/ci.yml)
-[![rows](https://img.shields.io/badge/rows-18%2C838%20published-blue?style=flat-square)](data/runs)
+[![rows](https://img.shields.io/badge/rows-42%2C743%20published-blue?style=flat-square)](data/runs)
 
 </div>
 
@@ -102,10 +102,10 @@ changed, these did not, and the outcome moved with it.
 
 Four of the answers that came back, each with its denominator and its run file:
 
-- **Warming an exit took Google from 20% to 84%.** Six pages of warm-up before
-  the query, interleaved with a cold arm inside the same runs: 20.0% (33/165)
-  cold against 84.4% (152/180) at the deepest rung, pooled over three separate
-  days, z = 12.0. One page of warm-up moved nothing.
+- **Warming an exit took Google from 20% to 87%.** Six pages of warm-up before
+  the query, interleaved with a cold arm inside the same runs: 19.8% (46/232)
+  cold against 86.8% (409/471) at the deepest rung, pooled over four runs on
+  two machines, z = 17.5. One page of warm-up moved nothing.
   [The ladder](#the-warm-up-ladder)
 - **The unmodified browser finished in the leading group on Amazon.** Stock
   Chromium 96% (419/436) against 63% (288/457) for the lowest anti-detect
@@ -306,9 +306,9 @@ The last two are the ones that decide whether a benchmark measures anything:
   manufacture a very convincing result while measuring almost nothing.
 
 `throttle` is kept apart from `block` because on Amazon it is most of what a
-refusal is: 476 of the 704 refused Amazon rows are the throttle page
-(`ref=cs_503`). It arrives with status 503 on 397 of them and 200 on 59, so it is
-read from the body like every other verdict.
+refusal is: 4855 of the 5101 refused Amazon rows are the throttle page
+(`ref=cs_503`). It arrives with status 503 on 4638 of them and 200 on 197, so it
+is read from the body like every other verdict.
 
 A consent page is cleared where the target declares how, by pressing its reject
 button, and `consent_dismissed` on the row says it happened. `consent` is what is
@@ -407,7 +407,22 @@ found an Akamai interstitial and an AWS WAF challenge filed as refusals, and mov
 
 <!-- RESULTS:BEGIN -->
 
-What the current evidence supports, engine by engine and target by target, from the 10432 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+What the current evidence supports, engine by engine and target by target, from the 24194 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+
+**The latest runs**: Windows server, 2026-09-18 to 2026-10-02, headless, `preset=light`, entering by url, exits from the US pool.
+
+| target | `chromium/light` | `cloak/light` | `patchright/light` | rows |
+|---|---|---|---|---|
+| `amazon_search` | 36% (463/1290) | 41% (210/517) | 22% (434/1937) | 3863 |
+| `google_serp` | - | 13% (31/234) | 1% (3/203) | 445 |
+| `walmart_search` | - | 96% (379/395) | 0% (0/270) | 705 |
+| `adidas_search` | - | 0% (0/25) ? | 0% (0/15) ? | 157 |
+| `bestbuy_search` | - | 100% (22/22) ? | 100% (11/11) ? | 52 |
+| `google_maps` | - | 100% (112/112) | 100% (387/387) | 510 |
+
+On Amazon most of the refusals are its throttle page: 2635 of 2637. The other 8137 rows - other exit countries, one ISP, and small runs of other engines - are in [RESULTS.md](RESULTS.md#the-latest-runs).
+
+**The 130-hour run** on a Linux VPS, with the smaller search engines from the workstation runs before it. A different machine, weeks and preset from the table above, so a cell of one is not set against a cell of the other.
 
 | target | best | worst | rows |
 |---|---|---|---|
@@ -417,11 +432,11 @@ What the current evidence supports, engine by engine and target by target, from 
 | `ddg_serp` | `camoufox/light` 100% (44/44) | `chromium-direct/light` 22% (10/45) | 339 |
 | `walmart_search` | no cell reaches 30 judged attempts, so no engine is named | - | 35 |
 
-On the one target with enough evidence to rank engines, the top of the table is a **tie and not a podium**: `chromium`, `rebrowser`, `botasaurus`, `camoufox`, `zendriver`, `seleniumbase` sit within 4 points of each other and a two-sided Fisher exact, corrected for the 7 comparisons made, separates none of them. The first of them is `chromium`, which is the unmodified control.
+In the 130-hour run, on the one target with enough evidence to rank engines, the top of the table is a **tie and not a podium**: `chromium`, `rebrowser`, `botasaurus`, `camoufox`, `zendriver`, `seleniumbase` sit within 4 points of each other and a two-sided Fisher exact, corrected for the 7 comparisons made, separates none of them. The first of them is `chromium`, which is the unmodified control.
 
-Amazon and the two smaller search engines are a win. **The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. Run again with the same engine through the same gateway, a Windows workstation was served 39% (24/61) against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
+**The Google row is not an engine comparison and must not be quoted as one.** Every cell of it was taken on one Linux VPS. Run again with the same engine through the same gateway, a Windows workstation was served 39% (24/61) against 0% (0/84) from the VPS, two-sided Fisher p = 3.7e-11; cut to the one window where both machines were running at once it is 36% (8/22) against 0% (0/10), p = 0.035. The floor is real, it belongs to that client, and it is not a property of the proxies.
 
-**[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
+**[Full tables -> RESULTS.md](RESULTS.md)** - the latest runs by exit country, the 130-hour run (`benchmark_20260819T055927Z`, 2026-08-19 06:00 to 2026-08-24 16:12 UTC) engine by engine, Google day by day, and everything measured before it, split by host and by path.
 
 <!-- RESULTS:END -->
 
@@ -434,7 +449,7 @@ generated from the files and a test fails when the badge and the files disagree.
 
 ## Research findings
 
-Everything below was measured with this harness between 10 August and 17 September
+Everything below was measured with this harness between 10 August and 5 October
 2026, and none of it is a standing fact about the internet: a target's defences
 move, so a rate measured in that window is evidence about that window. The dates
 sit here once rather than on each line, because a reader deciding whether to
@@ -448,10 +463,10 @@ section each line links to along with the date it stopped being true.
   as residential traffic, for a file no target ever sees.
   [How it was counted](NOTEBOOK.md#chrome-pays-its-vendor-43-mb-per-profile-and-the-pool-was-billed-for-it)
 - **On Amazon, most refusals were one throttle page, not a refused address.**
-  476 of the 704 refused Amazon rows are Amazon's throttle page. It arrives with
-  status 503 on 397 of them, 200 on 59 and no status on 20, so a count by status
-  misses one in six. It is its own verdict here, `throttle`, and `block` is what
-  is left: an address refused outright.
+  4855 of the 5101 refused Amazon rows are Amazon's throttle page. It arrives
+  with status 503 on 4638 of them, 200 on 197 and no status on 20, so a count by
+  status misses 217 of them. It is its own verdict here, `throttle`, and `block`
+  is what is left: an address refused outright.
   [The verdicts](#what-the-rows-carry)
 - **On Amazon the unmodified browser finished in the leading group.** Stock
   Chromium 96% (419/436) against 63% (288/457) for the lowest anti-detect
@@ -459,6 +474,22 @@ section each line links to along with the date it stopped being true.
   within four points at the top and no test separates them, so the top of that
   table is a tie rather than a ranking - and the control is inside it.
   [Full table](RESULTS.md#amazon_search-in-the-130-hour-run)
+- **On another machine weeks later, Amazon throttled most attempts.** Headless,
+  `preset=light`, exits from the US pool: `cloak` 41% (210/517), stock Chromium
+  36% (463/1290), `patchright` 22% (434/1937), and 2635 of the 2637 refusals
+  were the throttle page. The machine, the preset and the weeks all differ from
+  the run above, so the two are not one comparison.
+  [The latest runs](RESULTS.md#the-latest-runs)
+- **On Walmart the engine decided everything.** Same machine, same exits, same
+  preset, both headless: `cloak` 96% (379/395) and `patchright` 0% (0/270),
+  every refusal a captcha. Narrowing the exits to one of four US ISPs moved
+  neither: 141 of 141 against 0 of 98.
+  [The latest runs](RESULTS.md#the-latest-runs)
+- **Brazilian exits stood out for `cloak` on Amazon and Google.** Amazon 94%
+  (111/118) against 41% to 65% for the other ten country settings, Google 51%
+  (61/120) against 6% to 32%, at about 120 attempts per country. `patchright`
+  showed no such lift on either target.
+  [By exit country](RESULTS.md#by-exit-country)
 - **The same code, gateway and target scored 39% on one machine and 0% on
   another.** 24/61 from a Windows workstation against 0/84 from a Linux VPS in
   overlapping hours, Fisher p = 3.7e-11. The client machine is a variable a
@@ -504,25 +535,28 @@ section each line links to along with the date it stopped being true.
 - **One page of warm-up moved nothing in our window.** 32% against 30%,
   intervals almost coincident. The ladder below goes past one page.
   [The ladder](#the-warm-up-ladder)
-- **Six pages of warm-up moved a great deal, and it held on three separate
-  days.** Four rungs interleaved inside one run, because the hour is the largest
-  confound here: **11%, 24%, 33% and 82%** at warm depths 0, 2, 4 and 7, over
-  35, 34, 33 and 33 judged attempts, cold against deepest z = 5.82. Two later
-  runs carried the cold rung and the deepest rung alone and read 24% against 86%
-  over 88 and 86 attempts, and 19% against 84% over 42 and 61. Pooled over the
-  three days, **20.0% (33/165) cold against 84.4% (152/180) at depth 7**,
-  z = 12.0. Every attempt is Chrome 151.0.7922.34, headful, through Patchright,
-  on one host, and every figure is the probe phase judged as served against
-  challenged. What the depth is *doing* is not in these rows: four of the six
-  pages are Google's own, so "Google's infrastructure was told about this exit"
-  and "the browser lived through six navigations" both fit every row. The rung
-  that separates them holds the depth at six and swaps the four Google surfaces
-  for third-party pages carrying the same tags; it is declared in the target and
-  has no rows on disk, so what is published here is an effect without a
-  mechanism.
+- **Six pages of warm-up moved a great deal, and it held in four runs on two
+  machines.** Four rungs interleaved inside one run, because the hour is the
+  largest confound here: **11%, 24%, 33% and 82%** at warm depths 0, 2, 4 and 7,
+  over 35, 34, 33 and 33 judged attempts, cold against deepest z = 5.82. Two
+  later runs carried the cold rung and the deepest rung alone and read 24%
+  against 86% over 88 and 86 attempts, and 19% against 84% over 42 and 61.
+  Pooled over the three days, **20.0% (33/165) cold against 84.4% (152/180) at
+  depth 7**, z = 12.0. A fourth run, on a Windows server, put both rungs in one
+  window again and read 19% (13/67) cold against 88% (257/291), z = 11.8; cold,
+  the same machine was served 31% (539/1736) across 16 days of scheduled runs.
+  Every attempt is Chrome 151.0.7922.34, headful, through Patchright, and every
+  figure is the probe phase judged as served against challenged. What the depth
+  is *doing* is not in these rows: four of the six pages are Google's own, so
+  "Google's infrastructure was told about this exit" and "the browser lived
+  through six navigations" both fit every row. The rung that separates them
+  holds the depth at six and swaps the four Google surfaces for third-party
+  pages carrying the same tags; it is declared in the target and has no rows on
+  disk, so what is published here is an effect without a mechanism.
   `data/runs/probehold_20260831T222129Z.jsonl`,
   `data/runs/probehold_20260901T210934Z.jsonl`,
-  `data/runs/probehold_20260904T000605Z.jsonl`
+  `data/runs/probehold_20260904T000605Z.jsonl`,
+  `data/runs/probehold_20260924T154950Z.jsonl`
 
 ## Setup
 

@@ -220,6 +220,32 @@ MARK_END = "<!-- RESULTS:END -->"
 BADGE_RE = re.compile(r"(badge/rows-)(\d+(?:%2C\d+)*)(%20published)")
 
 
+def us_pool(row):
+    """An exit drawn from the US pool with no narrower targeting.
+
+    The later runs also draw exits from other countries and from one ISP, and a
+    pass rate pooled across those answers no single question. The headline
+    table on the later runs reads this slice only; the other slices have their
+    own tables in `RESULTS.md`.
+    """
+    params = row.get("params") or {}
+    return params.get("country") == "us" and not params.get("isp")
+
+
+def machine(row):
+    """A readable name for the machine a row came from."""
+    name = row.get("host_os") or ""
+    if name.startswith("Windows") and "Server" in name:
+        return "Windows server"
+    return era(row)
+
+
+def describe(values):
+    """One value printed as itself, several as a list, so a mix is visible."""
+    seen = sorted({"unset" if v is None else str(v) for v in values})
+    return seen[0] if len(seen) == 1 else "mixed: " + ", ".join(seen)
+
+
 def load(path):
     """Attempt rows only. A row with no `query` asked the target nothing."""
     out = []
@@ -841,7 +867,163 @@ def render_summary(rows, provenance=True):
     print()
 
 
-def readme_block(flagship, rest, span):
+def later_targets(rows):
+    """Targets in the fixed order first, then any others by name."""
+    present = {r.get("target") for r in rows if r.get("target")}
+    return ([t for t in TARGET_ORDER if t in present]
+            + sorted(present - set(TARGET_ORDER)))
+
+
+def later_engines(rows):
+    """Engines with at least SMALL attempts on some target, baseline excluded.
+
+    The later runs put a dozen engines on one small target for a few attempts
+    each. A column per engine would make the table a list of `?` cells, so a
+    column is printed only for an engine that was run at a size worth reading.
+    """
+    counts = collections.Counter((r.get("engine"), r.get("target"))
+                                 for r in rows if base_name(r) not in BASELINE)
+    return sorted({engine for (engine, _), n in counts.items() if n >= SMALL})
+
+
+def later_table(later):
+    """Target by engine on the later runs, exits from the US pool only."""
+    rows = [r for r in later if not r.get("direct") and us_pool(r)]
+    engines = later_engines(rows)
+    print("| target | " + " | ".join(f"`{e}`" for e in engines) + " | rows |")
+    print("|---|" + "---|" * len(engines) + "---|")
+    for target in later_targets(rows):
+        by_engine = collections.defaultdict(Tally)
+        for row in rows:
+            if row.get("target") == target:
+                by_engine[row.get("engine")].add(row)
+        cells = [by_engine[e].rate_cell() if e in by_engine else "-"
+                 for e in engines]
+        n = sum(t.attempts for t in by_engine.values())
+        print(f"| `{target}` | " + " | ".join(cells) + f" | {n} |")
+    print()
+
+
+def later_conditions(later):
+    """What the later runs held fixed, read off the rows rather than asserted.
+
+    Read over the engines the table prints, not over every row: a few small
+    runs put other engines on one target, and they would turn every condition
+    into "mixed" for a table that does not show them.
+    """
+    rows = [r for r in later if not r.get("direct") and us_pool(r)]
+    shown = set(later_engines(rows))
+    rows = [r for r in rows if r.get("engine") in shown]
+    stamps = [s for s in (when(r) for r in rows) if s]
+    return {
+        "machine": describe(machine(r) for r in rows),
+        "span": f"{min(stamps):%Y-%m-%d} to {max(stamps):%Y-%m-%d}",
+        "headless": {"True": "headless", "False": "headful"}.get(
+            describe(r.get("headless") for r in rows),
+            "headless " + describe(r.get("headless") for r in rows)),
+        "preset": describe(r.get("preset") for r in rows),
+        "entry": describe(r.get("entry") for r in rows),
+        "rows": len(rows),
+        "other": len(later) - len(rows),
+    }
+
+
+def amazon_throttle(rows):
+    """Throttle pages among Amazon's refusals, as (throttle, refused)."""
+    refused = [r for r in rows if r.get("target") == "amazon_search"
+               and r.get("verdict") not in ("ok", "error", None)]
+    return sum(r.get("verdict") == "throttle" for r in refused), len(refused)
+
+
+def country_label(row):
+    country = (row.get("params") or {}).get("country")
+    return "unset" if country is None else country
+
+
+def later_section(later):
+    """`RESULTS.md` on the later runs: conditions, US exits, countries, one ISP."""
+    rows = [r for r in later if not r.get("direct")]
+    stamps = [s for s in (when(r) for r in rows) if s]
+    shown = set(later_engines(rows))
+    main_rows = [r for r in rows if r.get("engine") in shown]
+    others = [r for r in rows if r.get("engine") not in shown]
+    print("## The latest runs\n")
+    print(f"{len(rows)} attempts on the {describe(machine(r) for r in rows)}, "
+          f"{min(stamps):%Y-%m-%d} to {max(stamps):%Y-%m-%d}. "
+          f"{', '.join(f'`{e}`' for e in sorted(shown))} carry almost all of "
+          f"them: headless {describe(r.get('headless') for r in main_rows)}, "
+          f"`preset={describe(r.get('preset') for r in main_rows)}`, entering "
+          f"by {describe(r.get('entry') for r in main_rows)}. Every row "
+          f"records the machine it ran on, so nothing here is attributed by "
+          f"date. Kept apart from everything above: a different machine, "
+          f"different weeks, and a different preset.\n")
+    if others:
+        print(f"The other {len(others)} attempts are small runs of other "
+              f"engines on "
+              f"{', '.join(f'`{t}`' for t in later_targets(others))}, and "
+              f"appear only in that target's table.\n")
+
+    print("### Exits from the US pool\n")
+    us = [r for r in rows if us_pool(r)]
+    for target in later_targets(us):
+        cut = [r for r in us if r.get("target") == target]
+        engine_table(cut, f"`{target}` - {len(cut)} attempts",
+                     "One row per engine. Sorted by pass rate.")
+
+    print("### By exit country\n")
+    print("The same engines with the exit country varied, one ISP excluded. "
+          "`unset` is a username that names no country. A country is a "
+          "column only where that target was run on more than one.\n")
+    plain = [r for r in rows if not (r.get("params") or {}).get("isp")]
+    for target in later_targets(plain):
+        cut = [r for r in plain if r.get("target") == target]
+        countries = sorted({country_label(r) for r in cut},
+                           key=lambda c: (c != "us", c != "any", c != "unset", c))
+        if len(countries) < 2:
+            continue
+        cells = collections.defaultdict(Tally)
+        for row in cut:
+            cells[(row.get("engine"), country_label(row))].add(row)
+        engines = sorted({e for e, _ in cells})
+        print(f"#### `{target}`\n")
+        print("| engine | " + " | ".join(f"`{c}`" for c in countries) + " |")
+        print("|---|" + "---|" * len(countries))
+        for engine in engines:
+            line = [cells[(engine, c)].rate_cell() if (engine, c) in cells
+                    else "-" for c in countries]
+            print(f"| `{engine}` | " + " | ".join(line) + " |")
+        print()
+
+    isp = [r for r in rows if (r.get("params") or {}).get("isp")]
+    if isp:
+        print("### One ISP\n")
+        print("Exits narrowed to a single ISP inside the US pool.\n")
+        print("| target | engine | ISP | pass | attempts | errors | "
+              "what came back instead |")
+        print("|---|---|---|---|---|---|---|")
+        cells = collections.defaultdict(Tally)
+        for row in isp:
+            cells[(row.get("target"), row.get("engine"),
+                   row["params"]["isp"])].add(row)
+        for (target, engine, name), tally in sorted(cells.items()):
+            print(f"| `{target}` | `{engine}` | `{name}` | {tally.rate_cell()} "
+                  f"| {tally.attempts} | {tally.errors} | {tally.refusals()} |")
+        print()
+
+    consent = [when(r) for r in rows
+               if r.get("target") == "google_maps" and r.get("verdict") == "consent"]
+    consent = [s for s in consent if s]
+    if consent:
+        print(f"**`consent` on `google_maps` is not a refusal.** It means the "
+              f"harness stopped at Google's cookie-consent page instead of "
+              f"reaching the map, which is a gap in the harness and not the "
+              f"target turning the exit away. All {len(consent)} of those rows "
+              f"are dated {max(consent):%Y-%m-%d} or earlier, and they are "
+              f"counted as judged above, so the `google_maps` rates on exits "
+              f"that met the page are a floor.\n")
+
+
+def readme_block(flagship, rest, span, later):
     """The few lines that live on the repository's front page.
 
     Deliberately carries no generation timestamp. A timestamp would make every
@@ -854,18 +1036,39 @@ def readme_block(flagship, rest, span):
     print()
     print(f"What the current evidence supports, engine by engine and target by "
           f"target, from the "
-          f"{len(flagship) + len(rest)} attempt rows in "
+          f"{len(flagship) + len(rest) + len(later)} attempt rows in "
           f"`data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged "
           f"attempts - harness and path failures are counted separately and "
           f"excluded from the denominator, because an engine that crashes is "
           f"not an engine the target refused.")
     print()
+    if later:
+        cond = later_conditions(later)
+        print(f"**The latest runs**: {cond['machine']}, {cond['span']}, "
+              f"{cond['headless']}, `preset={cond['preset']}`, "
+              f"entering by {cond['entry']}, exits from the US pool.")
+        print()
+        later_table(later)
+        throttle, refused = amazon_throttle(
+            [r for r in later if us_pool(r) and not r.get("direct")])
+        if refused:
+            print(f"On Amazon most of the refusals are its throttle page: "
+                  f"{throttle} of {refused}. The other {cond['other']} rows - "
+                  f"other exit countries, one ISP, and small runs of other "
+                  f"engines - are in [RESULTS.md](RESULTS.md#the-latest-runs).")
+            print()
+    print("**The 130-hour run** on a Linux VPS, with the smaller search "
+          "engines from the workstation runs before it. A different machine, "
+          "weeks and preset from the table above, so a cell of one is not set "
+          "against a cell of the other.")
+    print()
     render_summary(summary_rows(flagship, rest), provenance=False)
     _alpha, ranked = tiers(flagship, "amazon_search")
     tied = [n for n, _, _, sig in ranked if not sig]
     if tied:
-        print(f"On the one target with enough evidence to rank engines, the "
-              f"top of the table is a **tie and not a podium**: "
+        print(f"In the 130-hour run, on the one target with enough evidence "
+              f"to rank engines, the top of the table is a **tie and not a "
+              f"podium**: "
               f"{', '.join(f'`{n}`' for n in tied)} sit within "
               f"{ranked[0][1].rate - ranked[len(tied) - 1][1].rate:.0f} points "
               f"of each other and a two-sided Fisher exact, corrected for the "
@@ -876,7 +1079,7 @@ def readme_block(flagship, rest, span):
     ws_gw, vps_gw = host_gateway_tallies()
     ws_c, vps_c, _ = host_concurrent_tallies()
     p, p_c = host_split_p(), host_split_p((ws_c, vps_c))
-    print(f"Amazon and the two smaller search engines are a win. **The Google "
+    print(f"**The Google "
           f"row is not an engine comparison and must not be quoted as one.** "
           f"Every cell of it was taken on one Linux VPS. Run again with the "
           f"same engine through the same gateway, a Windows workstation was "
@@ -890,9 +1093,10 @@ def readme_block(flagship, rest, span):
           ". The floor is real, it belongs to that client, and it is not a "
           "property of the proxies.")
     print()
-    print(f"**[Full tables -> RESULTS.md](RESULTS.md)** - the 130-hour run "
-          f"(`{FLAGSHIP}`, {span}) engine by engine, Google day by day, and "
-          f"everything measured before it, split by host and by path.")
+    print(f"**[Full tables -> RESULTS.md](RESULTS.md)** - the latest runs by "
+          f"exit country, the 130-hour run (`{FLAGSHIP}`, {span}) engine by "
+          f"engine, Google day by day, and everything measured before it, "
+          f"split by host and by path.")
     print()
     print(MARK_END)
 
@@ -945,7 +1149,7 @@ def badged(text):
         + m.group(3), text)
 
 
-def write_readme(flagship, rest, span):
+def write_readme(flagship, rest, span, later):
     """Replace the marked block in README.md, leaving every other byte alone."""
     with open(README, encoding="utf-8") as fh:
         text = fh.read()
@@ -956,7 +1160,7 @@ def write_readme(flagship, rest, span):
         return 1
     buf = io.StringIO()
     with redirect_stdout(buf):
-        readme_block(flagship, rest, span)
+        readme_block(flagship, rest, span, later)
     head = text.split(MARK_BEGIN)[0]
     tail = text.split(MARK_END, 1)[1]
     new = badged(head + buf.getvalue().rstrip("\n") + tail)
@@ -1243,10 +1447,19 @@ def main():
         print("no benchmark runs found", file=sys.stderr)
         return 1
 
-    flagship, rest = [], []
+    # Three groups, never pooled. `later` is every row that records the machine
+    # it ran on: the harness started writing `host` after the 130-hour run, so
+    # those rows come from a different machine and weeks, and folding them into
+    # `rest` would put them in tables labelled as the workstation.
+    flagship, rest, later = [], [], []
     for path in paths:
-        rows = load(path)
-        (flagship if FLAGSHIP in os.path.basename(path) else rest).extend(rows)
+        for row in load(path):
+            if FLAGSHIP in os.path.basename(path):
+                flagship.append(row)
+            elif row.get("host"):
+                later.append(row)
+            else:
+                rest.append(row)
 
     if not flagship:
         print(f"{FLAGSHIP} is not on disk, so the headline table cannot be "
@@ -1257,7 +1470,7 @@ def main():
     span = f"{min(stamps):%Y-%m-%d %H:%M} to {max(stamps):%Y-%m-%d %H:%M} UTC"
 
     if args.readme:
-        return write_readme(flagship, rest, span)
+        return write_readme(flagship, rest, span, later)
 
     print("<!-- generated by scripts/analysis/results_tables.py - do not edit "
           "by hand -->")
@@ -1279,11 +1492,15 @@ def main():
           "tables below and not a separate measurement; every figure is "
           "repeated there with its denominator.\n")
     render_summary(summary_rows(flagship, rest))
-    print("Read plainly: **Amazon is a win, the two smaller search engines are "
-          "a win, and Google is a loss on the machine that row was measured "
-          "on.** The loss is published rather than dropped because the "
-          "objective this work serves says to publish where NodeMaven loses "
-          "too.\n")
+    print("Read plainly: **in the 130-hour run Amazon is a win, the two "
+          "smaller search engines are a win, and Google is a loss on the "
+          "machine that row was measured on.** The loss is published rather "
+          "than dropped because the objective this work serves says to "
+          "publish where NodeMaven loses too.\n")
+    if later:
+        print("The latest runs, exits from the US pool. See *The latest runs* "
+              "for the conditions and the other exit countries.\n")
+        later_table(later)
     ws_gw, vps_gw = host_gateway_tallies()
     if ws_gw.judged and vps_gw.judged:
         print(f"This line used to end \"no engine and no gateway parameter "
@@ -1593,12 +1810,15 @@ def main():
                      "Pooled over runs and over presets, which is why this is "
                      "a floor on capability and not a ranking.")
 
+    if later:
+        later_section(later)
+
     print("## The engines\n")
     print("What was actually run, with the version the rows recorded. An "
           "engine is listed only if it produced at least one attempt "
           "somewhere in `data/runs/`.\n")
     versions = collections.defaultdict(collections.Counter)
-    for row in flagship + rest:
+    for row in flagship + rest + later:
         name = (row.get("engine") or "(unrecorded)").replace("-direct", "")
         name = name.split("/")[0]
         if row.get("engine_version"):

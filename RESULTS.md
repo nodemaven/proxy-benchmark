@@ -19,7 +19,18 @@ One line per target, best engine and worst engine, from the largest body of rows
 | `ddg_serp` | `camoufox/light` 100% (44/44) | `chromium-direct/light` 22% (10/45) | 339 | pre-VPS runs, pooled |
 | `walmart_search` | no cell reaches 30 judged attempts, so no engine is named | - | 35 | pre-VPS runs, pooled |
 
-Read plainly: **Amazon is a win, the two smaller search engines are a win, and Google is a loss on the machine that row was measured on.** The loss is published rather than dropped because the objective this work serves says to publish where NodeMaven loses too.
+Read plainly: **in the 130-hour run Amazon is a win, the two smaller search engines are a win, and Google is a loss on the machine that row was measured on.** The loss is published rather than dropped because the objective this work serves says to publish where NodeMaven loses too.
+
+The latest runs, exits from the US pool. See *The latest runs* for the conditions and the other exit countries.
+
+| target | `chromium/light` | `cloak/light` | `patchright/light` | rows |
+|---|---|---|---|---|
+| `amazon_search` | 36% (463/1290) | 41% (210/517) | 22% (434/1937) | 3863 |
+| `google_serp` | - | 13% (31/234) | 1% (3/203) | 445 |
+| `walmart_search` | - | 96% (379/395) | 0% (0/270) | 705 |
+| `adidas_search` | - | 0% (0/25) ? | 0% (0/15) ? | 157 |
+| `bestbuy_search` | - | 100% (22/22) ? | 100% (11/11) ? | 52 |
+| `google_maps` | - | 100% (112/112) | 100% (387/387) | 510 |
 
 This line used to end "no engine and no gateway parameter tried so far moves Google off the floor", which put the floor on the pool. **That did not survive 2026-08-26**: the same gateway, the same parameters and the same engine, driven from a Windows workstation instead of the VPS, were served 39% (24/61) in the same hours the VPS was being served 0% (0/84). The floor in the table above is reproducible and it is a floor for that client. What it is not is a property of the proxies. See *The host, separated from the date*.
 
@@ -311,23 +322,152 @@ Pooled over runs and over presets, which is why this is a floor on capability an
 | `chromium-direct/none` | 0% (0/5) ? | 5 | 0 | captcha 5 | no page |
 | **all** | **46% (16/35)** | 35 | 0 | captcha 19 | |
 
+## The latest runs
+
+13762 attempts on the Windows server, 2026-09-18 to 2026-10-02. `chromium/light`, `cloak/light`, `patchright/light` carry almost all of them: headless True, `preset=light`, entering by url. Every row records the machine it ran on, so nothing here is attributed by date. Kept apart from everything above: a different machine, different weeks, and a different preset.
+
+The other 107 attempts are small runs of other engines on `adidas_search`, and appear only in that target's table.
+
+### Exits from the US pool
+
+### `amazon_search` - 3863 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `cloak/light` | 41% (210/517) | 535 | 18 | throttle 307 | 0.51 |
+| `chromium/light` | 36% (463/1290) | 1332 | 42 | throttle 827 | 0.27 |
+| `patchright/light` | 22% (434/1937) | 1996 | 59 | throttle 1501, captcha 2 | 0.34 |
+| **all** | **30% (1107/3744)** | 3863 | 119 | throttle 2635, captcha 2 | |
+
+### `google_serp` - 445 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `cloak/light` | 13% (31/234) | 240 | 6 | captcha 203 | 9.67 |
+| `patchright/light` | 1% (3/203) | 205 | 2 | captcha 200 | 77.07 |
+| **all** | **8% (34/437)** | 445 | 8 | captcha 403 | |
+
+### `walmart_search` - 705 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `cloak/light` | 96% (379/395) | 430 | 35 | captcha 16 | 2.47 |
+| `patchright/light` | 0% (0/270) | 275 | 5 | captcha 270 | no page |
+| **all** | **57% (379/665)** | 705 | 40 | captcha 286 | |
+
+### `adidas_search` - 157 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `cloak/light` | 0% (0/25) ? | 25 | 0 | block 25 | no page |
+| `patchright/light` | 0% (0/15) ? | 25 | 10 | block 15 | no page |
+| `http` | 0% (0/10) ? | 15 | 5 | block 10 | no page |
+| `curlcffi` | 0% (0/8) ? | 15 | 7 | block 8 | no page |
+| `chromium/none` | 0% (0/10) ? | 15 | 5 | block 10 | no page |
+| `patchright/none` | 0% (0/10) ? | 12 | 2 | block 10 | no page |
+| `cloak/none` | 0% (0/10) ? | 10 | 0 | block 10 | no page |
+| `camoufox/none` | 0% (0/10) ? | 10 | 0 | block 10 | no page |
+| `seleniumbase` | 0% (0/9) ? | 10 | 1 | block 9 | no page |
+| `zendriver` | 0% (0/10) ? | 10 | 0 | block 10 | no page |
+| `botasaurus` | 0% (0/10) ? | 10 | 0 | block 10 | no page |
+| **all** | **0% (0/127)** | 157 | 30 | block 127 | |
+
+### `bestbuy_search` - 52 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `cloak/light` | 100% (22/22) ? | 27 | 5 | - | 4.52 |
+| `patchright/light` | 100% (11/11) ? | 25 | 14 | - | 5.20 |
+| **all** | **100% (33/33)** | 52 | 19 | - | |
+
+### `google_maps` - 510 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `patchright/light` | 100% (387/387) | 390 | 3 | - | 0.66 |
+| `cloak/light` | 100% (112/112) | 120 | 8 | - | 2.11 |
+| **all** | **100% (499/499)** | 510 | 11 | - | |
+
+### By exit country
+
+The same engines with the exit country varied, one ISP excluded. `unset` is a username that names no country. A country is a column only where that target was run on more than one.
+
+#### `amazon_search`
+
+| engine | `us` | `any` | `unset` | `ar` | `br` | `de` | `gb` | `it` | `mx` | `ru` | `ua` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `chromium/light` | 36% (463/1290) | - | - | - | - | - | - | - | - | - | - |
+| `cloak/light` | 41% (210/517) | 55% (60/110) | 65% (151/234) | 57% (67/118) | 94% (111/118) | 46% (53/116) | 60% (68/114) | 48% (57/118) | 60% (72/120) | 50% (58/117) | 47% (54/116) |
+| `patchright/light` | 22% (434/1937) | 40% (47/117) | 40% (97/240) | 23% (28/120) | 27% (32/120) | 12% (14/120) | 15% (18/118) | 9% (11/119) | 24% (27/114) | 16% (18/112) | 23% (28/120) |
+
+#### `google_serp`
+
+| engine | `us` | `any` | `unset` | `ar` | `br` | `de` | `gb` | `it` | `mx` | `ru` | `ua` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cloak/light` | 13% (31/234) | 6% (6/100) | 32% (70/216) | 7% (6/82) | 51% (61/120) | 21% (21/100) | 8% (5/66) | 12% (12/103) | 12% (11/95) | 19% (17/90) | 29% (32/110) |
+| `patchright/light` | 1% (3/203) | 1% (1/86) | 0% (0/149) | 0% (0/64) | 0% (0/69) | 2% (2/95) | 0% (0/70) | 1% (1/80) | 1% (1/85) | 1% (1/74) | 0% (0/75) |
+
+#### `google_maps`
+
+| engine | `us` | `any` | `unset` | `ar` | `br` | `de` | `gb` | `it` | `mx` | `ru` | `ua` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cloak/light` | 100% (112/112) | 75% (89/119) | 83% (200/240) | - | 100% (120/120) | - | - | - | - | - | - |
+| `patchright/light` | 100% (387/387) | 89% (346/388) | 82% (679/832) | 100% (90/90) | 100% (210/210) | 55% (90/165) | 55% (90/165) | 56% (90/161) | 100% (85/85) | 100% (80/80) | 100% (87/87) |
+
+### One ISP
+
+Exits narrowed to a single ISP inside the US pool.
+
+| target | engine | ISP | pass | attempts | errors | what came back instead |
+|---|---|---|---|---|---|---|
+| `amazon_search` | `cloak/light` | `atnt_internet` | 8% (3/40) | 40 | 0 | throttle 37 |
+| `amazon_search` | `cloak/light` | `comcast_cable` | 62% (25/40) | 40 | 0 | throttle 15 |
+| `amazon_search` | `cloak/light` | `spectrum` | 32% (13/40) | 40 | 0 | throttle 27 |
+| `amazon_search` | `cloak/light` | `verizon_fios` | 48% (19/40) | 40 | 0 | throttle 21 |
+| `amazon_search` | `patchright/light` | `atnt_internet` | 20% (8/40) | 40 | 0 | throttle 32 |
+| `amazon_search` | `patchright/light` | `comcast_cable` | 10% (4/40) | 40 | 0 | throttle 36 |
+| `amazon_search` | `patchright/light` | `spectrum` | 8% (3/38) | 40 | 2 | throttle 35 |
+| `amazon_search` | `patchright/light` | `verizon_fios` | 20% (8/40) | 40 | 0 | throttle 32 |
+| `walmart_search` | `cloak/light` | `atnt_internet` | 100% (35/35) | 40 | 5 | - |
+| `walmart_search` | `cloak/light` | `comcast_cable` | 100% (35/35) | 40 | 5 | - |
+| `walmart_search` | `cloak/light` | `spectrum` | 100% (31/31) | 40 | 9 | - |
+| `walmart_search` | `cloak/light` | `verizon_fios` | 100% (40/40) | 40 | 0 | - |
+| `walmart_search` | `patchright/light` | `atnt_internet` | 0% (0/25) ? | 25 | 0 | captcha 25 |
+| `walmart_search` | `patchright/light` | `comcast_cable` | 0% (0/25) ? | 25 | 0 | captcha 25 |
+| `walmart_search` | `patchright/light` | `spectrum` | 0% (0/23) ? | 25 | 2 | captcha 23 |
+| `walmart_search` | `patchright/light` | `verizon_fios` | 0% (0/25) ? | 25 | 0 | captcha 25 |
+
+**`consent` on `google_maps` is not a refusal.** It means the harness stopped at Google's cookie-consent page instead of reaching the map, which is a gap in the harness and not the target turning the exit away. All 485 of those rows are dated 2026-09-29 or earlier, and they are counted as judged above, so the `google_maps` rates on exits that met the page are a floor.
+
 ## The engines
 
 What was actually run, with the version the rows recorded. An engine is listed only if it produced at least one attempt somewhere in `data/runs/`.
 
 | engine | versions seen in the rows |
 |---|---|
-| `botasaurus` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / botasaurus-driver 4.0.101`; `Mozilla/5.0 (Windows NT 10.0; Win64; x64 / botasaurus-driver 4.0.101` |
-| `camoufox` | `0.5.5`; `0.5.4` |
+| `botasaurus` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / botasaurus-driver 4.0.101`; `155.0.0.0 / botasaurus-driver 4.0.101`; `Mozilla/5.0 (Windows NT 10.0; Win64; |
+| `camoufox` | `0.5.5`; `0.5.4`; `0.5.6` |
 | `chromium` | `148.0.7778.96 / playwright 1.60.0` |
-| `cloak` | `146.0.7680.177 / cloakbrowser 0.5.8 / chromium 146.0.7680.177.5 / free`; `146.0.7680.177 / cloakbrowser 0.5.7 / chromium 146.0.7680.177.5 / free` |
-| `curlcffi` | `curl_cffi 0.16.0 / chrome146` |
+| `cloak` | `146.0.7680.177 / cloakbrowser 0.5.10 / chromium 146.0.7680.177.5 / free`; `146.0.7680.177 / cloakbrowser 0.5.8 / chromium 146.0.7680.177.5 / free`; ` |
+| `curlcffi` | `curl_cffi 0.16.0 / chrome146`; `curl_cffi 0.16.3 / chrome146` |
 | `http` | `2.34.2` |
 | `obscura` | `obscura 0.2.0` |
-| `patchright` | `149.0.7827.55 / patchright 1.61.2` |
+| `patchright` | `151.0.7922.34 / patchright 1.62.2`; `149.0.7827.55 / patchright 1.61.2` |
 | `rebrowser` | `136.0.7103.25 / rebrowser_playwright 1.52.0` |
-| `seleniumbase` | `151.0.7922.137 / seleniumbase 4.51.12`; `149.0.7827.201 / seleniumbase 4.51.12` |
-| `zendriver` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / zendriver 0.16.0`; `Mozilla/5.0 (Windows NT 10.0; Win64; x64 / zendriver 0.15.5` |
+| `seleniumbase` | `151.0.7922.137 / seleniumbase 4.51.12`; `149.0.7827.201 / seleniumbase 4.51.12`; `155.0.8059.26 / seleniumbase 4.54.0` |
+| `zendriver` | `Mozilla/5.0 (X11; Linux x86_64) AppleWeb / zendriver 0.16.0`; `Mozilla/5.0 (Windows NT 10.0; Win64; x64 / zendriver 0.15.5`; `155.0.0.0 / zendriver 0 |
 
 ## The TLS handshake, engine by engine
 

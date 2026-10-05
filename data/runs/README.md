@@ -1,8 +1,8 @@
 # The rows
 
 Every measurement this repository publishes, one JSONL row per attempt, one file
-per run: 251 files and 18,838 rows, plus 4 quarantined files under `invalid/`,
-23.6 MB in all, covering 2026-08-10 to 2026-09-17.
+per run: 322 files and 42,743 rows, plus 4 quarantined files under `invalid/`,
+58.6 MB in all, covering 2026-08-10 to 2026-10-05.
 
 ## Contents
 
@@ -77,14 +77,14 @@ push, and run it again after adding a script that touches a gateway reply.
 
 | Prefix | Files | Written by | What it holds |
 |---|---|---|---|
-| `benchmark_` | 50 | `scripts/benchmark.py` | the matrix runs: engine x target x gateway parameters, interleaved, one row per attempt |
+| `benchmark_` | 80 | `scripts/benchmark.py` | the matrix runs: engine x target x gateway parameters, interleaved, one row per attempt |
 | `gateway_health_` | 49 | `probes/gateway_health.py` | CONNECT probes with no browser: is the gateway usable right now |
-| `probehold_` | 60 | `probes/probe_and_hold.py` | the front-page entry protocol: one exit per identity, probe, then hold |
+| `probehold_` | 99 | `probes/probe_and_hold.py` | the front-page entry protocol: one exit per identity, probe, then hold |
 | `engine_fingerprint_` | 18 | `probes/engine_fingerprint.py` | 21 markers per engine, read on `about:blank`, sends nothing |
 | `availability_` | 7 | a script that no longer exists | Camoufox pass rates, 2026-08-10 and 11 |
 | `google_429_` | 5 | `probes/google_429.py` | the five-step layer isolation against Google |
 | `tls_echo_` | 6 | `probes/tls_echo.py` | JA4, JA3, HTTP/2 fingerprint and cipher counts per engine |
-| `marketplace_recon_` | 23 | `probes/marketplace_recon.py` | candidate targets: bodies captured before any verdict rule was written for them |
+| `marketplace_recon_` | 25 | `probes/marketplace_recon.py` | candidate targets: bodies captured before any verdict rule was written for them |
 | `surfaces_` | 14 | `probes/google_surfaces.py` | which Google surfaces answer a pool exit, and which do not |
 | `b2b_recon_` | 3 | `probes/b2b_recon.py` | business-directory sites: bodies captured before verdict rules were written |
 | `tls_clienthello_` | 3 | `probes/tls_clienthello.py` | each engine's ClientHello read by a local listener, no live host |
