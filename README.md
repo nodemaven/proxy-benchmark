@@ -407,20 +407,20 @@ found an Akamai interstitial and an AWS WAF challenge filed as refusals, and mov
 
 <!-- RESULTS:BEGIN -->
 
-What the current evidence supports, engine by engine and target by target, from the 24194 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
+What the current evidence supports, engine by engine and target by target, from the 24951 attempt rows in `data/runs/benchmark_*.jsonl`. `pass` is `ok` over judged attempts - harness and path failures are counted separately and excluded from the denominator, because an engine that crashes is not an engine the target refused.
 
-**The latest runs**: Windows server, 2026-09-18 to 2026-10-02, headless, `preset=light`, entering by url, exits from the US pool.
+**The latest runs**: Windows server, 2026-09-18 to 2026-10-07, headless mixed: False, True, `preset=light`, entering by url, exits from the US pool.
 
 | target | `chromium/light` | `cloak/light` | `patchright/light` | rows |
 |---|---|---|---|---|
-| `amazon_search` | 36% (463/1290) | 41% (210/517) | 22% (434/1937) | 3863 |
-| `google_serp` | - | 13% (31/234) | 1% (3/203) | 445 |
-| `walmart_search` | - | 96% (379/395) | 0% (0/270) | 705 |
+| `amazon_search` | 31% (614/1954) | 40% (211/527) | 23% (443/1947) | 4570 |
+| `google_serp` | - | 13% (31/244) | 1% (3/213) | 470 |
+| `walmart_search` | - | 96% (389/405) | 0% (0/280) | 730 |
 | `adidas_search` | - | 0% (0/25) ? | 0% (0/15) ? | 157 |
 | `bestbuy_search` | - | 100% (22/22) ? | 100% (11/11) ? | 52 |
 | `google_maps` | - | 100% (112/112) | 100% (387/387) | 510 |
 
-On Amazon most of the refusals are its throttle page: 2635 of 2637. The other 8137 rows - other exit countries, one ISP, and small runs of other engines - are in [RESULTS.md](RESULTS.md#the-latest-runs).
+On Amazon most of the refusals are its throttle page: 3158 of 3160. The other 8137 rows - other exit countries, one ISP, and small runs of other engines - are in [RESULTS.md](RESULTS.md#the-latest-runs).
 
 **The 130-hour run** on a Linux VPS, with the smaller search engines from the workstation runs before it. A different machine, weeks and preset from the table above, so a cell of one is not set against a cell of the other.
 

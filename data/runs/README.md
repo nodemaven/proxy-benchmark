@@ -1,8 +1,8 @@
 # The rows
 
 Every measurement this repository publishes, one JSONL row per attempt, one file
-per run: 322 files and 42,743 rows, plus 4 quarantined files under `invalid/`,
-58.6 MB in all, covering 2026-08-10 to 2026-10-05.
+per run: 351 files and 51,867 rows, plus 4 quarantined files under `invalid/`,
+73.1 MB in all, covering 2026-08-10 to 2026-10-23.
 
 ## Contents
 

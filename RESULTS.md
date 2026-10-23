@@ -25,9 +25,9 @@ The latest runs, exits from the US pool. See *The latest runs* for the condition
 
 | target | `chromium/light` | `cloak/light` | `patchright/light` | rows |
 |---|---|---|---|---|
-| `amazon_search` | 36% (463/1290) | 41% (210/517) | 22% (434/1937) | 3863 |
-| `google_serp` | - | 13% (31/234) | 1% (3/203) | 445 |
-| `walmart_search` | - | 96% (379/395) | 0% (0/270) | 705 |
+| `amazon_search` | 31% (614/1954) | 40% (211/527) | 23% (443/1947) | 4570 |
+| `google_serp` | - | 13% (31/244) | 1% (3/213) | 470 |
+| `walmart_search` | - | 96% (389/405) | 0% (0/280) | 730 |
 | `adidas_search` | - | 0% (0/25) ? | 0% (0/15) ? | 157 |
 | `bestbuy_search` | - | 100% (22/22) ? | 100% (11/11) ? | 52 |
 | `google_maps` | - | 100% (112/112) | 100% (387/387) | 510 |
@@ -324,42 +324,42 @@ Pooled over runs and over presets, which is why this is a floor on capability an
 
 ## The latest runs
 
-13762 attempts on the Windows server, 2026-09-18 to 2026-10-02. `chromium/light`, `cloak/light`, `patchright/light` carry almost all of them: headless True, `preset=light`, entering by url. Every row records the machine it ran on, so nothing here is attributed by date. Kept apart from everything above: a different machine, different weeks, and a different preset.
+14519 attempts on the Windows server, 2026-09-18 to 2026-10-07. `chromium/light`, `cloak/light`, `patchright/light` carry almost all of them: headless mixed: False, True, `preset=light`, entering by url. Every row records the machine it ran on, so nothing here is attributed by date. Kept apart from everything above: a different machine, different weeks, and a different preset.
 
 The other 107 attempts are small runs of other engines on `adidas_search`, and appear only in that target's table.
 
 ### Exits from the US pool
 
-### `amazon_search` - 3863 attempts
+### `amazon_search` - 4570 attempts
 
 One row per engine. Sorted by pass rate.
 
 | engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
 |---|---|---|---|---|---|
-| `cloak/light` | 41% (210/517) | 535 | 18 | throttle 307 | 0.51 |
-| `chromium/light` | 36% (463/1290) | 1332 | 42 | throttle 827 | 0.27 |
-| `patchright/light` | 22% (434/1937) | 1996 | 59 | throttle 1501, captcha 2 | 0.34 |
-| **all** | **30% (1107/3744)** | 3863 | 119 | throttle 2635, captcha 2 | |
+| `cloak/light` | 40% (211/527) | 550 | 23 | throttle 316 | 0.51 |
+| `chromium/light` | 31% (614/1954) | 2012 | 58 | throttle 1340 | 0.35 |
+| `patchright/light` | 23% (443/1947) | 2008 | 61 | throttle 1502, captcha 2 | 0.34 |
+| **all** | **29% (1268/4428)** | 4570 | 142 | throttle 3158, captcha 2 | |
 
-### `google_serp` - 445 attempts
-
-One row per engine. Sorted by pass rate.
-
-| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
-|---|---|---|---|---|---|
-| `cloak/light` | 13% (31/234) | 240 | 6 | captcha 203 | 9.67 |
-| `patchright/light` | 1% (3/203) | 205 | 2 | captcha 200 | 77.07 |
-| **all** | **8% (34/437)** | 445 | 8 | captcha 403 | |
-
-### `walmart_search` - 705 attempts
+### `google_serp` - 470 attempts
 
 One row per engine. Sorted by pass rate.
 
 | engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
 |---|---|---|---|---|---|
-| `cloak/light` | 96% (379/395) | 430 | 35 | captcha 16 | 2.47 |
-| `patchright/light` | 0% (0/270) | 275 | 5 | captcha 270 | no page |
-| **all** | **57% (379/665)** | 705 | 40 | captcha 286 | |
+| `cloak/light` | 13% (31/244) | 255 | 11 | captcha 213 | 10.13 |
+| `patchright/light` | 1% (3/213) | 215 | 2 | captcha 210 | 81.36 |
+| **all** | **7% (34/457)** | 470 | 13 | captcha 423 | |
+
+### `walmart_search` - 730 attempts
+
+One row per engine. Sorted by pass rate.
+
+| engine | pass | attempts | errors | what came back instead | MB spent per page delivered |
+|---|---|---|---|---|---|
+| `cloak/light` | 96% (389/405) | 445 | 40 | captcha 16 | 2.47 |
+| `patchright/light` | 0% (0/280) | 285 | 5 | captcha 280 | no page |
+| **all** | **57% (389/685)** | 730 | 45 | captcha 296 | |
 
 ### `adidas_search` - 157 attempts
 
@@ -408,16 +408,16 @@ The same engines with the exit country varied, one ISP excluded. `unset` is a us
 
 | engine | `us` | `any` | `unset` | `ar` | `br` | `de` | `gb` | `it` | `mx` | `ru` | `ua` |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `chromium/light` | 36% (463/1290) | - | - | - | - | - | - | - | - | - | - |
-| `cloak/light` | 41% (210/517) | 55% (60/110) | 65% (151/234) | 57% (67/118) | 94% (111/118) | 46% (53/116) | 60% (68/114) | 48% (57/118) | 60% (72/120) | 50% (58/117) | 47% (54/116) |
-| `patchright/light` | 22% (434/1937) | 40% (47/117) | 40% (97/240) | 23% (28/120) | 27% (32/120) | 12% (14/120) | 15% (18/118) | 9% (11/119) | 24% (27/114) | 16% (18/112) | 23% (28/120) |
+| `chromium/light` | 31% (614/1954) | - | - | - | - | - | - | - | - | - | - |
+| `cloak/light` | 40% (211/527) | 55% (60/110) | 65% (151/234) | 57% (67/118) | 94% (111/118) | 46% (53/116) | 60% (68/114) | 48% (57/118) | 60% (72/120) | 50% (58/117) | 47% (54/116) |
+| `patchright/light` | 23% (443/1947) | 40% (47/117) | 40% (97/240) | 23% (28/120) | 27% (32/120) | 12% (14/120) | 15% (18/118) | 9% (11/119) | 24% (27/114) | 16% (18/112) | 23% (28/120) |
 
 #### `google_serp`
 
 | engine | `us` | `any` | `unset` | `ar` | `br` | `de` | `gb` | `it` | `mx` | `ru` | `ua` |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `cloak/light` | 13% (31/234) | 6% (6/100) | 32% (70/216) | 7% (6/82) | 51% (61/120) | 21% (21/100) | 8% (5/66) | 12% (12/103) | 12% (11/95) | 19% (17/90) | 29% (32/110) |
-| `patchright/light` | 1% (3/203) | 1% (1/86) | 0% (0/149) | 0% (0/64) | 0% (0/69) | 2% (2/95) | 0% (0/70) | 1% (1/80) | 1% (1/85) | 1% (1/74) | 0% (0/75) |
+| `cloak/light` | 13% (31/244) | 6% (6/100) | 32% (70/216) | 7% (6/82) | 51% (61/120) | 21% (21/100) | 8% (5/66) | 12% (12/103) | 12% (11/95) | 19% (17/90) | 29% (32/110) |
+| `patchright/light` | 1% (3/213) | 1% (1/86) | 0% (0/149) | 0% (0/64) | 0% (0/69) | 2% (2/95) | 0% (0/70) | 1% (1/80) | 1% (1/85) | 1% (1/74) | 0% (0/75) |
 
 #### `google_maps`
 
