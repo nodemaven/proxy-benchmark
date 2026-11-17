@@ -137,10 +137,8 @@ def attempt(index: int, params: dict, timeout: int, registry, provider,
 # and `UNE EPM TELECOMUNICACIONES S.A.` - `colo` inside `Colombia` - so a
 # four-gateway health check reported two residential pools as returning
 # datacenter ranges, twenty attempts each, every one of them a consumer ISP in
-# Latin America. A warning line is only worth having if it is believed, and this
-# repository has already paid for that once: `NodeMaven\CLAUDE.md` records a
-# leftover report printing CHECK THE ACCOUNT BY HAND for an object whose
-# creation had failed in the same output.
+# Latin America. A warning line is only worth having if it is believed, and a
+# warning that fires on a clean result teaches the reader to skip it.
 #
 # `re.escape` because `data center` carries a space and `latitude.sh` a dot, and
 # a `.` left live would match any character.

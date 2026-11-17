@@ -67,7 +67,7 @@ ROW_FIELDS = (
     # or the driver's: `Pacer` never emits below the cost of an awaited round
     # trip, so when the cost exceeds the ask the page sees the cost instead.
     #
-    # Measured 2026-09-03, `lab/probes/humanize_smoke.py`, 18 paced points an
+    # Measured offline, 18 paced points an
     # arm: 1 overrun headful and 14-16 headless, because an awaited
     # `page.mouse.move` is frame-bound at one 60 Hz frame with no window while
     # the model asks for a ~7.1 ms median. So a headless `trueman` row carries
@@ -478,8 +478,8 @@ def submit_query(page, target, query: str, *, rng, hand=None,
     # plus a green suite are what that bought.
     #
     # Neither check involves a browser, so neither would have caught a keyword
-    # that is accepted and then ignored. `lab/probes/probe_press_no_wait_after_
-    # local.py` is the one that does: it serves a form off 127.0.0.1, runs this
+    # that is accepted and then ignored. A separate offline probe is the one that
+    # does: it serves a form off 127.0.0.1, runs this
     # exact call three ways - `no_wait_after=True`, `=False` as the control, and
     # the camelCase spelling as the arm that must raise - and checks the browser
     # actually landed on the submitted URL. All three behaved 2026-09-05. There

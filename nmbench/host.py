@@ -49,10 +49,9 @@ def label():
     tables without keeping a lookup table beside them.
 
     Otherwise a short hash of the hostname. `data/runs/` is committed to a public
-    repository and a hostname names somebody's infrastructure: `msk-1-vm-qgqr` is
-    not a leak on the scale of an exit address, and it is still not ours to
-    publish. The hash groups rows exactly as well, which is the whole job of this
-    column.
+    repository and a hostname names somebody's infrastructure: it is not a leak
+    on the scale of an exit address, and it is still not ours to publish. The
+    hash groups rows exactly as well, which is the whole job of this column.
 
     Over the hostname alone, not over the OS version or the core count, so the
     label survives a reboot, a kernel upgrade and a Python upgrade. A label that

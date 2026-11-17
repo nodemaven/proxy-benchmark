@@ -26,7 +26,7 @@ makes it measurable at all.
 Both are per-country - `shopee.sg`, `shopee.co.id`, `lazada.com.my` and so on -
 so "the target" is a country storefront, and reaching one from the wrong country
 is refused for a reason that has nothing to do with bot defences. The VPS this
-runs from egresses in Brazil (`201.51.6.239`, measured 2026-09-01), so **the
+runs from egresses outside Southeast Asia, so **the
 direct arm on a Southeast Asian storefront confounds geo with defence and cannot
 be read on its own.** It is still run, as the control that makes the aligned arm
 mean something: direct isolates the browser, a country-aligned exit isolates the

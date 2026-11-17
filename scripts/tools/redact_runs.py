@@ -1,4 +1,5 @@
-"""Mask exit addresses in `data/runs/` down to the network they belong to.
+"""Mask exit addresses in `data/runs/` down to the network they belong to,
+and local filesystem paths down to a placeholder.
 
 `nmbench.gateway.ExitRegistry` states the intent for this repository: an exit is
 recorded as a /24 prefix plus a label, and "the full address stays on the
@@ -30,6 +31,12 @@ published 4 residential addresses under a rule both files claimed to enforce.
 Recursion is the fix, and it is the honest shape - a row is a JSON document, so
 the scan has to be over the document rather than over its first level.
 
+Local paths arrive the same way, inside browser launch errors that quote the
+binary and the profile directory. A home directory names the operator's
+account and a working root names their machine layout, so both become `~`
+and `<root>`; the rest of the path, which says which browser build ran, is
+kept.
+
     python scripts/tools/redact_runs.py            # report, change nothing
     python scripts/tools/redact_runs.py --write    # rewrite the files
 """
@@ -52,6 +59,23 @@ IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 # that carries one, and masking a version string would corrupt the engine
 # fingerprint the row exists to record.
 SKIP_FIELDS = {"user_agent"}
+
+# A home directory on Windows or Linux, and a working root at a drive's top
+# level other than the system folders. The Linux form must not follow a word
+# character or a slash, so `https://example.com/home/x` in a URL is left alone.
+LOCAL_PATHS = (
+    (re.compile(r"[A-Za-z]:[\\/]Users[\\/][^\\/\s\"']+"), "~"),
+    (re.compile(r"(?<![\w./-])/home/[^/\s\"']+"), "~"),
+    (re.compile(r"[A-Za-z]:[\\/]Benchmark(?=[\\/])"), "<root>"),
+)
+
+
+def mask_paths(text: str) -> tuple[str, int]:
+    changed = 0
+    for pattern, placeholder in LOCAL_PATHS:
+        text, n = pattern.subn(placeholder, text)
+        changed += n
+    return text, changed
 
 
 def mask(ip: str) -> str:
@@ -96,12 +120,11 @@ def redact_value(field: str, value):
         return out, changed
     if not isinstance(value, str):
         return value, 0
+    value, paths = mask_paths(value)
     hits = [h for h in IPV4.findall(value) if _is_host_address(h)]
-    if not hits:
-        return value, 0
     for hit in hits:
         value = value.replace(hit, mask(hit))
-    return value, len(hits)
+    return value, len(hits) + paths
 
 
 def redact_row(row: dict) -> tuple[dict, int]:
@@ -138,9 +161,9 @@ def main() -> int:
                 fh.writelines(lines)
 
     for name, n in sorted(touched, key=lambda item: -item[1]):
-        print(f"  {name:<44} {n:>4} addresses")
+        print(f"  {name:<44} {n:>4} values")
     verb = "masked" if args.write else "would mask"
-    print(f"{verb} {total} host addresses across {len(touched)} files")
+    print(f"{verb} {total} addresses and paths across {len(touched)} files")
     if total and not args.write:
         print("nothing was written; pass --write to apply")
     return 0

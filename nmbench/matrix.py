@@ -41,9 +41,8 @@ def wire_country(country: str, provider=None, where: str = "this request") -> st
     check for is worse than no probe: the operator reads four dead gateways and
     goes looking at the account.
 
-    This is the shape of defect `NodeMaven\\CLAUDE.md` records between the Python
-    and Rust SDKs - one rule, three implementations, a fix that lands in one of
-    them - so the rule is a function and the callers are callers.
+    One rule with three implementations is a fix waiting to land in only one
+    of them, so the rule is a function and the callers are callers.
 
     Raising rather than defaulting when no provider is passed is the point of the
     argument. A default of "send `any`" is exactly the 2026-09-11 behaviour, and

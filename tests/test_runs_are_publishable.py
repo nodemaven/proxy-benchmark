@@ -26,6 +26,11 @@ import ipaddress
 import json
 import os
 import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from scripts.tools.redact_runs import LOCAL_PATHS, mask_paths
 
 RUNS = os.path.join(os.path.dirname(__file__), "..", "data", "runs")
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -84,6 +89,46 @@ def test_no_row_carries_an_unmasked_exit_address():
         f"home connections. Run `python scripts/tools/redact_runs.py --write`, "
         f"then fix the script that wrote them so it records only what "
         f"`ExitRegistry.record` returns.\n" + "\n".join(offenders[:20]))
+
+
+def _strings(value):
+    if isinstance(value, dict):
+        for inner in value.values():
+            yield from _strings(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _strings(inner)
+    elif isinstance(value, str):
+        yield value
+
+
+def test_no_row_carries_a_local_path():
+    offenders = []
+    for path in sorted(glob.glob(os.path.join(RUNS, "*.jsonl"))):
+        for number, line in enumerate(open(path, encoding="utf-8"), 1):
+            if not line.strip():
+                continue
+            for text in _strings(json.loads(line)):
+                if any(p.search(text) for p, _ in LOCAL_PATHS):
+                    offenders.append(f"{os.path.basename(path)}:{number}")
+                    break
+    assert not offenders, (
+        f"{len(offenders)} rows publish a local path. Run "
+        f"`python scripts/tools/redact_runs.py --write`.\n"
+        + "\n".join(offenders[:20]))
+
+
+def test_local_paths_are_masked_and_urls_are_not():
+    text = ("<launching> /home/someone/.cache/x and "
+            "C:\\Users\\Someone\\AppData\\y and "
+            "C:\\Benchmark\\cache\\z, see https://example.com/home/page")
+    masked, n = mask_paths(text)
+    assert n == 3
+    assert "someone" not in masked.lower()
+    assert "Benchmark" not in masked
+    assert "~/.cache/x" in masked and "<root>\\cache\\z" in masked
+    assert "https://example.com/home/page" in masked
+    assert mask_paths(masked) == (masked, 0)
 
 
 def test_an_address_nested_in_the_row_is_still_found():

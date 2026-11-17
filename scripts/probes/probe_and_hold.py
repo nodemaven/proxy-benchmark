@@ -976,7 +976,7 @@ def describe(args, cells, per_identity: int) -> None:
     # under `--headless` the mover's geometry is delivered exactly as it is
     # headful, so a row reading `humanize_mode=trueman` is not lying the way a
     # `trueman` row on a `--entry url` arm would be. What is lost is the timing.
-    # Measured 2026-09-03, `lab/probes/humanize_smoke.py`, 18 paced points an
+    # Measured offline, 18 paced points an
     # arm: headful the pacer overran 1 point and delivered a 7.00-7.15 ms median
     # against a model asking 7.11-7.22; headless it overran 14-16 and delivered
     # 16.65, because an awaited `page.mouse.move` is frame-bound with no window.
@@ -1727,7 +1727,7 @@ def main() -> int:
     # tick, which is longer than most of the intervals the mover asks for.
     # Measured 2026-09-03 in the lab: 24% of a driven pointer's intervals landed
     # exactly on the tick against 4% of the human trace's, and that ratio is one
-    # of the 19 metrics `lab/probes/trace_compare.py` scores. Raised here rather
+    # of the 19 metrics the trace detector scores. Raised here rather
     # than around each session because entering and leaving it per session is
     # 300-odd system-wide timer-resolution changes in a run. An `ExitStack`
     # rather than a `with` around the loop, because the loop is 300 lines and

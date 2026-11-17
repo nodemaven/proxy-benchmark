@@ -39,7 +39,7 @@ four-fold apart is not a population to fit to.
 
 **The scroll was checked against that same refusal and came out the other side
 of it, which is why it exists and the dwell curve does not.** Measured
-2026-09-04 by `lab/probes/scroll_shape.py` on the same two traces: the flick and
+on the same two traces: the flick and
 the pause after it are 1.1x and 1.3x apart between the two people, against 27.8x
 on the wheel notch and 3.6x on the cadence, and both read the same article in
 exactly 11 flicks. So the wheel is the device and the page is the person, and
@@ -47,7 +47,7 @@ pooling the two traces is pooling two readings of one quantity. The refusal was
 about a four-fold split and not about a policy of never fitting to two people.
 
 The three are not equally strong and should not be quoted as though they were.
-The walk and the keystroke delay are **scored** - `lab/probes/trace_compare.py`
+The walk and the keystroke delay are **scored** - a 19-metric detector
 runs them against a human trace and the arm reads 0 tells. The flick and rest
 are **measured and unscored**: the detector reads wheel magnitude and wheel
 interval per event and excludes both as `device`, so it has no metric that would

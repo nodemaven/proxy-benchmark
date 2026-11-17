@@ -887,9 +887,8 @@ has to be reported as one. On a server `--headful` means `xvfb-run -a`, and
 whether a virtual display gives the real frame clock is not yet measured.
 
 **Nothing here shows any target reads any of it.** The model was fitted against
-one person's captured traces and scored by a 19-metric detector in
-`lab/probes/trace_compare.py`; that says it is hard to tell apart from that one
-person, not that it changes a verdict. The axis exists to find out.
+one person's captured traces and scored by a 19-metric detector; that says it
+is hard to tell apart from that one person, not that it changes a verdict. The axis exists to find out.
 
 **A mixed matrix needs `--preset none`.** The default is `light`, and blocking for
 some columns and not others measured 4 KB against 9.9 MB on the same Google

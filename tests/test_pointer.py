@@ -5,7 +5,7 @@ what a test can check about it is the structure of those numbers.
 
 **This is the weakest-scored thing in the module and the tests are what stand in
 for the scoring.** The cursor walk and the keystroke delay are checked against a
-human trace by `lab/probes/trace_compare.py` and the arm reads 0 tells. The flick
+human trace by a 19-metric detector and the arm reads 0 tells. The flick
 and the rest are **measured and unscored**: the detector reads wheel magnitude
 and wheel interval per event and excludes both as `device`, so it has no metric
 that would notice whether a driven scroll has this structure at all. A constant
@@ -84,7 +84,7 @@ class TestTheBaselineIsLeftAlone:
 
 
 class TestTheFlickAndTheRest:
-    """Measured 2026-09-04 by `lab/probes/scroll_shape.py` over the two human
+    """Measured over the two human
     traces, grouping wheel events into flicks at a 150 ms gap.
 
     These are the only constants in `pointer.py` that are not per device, and

@@ -1715,8 +1715,7 @@ appends caller arguments after it, so the engine's
 `--disable-features=OptimizationHints` landed last, won, and threw the vendor's
 value away whole. Site isolation was therefore left **on** in an engine whose
 vendor turns it off, in every row this repository has written for it, and no
-column said so. Measured 2026-09-01 with
-`lab/probes/probe_botasaurus_flag_order.py` against botasaurus-driver 4.0.101:
+column said so. Measured 2026-09-01 against botasaurus-driver 4.0.101:
 names lost `['IsolateOrigins', 'site-per-process']`.
 
 The fix is `merged_disable_features` in `nmbench/engines/botasaurus.py`, which
@@ -2013,7 +2012,7 @@ this repository shows any target reads pointer telemetry at all - that is what
 running the axis on and off against a real target is for, and it has not been
 run yet.
 
-Offline the mover is clean. `lab/probes/trace_compare.py`, 19 metrics, tell
+Offline the mover is clean. A trace detector, 19 metrics, tell
 threshold p < 0.01 with every metric controlled against the *other* human trace
 so anything separating two real hands is excluded as device rather than counted:
 captured 2026-09-03, headful, loopback, seeds 11/23/37.
@@ -2029,8 +2028,7 @@ The control is the load-bearing row. A clean sheet only means something beside a
 says the detector still works.
 
 **Wired into the harness, the geometry is delivered in both display modes and
-the timing is delivered in only one.** Measured 2026-09-03 by
-`lab/probes/humanize_smoke.py` on a local headless and headful Chromium against
+the timing is delivered in only one.** Measured 2026-09-03 on a local headless and headful Chromium against
 a `data:` URL - no host to reach, so the VPN gateway on the workstation cannot
 distort it - four arms of 18 paced points each:
 
@@ -2045,7 +2043,7 @@ The model asks for a median of 7.11 ms (touchpad) and 7.22 (mouse). Headful the
 page receives that. Headless `page.mouse.move()` awaits a CDP reply that is
 frame-bound at 16.6 ms - one frame at 60 Hz - so the pacer overruns 14-16 points
 of 18 and the page receives a metronome instead of a distribution.
-`lab/probes/dispatch_cost.py` measured the same split independently on
+A separate dispatch-cost probe measured the same split independently on
 2026-09-02 over eight runs and states it in one line: headless is the worse case
 synchronously, headful is not.
 
@@ -3051,7 +3049,7 @@ Three things made those runs unable to answer it:
   an arm that outlives another is measured at a different time of day.
 
 **So the design since 2026-09-18 is many short sessions, not one long run.** The
-OVH Windows VPS fires `C:\Benchmark\run_filter.ps1` from three daily scheduled
+Windows host fires a filter-run script from three daily scheduled
 tasks - `nmbench_filter_09`, `_15`, `_21`, SYSTEM, `/sc daily` - at 09:00, 15:00
 and 21:00 local, each capped at `--identities 25`. Inside a short session the
 arms cannot drift far apart; across sessions the hour varies on purpose, and

@@ -2,7 +2,7 @@
 
 `pointer.py` is the model and knows nothing about a browser; this is the only
 place that turns it into `page.mouse.move` calls. The split is the point: the
-model is scored offline against recorded human traces by `lab/probes/`, and a
+model is scored offline against recorded human traces by a separate detector, and a
 second implementation of the same walk living next to the harness would drift
 from the one being measured without either output saying so.
 
@@ -14,7 +14,7 @@ for cursor motion during the 30 seconds this harness spends waiting for results
 sees a frozen pointer, which no human produces. That gap is known and unmeasured.
 
 **The scroll is measured but not scored, and the walk is both.** Every constant
-`walk_to` uses was checked against a human trace by `lab/probes/trace_compare.py`
+`walk_to` uses was checked against a human trace by a 19-metric detector
 and the arm scores 0 tells; the flick and rest constants `scroll` uses were
 measured the same way from the same two traces, on 2026-09-04, but the detector
 has no burst metric - it reads wheel magnitude and wheel interval per event and
@@ -29,7 +29,7 @@ answered. `--humanize trueman` is an axis to measure, not a fix to apply.
 
 **The geometry survives this wiring in both modes. The timing survives headful
 and is destroyed headless, so `--headless` decides what a `trueman` arm
-measures.** Measured 2026-09-03, `lab/probes/humanize_smoke.py`, four arms in
+measures.** Measured with four arms in
 one process, before this module had ever driven a browser.
 
 | arm | delivered median | overruns of 18 | on the 15.6 ms tick |
@@ -45,7 +45,7 @@ receives a 16.6 ms metronome, which is one frame at 60 Hz, and 14-16 of 18
 points are the cost of the call rather than the interval the model asked for.
 
 `page.mouse.move()` in the sync API awaits the CDP reply, and that reply is
-frame-bound with no window. It agrees with `lab/probes/dispatch_cost.py`, which
+frame-bound with no window. It agrees with a separate dispatch-cost probe, which
 measured the same split independently on 2026-09-02 over eight runs and stated
 it in one line: headless is the worse case synchronously at a flat 16.6-16.7 ms,
 headful is not.
@@ -161,8 +161,8 @@ class Pacer:
 
     Sleeping *after* each call adds the cost of the call to every interval, and
     that cost is not noise: one `mouse.move` measured 6.97 ms at the median on
-    the Windows workstation with no sleeping at all, `lab/probes/dispatch_cost.py`,
-    2026-09-02, n=300. Asking for 6.3 ms produced about 13 on the wire and the
+    the Windows workstation with no sleeping at all,
+    n=300. Asking for 6.3 ms produced about 13 on the wire and the
     model was blamed for it.
 
     Here the deadline for point n+1 is set relative to the deadline for point n
@@ -211,8 +211,8 @@ class Pacer:
     # lab capture uses 0.15 because that is what 6.97 ms of awaited dispatch
     # needs on one Windows host, and a lead not measured on the machine it runs
     # on is a fudge factor rather than a correction - the harness's runs happen
-    # on the VPS, where this has never been measured. Set it from
-    # `lab/probes/dispatch_cost.py` on the host in question or leave it alone.
+    # on the VPS, where this has never been measured. Set it from a dispatch-cost
+    # measurement on the host in question or leave it alone.
     LEAD_MS = 0.0
 
     def __init__(self):

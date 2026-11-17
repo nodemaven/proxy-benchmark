@@ -452,8 +452,7 @@ class BotasaurusEngine:
         # because `Config.browser_args` returns
         # `sorted(default_arguments + arguments)` and `I` sorts before `O`, so
         # give the value a name sorting before `IsolateOrigins` and this line
-        # goes silently dead. Measured with
-        # `lab/probes/probe_botasaurus_flag_order.py`, against
+        # goes silently dead. Measured against
         # botasaurus-driver 4.0.101:
         #
         #   .browser_args, ours named AAAOptimizationHints   ours FIRST

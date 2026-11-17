@@ -422,10 +422,9 @@ class TestTheRuleHasOneHome:
     the string through - so pointing it at four gateways to check the fix would
     have reproduced the bug and reported three dead providers.
 
-    That is the defect class `NodeMaven\\CLAUDE.md` logs between the Python and
-    Rust SDKs: one rule, several implementations, a correction that reaches one
-    of them. These tests are here so a change to the rule breaks every caller
-    that stopped using it.
+    One rule with several implementations is a correction that reaches only
+    one of them. These tests are here so a change to the rule breaks every
+    caller that stopped using it.
     """
 
     def test_an_ordinary_country_passes_through_untouched(self):

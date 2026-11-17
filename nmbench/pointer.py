@@ -409,7 +409,7 @@ TOUCHPAD = Device(
 # for it, because the only human trace on hand came from a touchpad.
 #
 # **The interval was fitted over the whole gap distribution and that pooled two
-# different behaviours, corrected 2026-09-04 by `lab/probes/scroll_shape.py`.**
+# different behaviours, corrected by fitting the two separately.**
 # It read median 29.7 with a heavy tail (mean 95.7, p90 256) and lognormal(3.39,
 # 1.53) reproduced both moments, which is why it stood. Split at 150 ms - the
 # threshold at which both human traces fall into the same 11 bursts - those 51
@@ -1310,8 +1310,8 @@ def wheel_plan(mover_name, direction, rng, device=TOUCHPAD):
 
 
 # How far one flick carries the page, in px, and how long the reader spends
-# before the next one. Both measured 2026-09-04 by `lab/probes/scroll_shape.py`
-# over the two human traces, grouping wheel events into flicks at a 150 ms gap.
+# before the next one. Both measured over the two
+# human traces, grouping wheel events into flicks at a 150 ms gap.
 #
 # **These are the only constants in this file that are not per device, and that
 # is the finding rather than a shortcut.** The two humans are 27.8x apart on the
@@ -1321,7 +1321,7 @@ def wheel_plan(mover_name, direction, rng, device=TOUCHPAD):
 # the person, and pooling the two traces here is pooling two measurements of the
 # same quantity rather than two different ones.
 #
-# That is the opposite of the call `lab/probes/idle_fit.py` made on idle gaps,
+# That is the opposite of the call made on idle gaps,
 # where the same two people came out four-fold apart and the fit was refused.
 # The refusal was about a split, not about a policy of never fitting to two
 # people, and this is what the other side of it looks like.
