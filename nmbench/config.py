@@ -19,7 +19,7 @@ the vendor's documented gateway. The environment wins when it says anything, so
 a fork pointing at a regional endpoint changes a variable rather than a file.
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -38,7 +38,8 @@ class Credentials:
     to a caller that is about to print it."""
 
     login: str
-    password: str
+    # Kept out of repr, so a print or a traceback showing locals cannot leak it.
+    password: str = field(repr=False)
     host: str
     port: int
 

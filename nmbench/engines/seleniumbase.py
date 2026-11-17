@@ -62,6 +62,7 @@ from .. import providers, proxy
 from .base import (
     EngineUnavailable,
     blank_row,
+    clear_entry_wall_by_script,
     keep_body,
     record_error,
     record_judgement,
@@ -200,6 +201,7 @@ class SeleniumBaseSession:
         started = time.perf_counter()
         try:
             self.driver.get(url)
+            clear_entry_wall_by_script(_Page(self.driver).evaluate, target, row)
             row["ready"] = self._await_ready(target)
             html = self.driver.page_source
             row["html_len"] = len(html)

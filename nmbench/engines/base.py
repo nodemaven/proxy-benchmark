@@ -15,6 +15,7 @@ Every engine emits the same columns. A column an engine cannot fill stays None
 rather than being dropped: absent evidence and zero are not the same, and a
 missing key turns into a silent zero the moment anything sums a column.
 """
+import json
 import re
 import time
 
@@ -684,6 +685,38 @@ def clear_entry_wall(page, target, row: dict, *, timeout_ms: int = 10000):
         # absent rather than False, so "tried and failed" is distinguishable
         # from "never tried" in the corpus.
         pass
+
+
+# Clicks the first visible match of the target's own consent selectors, in the
+# target's order, trying every match of a selector rather than the first one.
+_CLICK_FIRST_VISIBLE = (
+    "() => {{ for (const s of {selectors}) {{ let found;"
+    " try {{ found = document.querySelectorAll(s); }} catch (e) {{ continue; }}"
+    " for (const e of found) {{ const r = e.getBoundingClientRect();"
+    " if (r.width > 0 && r.height > 0) {{ e.click(); return true; }} }} }}"
+    " return false; }}")
+
+
+def clear_entry_wall_by_script(evaluate, target, row: dict, *,
+                               settle_s: float = 1.0) -> None:
+    """`clear_entry_wall` for the engines that are not Playwright.
+
+    `evaluate` is the engine's own `_Page.evaluate`. Same contract as the
+    Playwright version: `consent_dismissed` is absent for a target with no
+    wall, False when the wall was not met, True when it was cleared, and a
+    failure leaves the page as it was so the verdict reads the wall.
+    """
+    selectors = getattr(target, "consent_dismiss", None)
+    if not selectors:
+        return
+    script = _CLICK_FIRST_VISIBLE.format(selectors=json.dumps(list(selectors)))
+    try:
+        cleared = bool(evaluate(script))
+    except Exception:
+        return
+    row["consent_dismissed"] = cleared
+    if cleared:
+        time.sleep(settle_s)
 
 
 def await_ready(page, target, timeout_ms: int = 8000):

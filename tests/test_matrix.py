@@ -244,7 +244,7 @@ class TestTheSettingsAxis:
                       arms=[{"filter": "medium"}, {"filter": "high"}])
         batches = matrix.plan(built, QUERIES, batch_size=5)
         seen = [b.cell.extra[0][1] for b in batches]
-        assert seen == ["medium", "high", "medium", "high"]
+        assert seen == ["medium", "high", "high", "medium"]
 
     def test_no_arms_is_the_key_that_is_already_on_disk(self):
         """1240 comparable rows were recorded before this axis existed and
@@ -557,7 +557,15 @@ class TestPlan:
     def test_batches_are_interleaved_across_cells(self):
         batches = matrix.plan(cells(), QUERIES, batch_size=5)
         engines = [b.cell.engine for b in batches]
-        assert engines == ["camoufox", "obscura", "camoufox", "obscura"]
+        assert engines == ["camoufox", "obscura", "obscura", "camoufox"]
+
+    def test_each_cell_goes_first_in_half_the_rounds(self):
+        batches = matrix.plan(cells(), QUERIES * 2, batch_size=5)
+        firsts = {}
+        for b in batches:
+            firsts.setdefault(b.index, b.cell.engine)
+        firsts = list(firsts.values())
+        assert firsts.count("camoufox") == firsts.count("obscura") == 2
 
     def test_every_query_is_scheduled_exactly_once_per_cell(self):
         batches = matrix.plan(cells(), QUERIES, batch_size=3)

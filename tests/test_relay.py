@@ -110,6 +110,43 @@ class TestTheVendorFetchIsRefused:
         assert hop.snapshot()["blocked"] == 1
 
 
+class RecordingUpstream:
+    """An upstream that keeps what it was sent and answers nothing."""
+
+    def __init__(self):
+        self.sent = b""
+
+    def sendall(self, data):
+        self.sent += data
+
+    def close(self):
+        pass
+
+
+class TestThePlainHttpPathForwardsBytesUnaltered:
+
+    def test_bytes_above_ascii_are_sent_as_received(self, fake_credentials,
+                                                    monkeypatch):
+        hop = relay.Relay()
+        upstream = RecordingUpstream()
+        monkeypatch.setattr(hop, "_open_upstream", lambda: upstream)
+        monkeypatch.setattr(hop, "_pump", lambda client, up: None)
+        raw = (b"POST http://example.com/x HTTP/1.1\r\nHost: example.com\r\n"
+               b"\r\n\xe9\xff")
+        hop._forward(FakeClient(), raw.decode("latin-1"))
+        assert upstream.sent.endswith(b"\r\n\r\n\xe9\xff")
+        assert b"Proxy-Authorization: Basic " in upstream.sent
+
+    def test_the_request_head_is_counted(self, fake_credentials, monkeypatch):
+        hop = relay.Relay()
+        upstream = RecordingUpstream()
+        monkeypatch.setattr(hop, "_open_upstream", lambda: upstream)
+        monkeypatch.setattr(hop, "_pump", lambda client, up: None)
+        hop._forward(FakeClient(), "GET http://example.com/ HTTP/1.1\r\n"
+                                   "Host: example.com\r\n\r\n")
+        assert hop.snapshot()["bytes_up"] == len(upstream.sent) > 0
+
+
 class TestNothingElseIsRefused:
 
     @pytest.mark.parametrize("authority", [

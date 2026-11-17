@@ -115,6 +115,7 @@ from .base import (
     EngineUnavailable,
     blank_row,
     browser_build,
+    clear_entry_wall_by_script,
     keep_body,
     record_error,
     record_judgement,
@@ -297,6 +298,7 @@ class BotasaurusSession:
         started = time.perf_counter()
         try:
             self.driver.get(url)
+            clear_entry_wall_by_script(_Page(self.driver).evaluate, target, row)
             row["ready"] = self._await_ready(target)
             self._judge_tab(row, target, url)
         except Exception as exc:

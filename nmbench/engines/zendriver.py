@@ -56,6 +56,7 @@ from .base import (
     EngineUnavailable,
     blank_row,
     browser_build,
+    clear_entry_wall_by_script,
     entry_row_url,
     keep_body,
     keep_error_body,
@@ -425,6 +426,8 @@ class ZendriverSession:
         started = time.perf_counter()
         try:
             self._run(self.tab.get(url))
+            clear_entry_wall_by_script(_Page(self.tab, self._run).evaluate,
+                                       target, row)
             row["ready"] = self._await_ready(target)
             self._judge_tab(row, target, url)
         except Exception as exc:

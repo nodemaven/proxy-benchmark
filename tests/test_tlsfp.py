@@ -14,6 +14,7 @@ import socket
 import ssl
 import threading
 import warnings
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +25,8 @@ from nmbench.engines.base import ROW_FIELDS, blank_row
 # by `tls.peet.ws` from a connection this repository's own client made, and the
 # only JA4 in this tree that did not come from this file.
 PEET_HTTP_ENGINE = "t13d1812h1_85036bcba153_b26ce05bbdd6"
+HELLO_FIXTURE = (Path(__file__).resolve().parent / "fixtures"
+                 / "client_hello_http_engine.hex")
 
 
 def client_hello(target: str, *, configure=None) -> bytes:
@@ -91,22 +94,15 @@ class TestAgainstAnIndependentImplementation:
     """
 
     def test_it_reproduces_the_value_the_echo_service_computed(self):
-        """`tls.peet.ws` and this file, on the same client, must agree.
+        """`tls.peet.ws` and this file, on the same ClientHello, must agree.
 
-        The stored row was written on 2026-09-01 by the `http` engine, which is
-        `requests` over the interpreter's own OpenSSL. Running that client into
-        a socket that only reads has to give the same 36 characters.
-
-        If this fails after a Python or OpenSSL upgrade, suspect the handshake
-        before suspecting the parser: a new OpenSSL changes the cipher list, and
-        that moves the JA4 legitimately. The way to tell them apart is the two
-        halves - a changed cipher list moves the first hash and a changed
-        extension set moves the second, while a misread of the spec typically
-        moves the prefix or both.
+        The hello is stored rather than produced live, because a live one
+        comes from the interpreter's own OpenSSL: a newer OpenSSL changes the
+        cipher list and moves the JA4 legitimately, which would fail this test
+        on a correct parser. The fixture is the `http` engine's ClientHello
+        from the same client and OpenSSL build the echo service measured.
         """
-        hello = client_hello("localhost")
-        if not hello:
-            pytest.skip("no ClientHello was captured on this host")
+        hello = bytes.fromhex(HELLO_FIXTURE.read_text(encoding="ascii").strip())
         assert tlsfp.ja4(hello)[0] == PEET_HTTP_ENGINE
 
     def test_dropping_sni_moves_the_count_and_not_the_hash(self):

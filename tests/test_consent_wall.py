@@ -22,10 +22,19 @@ Nothing launches a browser. The page is a fake with the two methods the code
 calls, which is enough because what is being pinned is the control flow and
 not Chromium.
 """
+import re
+from pathlib import Path
+
 import pytest
 
-from nmbench.engines.base import clear_entry_wall, dismiss_consent
+from nmbench.engines.base import (
+    clear_entry_wall,
+    clear_entry_wall_by_script,
+    dismiss_consent,
+)
 from nmbench.targets import TARGETS
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 class Handle:
@@ -186,3 +195,45 @@ class TestGoogleSerpMeetsTheRedirectToo:
         selectors = TARGETS["google_serp"].consent_dismiss
         assert selectors.index("button#L2AGLb") == len(selectors) - 1
         assert selectors[0] == "button#W0wltc"
+
+
+class TestTheScriptedEnginesClearItToo:
+    """zendriver, botasaurus and SeleniumBase enter by URL as well."""
+
+    def test_the_selectors_reach_the_script_in_the_targets_order(self):
+        seen = []
+        row = {}
+        clear_entry_wall_by_script(lambda script: seen.append(script) or True,
+                                   Target(("#a", "form button")), row,
+                                   settle_s=0)
+        assert row["consent_dismissed"] is True
+        assert seen[0].index('"#a"') < seen[0].index('"form button"')
+
+    def test_no_wall_met_is_false(self):
+        row = {}
+        clear_entry_wall_by_script(lambda script: False, Target(("#a",)), row,
+                                   settle_s=0)
+        assert row["consent_dismissed"] is False
+
+    def test_a_target_with_no_wall_writes_nothing(self):
+        row = {}
+        clear_entry_wall_by_script(lambda script: True, Target(None), row)
+        assert "consent_dismissed" not in row
+
+    def test_a_failed_script_is_not_an_error_row(self):
+        def broken(script):
+            raise RuntimeError("context destroyed")
+
+        row = {}
+        clear_entry_wall_by_script(broken, Target(("#a",)), row, settle_s=0)
+        assert "consent_dismissed" not in row
+
+    @pytest.mark.parametrize("engine", ["zendriver", "botasaurus",
+                                        "seleniumbase"])
+    def test_the_url_entry_path_calls_it(self, engine):
+        source = (ROOT / "nmbench" / "engines" / f"{engine}.py").read_text(
+            encoding="utf-8")
+        start = source.index("    def fetch(self, target, query")
+        end = re.compile(r"\n    def |\nclass ").search(source, start + 10)
+        fetch = source[start:end.start() if end else len(source)]
+        assert "clear_entry_wall_by_script(" in fetch

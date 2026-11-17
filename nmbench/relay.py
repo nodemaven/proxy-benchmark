@@ -398,7 +398,7 @@ class Relay:
                 self.failures += 1
             if reply:
                 try:
-                    client.sendall(reply.encode())
+                    client.sendall(reply.encode("latin-1"))
                 except OSError:
                     pass
             _close(upstream)
@@ -456,8 +456,12 @@ class Relay:
                  if not ln.lower().startswith("proxy-authorization:")]
         rebuilt = lines[0] + "\r\n" + self._auth_header() \
             + "\r\n".join(lines[1:])
+        # Back to the bytes `_read_head` decoded: latin-1 maps each byte to one
+        # character, so anything above 0x7f survives only this way round.
+        payload = rebuilt.encode("latin-1")
         try:
-            upstream.sendall(rebuilt.encode())
+            upstream.sendall(payload)
+            self._count(up=len(payload))
         except OSError:
             with self._lock:
                 self.failures += 1

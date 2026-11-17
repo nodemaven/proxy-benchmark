@@ -758,3 +758,10 @@ class TestHowAGatewaySpellsAnUnpinnedCountry:
                session_param="sid", country_any="any")
         with pytest.raises(providers.ProviderError, match="never be sent"):
             providers.load("confused")
+
+
+def test_credentials_repr_does_not_carry_the_password():
+    creds = config.Credentials(login="user", password="s3cret-value",
+                               host="gate.example", port=8080)
+    assert "s3cret-value" not in repr(creds)
+    assert "user" in repr(creds)

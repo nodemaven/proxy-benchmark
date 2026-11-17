@@ -291,7 +291,8 @@ def build_cells(engines: list, targets: list, preset: str, countries: list,
 
 def plan(cells: list, queries, batch_size: int,
          done: set = None) -> list:
-    """Round-robin batches, with anything already recorded removed.
+    """Round-robin batches, alternating direction, with anything already
+    recorded removed.
 
     `queries` is one list used by every cell, or a mapping of target name to
     list. Targets do not share inputs by nature: a shop asked "playwright vs
@@ -321,7 +322,11 @@ def plan(cells: list, queries, batch_size: int,
     batches = []
     depth = max((len(v) for v in per_cell.values()), default=0)
     for index in range(depth):
-        for cell in cells:
+        # Every other round runs the cells backwards, so in any pair of cells
+        # each goes first in half the rounds. A fixed order would always send
+        # a query through the same provider first and the others after it.
+        order = cells if index % 2 == 0 else list(reversed(cells))
+        for cell in order:
             chunks = per_cell[cell.key]
             if index < len(chunks):
                 batches.append(Batch(cell=cell, index=index,
